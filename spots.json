@@ -1,0 +1,104 @@
+[
+ {
+  "id": "pavilosta",
+  "name": "Pavilosta",
+  "lat": 56.89022,
+  "lon": 21.1679
+ },
+ {
+  "id": "daugavgriva",
+  "name": "Daugavgriva",
+  "lat": 57.060197,
+  "lon": 24.02069
+ },
+ {
+  "id": "haademeeste",
+  "name": "Häädemeeste",
+  "lat": 58.0796,
+  "lon": 24.4745
+ },
+ {
+  "id": "liepaja-dr",
+  "name": "Liepāja DR pludmale",
+  "lat": 56.4853,
+  "lon": 20.9978
+ },
+ {
+  "id": "liepaja-mols",
+  "name": "Liepāja Ziemeļu Mols",
+  "lat": 56.5582,
+  "lon": 21.0006
+ },
+ {
+  "id": "salacgriva",
+  "name": "Salacgrīva",
+  "lat": 57.7566,
+  "lon": 24.3496
+ },
+ {
+  "id": "berzciems",
+  "name": "Bērzciems",
+  "lat": 57.2446,
+  "lon": 23.1754
+ },
+ {
+  "id": "kapteinu-osta",
+  "name": "Kapteiņu Osta",
+  "lat": 57.7891,
+  "lon": 24.3443
+ },
+ {
+  "id": "lielupes-ieteka",
+  "name": "Lielupes ieteka",
+  "lat": 57.0077,
+  "lon": 23.9319
+ },
+ {
+  "id": "ragaciems",
+  "name": "Ragaciems",
+  "lat": 57.0311,
+  "lon": 23.4933
+ },
+ {
+  "id": "saulkrasti",
+  "name": "Saulkrasti",
+  "lat": 57.31,
+  "lon": 24.4
+ },
+ {
+  "id": "engures-mols",
+  "name": "Engures Mols",
+  "lat": 57.1622,
+  "lon": 23.2378
+ },
+ {
+  "id": "gauja",
+  "name": "Gauja",
+  "lat": 57.161,
+  "lon": 24.2649
+ },
+ {
+  "id": "kolka",
+  "name": "Kolka",
+  "lat": 57.7592,
+  "lon": 22.6072
+ },
+ {
+  "id": "mersrags",
+  "name": "Mērsrags",
+  "lat": 57.353,
+  "lon": 23.1291
+ },
+ {
+  "id": "svetciems",
+  "name": "Svētciems",
+  "lat": 57.6975,
+  "lon": 24.3421
+ },
+ {
+  "id": "uzava",
+  "name": "Užava",
+  "lat": 57.2431,
+  "lon": 21.4116
+ }
+]

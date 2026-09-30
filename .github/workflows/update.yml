@@ -1,0 +1,43 @@
+name: Update ALADIN spots
+run-name: ALADIN spots
+
+on:
+  schedule:
+    # ČHMÚ publishes a run about 4 hours after 00/06/12/18 UTC; hourly checks are cheap.
+    - cron: "35 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aladin
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install ecCodes
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes
+
+      - name: Read the newest run
+        run: .venv/bin/python extract.py
+
+      - name: Publish
+        run: |
+          git add docs/aladin.json
+          if git diff --cached --quiet; then
+            echo "Nothing new"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "ALADIN $(python3 -c 'import json;print(json.load(open("docs/aladin.json"))["run"])')"
+          git push
