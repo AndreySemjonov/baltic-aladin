@@ -6,6 +6,11 @@ on:
     # ČHMÚ publishes a run about 4 hours after 00/06/12/18 UTC; hourly checks are cheap.
     - cron: "35 * * * *"
   workflow_dispatch:
+    inputs:
+      run:
+        description: "Run to read, e.g. 2026093006 (empty: newest, only if new)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -28,7 +33,9 @@ jobs:
           .venv/bin/pip install --quiet eccodes
 
       - name: Read the newest run
-        run: .venv/bin/python extract.py
+        env:
+          RUN: ${{ inputs.run }}
+        run: .venv/bin/python extract.py $RUN
 
       - name: Publish
         run: |
