@@ -1,19 +1,26 @@
-name: Update ALADIN spots
-run-name: ALADIN spots
+name: Update ALADIN spots and wind map
+run-name: ALADIN spots and wind map
 
 on:
   schedule:
-    # ČHMÚ publishes a run about 4 hours after 00/06/12/18 UTC; hourly checks are cheap.
+    # ČHMÚ publishes an ALADIN run about 4 hours after 00/06/12/18 UTC; MET Nordic every
+    # hour. Hourly checks are cheap; the map is rebuilt every 3 hours or with a new ALADIN run.
     - cron: "35 * * * *"
   workflow_dispatch:
     inputs:
       run:
-        description: "Run to read, e.g. 2026093006 (empty: newest, only if new)"
+        description: "ALADIN run to read, e.g. 2026093006 (empty: newest, only if new)"
         required: false
         default: ""
+      map:
+        description: "Rebuild the map now"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 concurrency:
   group: aladin
@@ -22,29 +29,74 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    environment:
+      name: github-pages
     steps:
       - name: Check out
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Install ecCodes
+      - name: Install ecCodes, NumPy and Pillow
         run: |
           python3 -m venv .venv
-          .venv/bin/pip install --quiet eccodes
+          .venv/bin/pip install --quiet eccodes numpy pillow
 
-      - name: Read the newest run
+      - name: Read the newest ALADIN run
+        id: aladin
         env:
           RUN: ${{ inputs.run }}
-        run: .venv/bin/python extract.py $RUN
-
-      - name: Publish
         run: |
-          git add docs/aladin.json
-          if git diff --cached --quiet; then
-            echo "Nothing new"
-            exit 0
-          fi
+          .venv/bin/python extract.py $RUN
+          if git diff --quiet docs/aladin.json; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Is the map due?
+        id: map
+        env:
+          FORCE: ${{ inputs.map }}
+          NEW_ALADIN: ${{ steps.aladin.outputs.changed }}
+        run: |
+          due=$(python3 - <<'PY'
+          import json, os, time
+          from datetime import datetime
+          try:
+              built = json.load(open("docs/map-state.json"))["built"]
+              age = time.time() - datetime.strptime(built, "%Y-%m-%dT%H:%MZ").timestamp()
+          except Exception:
+              age = 1e9
+          due = age >= 3 * 3600 - 600 or os.environ.get("FORCE") == "true" or os.environ.get("NEW_ALADIN") == "true"
+          print("true" if due else "false")
+          PY
+          )
+          echo "due=$due" >> "$GITHUB_OUTPUT"
+
+      - name: Build the site
+        if: steps.map.outputs.due == 'true'
+        run: |
+          .venv/bin/python metnordic_map.py site/map
+          cp docs/aladin.json docs/index.html site/
+          python3 - <<'PY'
+          import json, time
+          m = json.load(open("site/map/map.json"))
+          json.dump({"built": time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime()), "run": m["run"], "frames": len(m["frames"])},
+                    open("docs/map-state.json", "w"))
+          PY
+
+      - name: Commit the small status files
+        if: steps.map.outputs.due == 'true'
+        run: |
+          git add docs/aladin.json docs/map-state.json
+          if git diff --cached --quiet; then exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "ALADIN $(python3 -c 'import json;print(json.load(open("docs/aladin.json"))["run"])')"
+          git commit -m "ALADIN $(python3 -c 'import json;print(json.load(open("docs/aladin.json"))["run"])'), map $(python3 -c 'import json;print(json.load(open("docs/map-state.json"))["run"])')"
           git push
+
+      - name: Upload the site
+        if: steps.map.outputs.due == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Publish on GitHub Pages
+        if: steps.map.outputs.due == 'true'
+        uses: actions/deploy-pages@v4

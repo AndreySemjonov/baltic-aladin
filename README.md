@@ -1,7 +1,10 @@
 # Baltic ALADIN
 
-The ALADIN 2.3 km weather model's wind at Baltic kite spots, as one small JSON
-file that a phone app can read.
+Open weather-model wind for Baltic kite spots, prepared for a phone app:
+
+- **ALADIN 2.3 km** (ČHMÚ) read at each kite spot, as one small JSON file.
+- **A wind map** of the Latvian coast, Gulf of Riga and western Estonia from
+  **MET Nordic 1 km** (MET Norway): one small image per hour for the next ~58 hours.
 
 The Czech Hydrometeorological Institute (ČHMÚ) publishes ALADIN as open data,
 but only as whole-domain GRIB files of 70–80 MB per variable and run. A GitHub
@@ -30,7 +33,22 @@ publishes the result:
 Run it yourself: `pip install eccodes`, then `python extract.py` (newest run) or
 `python extract.py 2026093006`.
 
+## Wind map
+
+**https://andreysemjonov.github.io/baltic-aladin/map/map.json** lists the frames of
+the newest MET Nordic run (rebuilt every 3 hours): 55.6-59.1°N, 20.4-25.4°E,
+about 1 km per pixel, 300 x 390 pixels, in Web Mercator (the projection of web and
+phone maps), so an image lines up with a map by its bounds. Each PNG pixel stores
+the wind: red = speed m/s x 5, green = direction (from) x 256/360, blue = gust m/s
+x 5. About 70 KB per hour.
+
+`pip install numpy pillow`, then `python metnordic_map.py site/map`.
+
 ## Credits and licence
+
+Map data: **MET Norway, MET Nordic forecast, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**,
+from https://thredds.met.no/. The map frames are derived from it and carry the same
+licence and credit.
 
 Data: **ČHMÚ – Czech Hydrometeorological Institute, ALADIN model, open data,
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**, from
