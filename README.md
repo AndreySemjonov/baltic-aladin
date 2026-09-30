@@ -55,4 +55,4 @@ Data: **ČHMÚ – Czech Hydrometeorological Institute, ALADIN model, open data,
 https://opendata.chmi.cz/meteorology/weather/nwp_aladin/. The published JSON is
 derived from it (values read at points) and carries the same licence and credit.
 
-Code: MIT licence, see [LICENSE](LICENSE). Not affiliated with ČHMÚ.
+Code: MIT licence, see [LICENSE](LICENSE). Not affiliated with ČHMÚ or MET Norway.
