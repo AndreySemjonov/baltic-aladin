@@ -7,7 +7,8 @@ missing is left out), puts them on the MET Nordic map's pixels (all maps are Web
 Mercator, so that is a linear step), interpolates 3-hourly models in time, and mixes:
 wind and gust as weighted means, direction as a weighted vector mean (weight x speed,
 calm counted as 1 m/s). Where or when a model has no data, the others share its weight.
-Hourly to 72 hours, then every 3 hours to 240 hours; format in maplib.py.
+Hourly to 72 hours, then every 3 hours to 240 hours; each frame lists the models in it.
+Format in maplib.py.
 
     python blend_map.py site            reads site/<model>/, writes site/blend/
 """
@@ -103,10 +104,12 @@ def main():
         gust = np.zeros(lat.shape, np.float32)
         east = np.zeros(lat.shape, np.float32)
         north = np.zeros(lat.shape, np.float32)
+        here = []
         for name, model in models.items():
             values = model.at(t)
-            if values is None:
+            if values is None or not values[4].any():
                 continue
+            here.append(name)
             u, v, s, g, inside = values
             w = WEIGHTS[name] * inside
             # Direction weight: share x speed, calm counted as 1 m/s.
@@ -123,7 +126,8 @@ def main():
         valid = total > 0
         safe = np.where(valid, total, 1)
         maplib.save_frame(folder / f"{t}.png", speed / safe, maplib.direction_from(east, north), gust / safe, valid)
-        frames.append({"time": t, "file": f"{run_name}/{t}.png"})
+        # Which models are in this hour, for the app's caption ("Blend · ICON-EU, ECMWF, GFS").
+        frames.append({"time": t, "file": f"{run_name}/{t}.png", "models": [NAMES[name] for name in WEIGHTS if name in here]})
     names = ", ".join(NAMES[name] for name in WEIGHTS if name in used)
     manifest = maplib.write_manifest(out, f"Blend · {len(used)} models",
                                      f"Mixed from these maps: {names} (see their credits)",
