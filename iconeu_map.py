@@ -61,12 +61,17 @@ def exists(address):
 def invariant_message(variable):
     """A time-invariant field (FR_LAND, FR_LAKE), published with each day's 00 UTC run."""
     folder = f"{BASE}/00/{variable.lower()}/"
-    listing = urllib.request.urlopen(request(folder), timeout=60).read().decode()
-    name = re.search(rf'href="(icon-eu_europe_regular-lat-lon_time-invariant_\d{{10}}_{variable}\.grib2\.bz2)"', listing)
-    if not name:
-        raise SystemExit(f"no ICON-EU {variable} file online")
-    with urllib.request.urlopen(request(folder + name.group(1)), timeout=120) as reply:
-        return bz2.decompress(reply.read())
+    for attempt in range(3):
+        try:
+            listing = urllib.request.urlopen(request(folder), timeout=60).read().decode()
+            name = re.search(rf'href="(icon-eu_europe_regular-lat-lon_time-invariant_\d{{10}}_{variable}\.grib2\.bz2)"', listing)
+            if not name:
+                raise SystemExit(f"no ICON-EU {variable} file online")
+            with urllib.request.urlopen(request(folder + name.group(1)), timeout=120) as reply:
+                return bz2.decompress(reply.read())
+        except (urllib.error.URLError, OSError):
+            if attempt == 2:
+                raise
 
 
 def newest_run():
@@ -145,6 +150,16 @@ class Sampler:
         return top + (bottom - top) * self.tj
 
 
+def land_fraction(lat, lon):
+    """Land fraction 0-1 (0 = sea) at each pixel, from ICON-EU's invariant fields. DWD counts
+    lakes as water; here they count as land, so only the sea shows as sea. The long-range
+    maps of the same box use it too."""
+    grid, land_values = decode(invariant_message("FR_LAND"))
+    _, lake_values = decode(invariant_message("FR_LAKE"))
+    sampler = Sampler(grid, lat, lon)
+    return np.clip(np.nan_to_num(sampler(land_values) + sampler(lake_values), nan=1.0), 0, 1)
+
+
 def main():
     if sys.argv[1:] == ["--check"]:
         print(newest_run())
@@ -179,11 +194,7 @@ def main():
             Image.fromarray(rgb, "RGB").save(folder / f"{time}.png", optimize=True)
             frames.append({"time": time, "file": f"{run_name}/{time}.png"})
 
-    # Land fraction 0-1 (0 = sea), once per map, as for MET Nordic. DWD counts lakes as
-    # water; here they count as land, so only the sea shows as sea.
-    _, land_values = decode(invariant_message("FR_LAND"))
-    _, lake_values = decode(invariant_message("FR_LAKE"))
-    land = np.clip(np.nan_to_num(sampler(land_values) + sampler(lake_values), nan=1.0), 0, 1)
+    land = land_fraction(lat, lon)
     Image.fromarray(np.rint(land * 255).astype(np.uint8), "L").save(out / "land.png", optimize=True)
 
     manifest = {

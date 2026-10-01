@@ -5,9 +5,11 @@ Open weather-model wind for Baltic kite spots, prepared for a phone app:
 - **ALADIN 2.3 km** (ČHMÚ) read at each kite spot, as one small JSON file.
 - **A wind map** of the Latvian coast, Gulf of Riga and western Estonia from
   **MET Nordic 1 km** (MET Norway): one small image per hour for the next ~58 hours.
-- **Two more maps of the Latvian coast:** **HARMONIE 2.5 km** (FMI, ~66 hours) and
-  **ALADIN 2.3 km** (ČHMÚ, 72 hours, up to about 57.0°N).
-- **A wind map of the whole Baltic** from **ICON-EU 7 km** (DWD) for 5 days.
+- **More maps of the Latvian coast:** **HARM-DK 2 km** (DMI, 60 hours), **HARMONIE
+  2.5 km** (FMI, ~66 hours) and **ALADIN 2.3 km** (ČHMÚ, 72 hours, up to about 57.0°N).
+- **Wind maps of the whole Baltic** from **ICON-EU 7 km** (DWD, 5 days), **ECMWF 0.25°**
+  (15 days) and **GFS 0.25°** (NOAA, 16 days).
+- **A blend** of all of them for the Latvian coast, 10 days.
 
 The Czech Hydrometeorological Institute (ČHMÚ) publishes ALADIN as open data,
 but only as whole-domain GRIB files of 70–80 MB per variable and run. A GitHub
@@ -63,7 +65,36 @@ for each new ALADIN run from the files the spot extraction downloads
 `python aladin_map.py site/aladin aladin-files`). The model ends at about 57.0-57.2°N,
 so these frames have an alpha channel: 0 where there is no model data.
 
+**https://andreysemjonov.github.io/baltic-aladin/harm-dk/map.json**: DMI's HARMONIE
+DINI 2 km, same box and pixels as MET Nordic, hourly for 60 hours. DMI publishes each
+hour as one 620 MB file of all fields over its whole domain; the script reads the
+headers with small range requests and downloads only the rows of 10 m wind speed,
+direction and gust that cross the box (simple packing decodes row by row), about 4 MB
+per hour. `python dmi_map.py site/harm-dk`.
+
 Shared code for the maps is in [`maplib.py`](maplib.py).
+
+## Long range: ECMWF and GFS
+
+Same box as ICON-EU, about 7 km per pixel (the models' 0.25° grid is about 15 x 28 km
+here), land mask from ICON-EU.
+
+- **https://andreysemjonov.github.io/baltic-aladin/ecmwf/map.json**: ECMWF IFS open
+  data, 00 and 12 UTC runs, every 3 hours to 144 hours and every 6 hours to 360; only the
+  10 m wind and gust fields are downloaded from each step (about 3 MB) using its index.
+  `python ecmwf_map.py site/ecmwf`.
+- **https://andreysemjonov.github.io/baltic-aladin/gfs/map.json**: NOAA GFS, every 3 hours
+  to 384 hours, cut to the box by NOAA's server (about 20 KB per step).
+  `python gfs_map.py site/gfs`.
+
+## Blend
+
+**https://andreysemjonov.github.io/baltic-aladin/blend/map.json**: the maps above mixed
+per pixel and hour on the MET Nordic pixels, with fixed weights (`WEIGHTS` in
+[`blend_map.py`](blend_map.py)): wind and gust as weighted means, direction as a
+speed-weighted vector mean. Where or when a model has no data (ALADIN north of 57°N,
+the 2-3 day models after their last hour), the others share its weight. Hourly to 72
+hours, then every 3 hours to 240. `python blend_map.py site` after building the others.
 
 ## Wind map of the Baltic, 5 days
 
@@ -95,10 +126,22 @@ Map data: **Finnish Meteorological Institute (FMI), HARMONIE forecast, open data
 https://en.ilmatieteenlaitos.fi/open-data. The frames are derived from it (interpolated
 and reprojected) and carry the same licence and credit.
 
+Map data: **Danish Meteorological Institute (DMI), HARMONIE DINI forecast, open data,
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**, from
+https://opendatadocs.dmi.govcloud.dk/. The frames are derived from it (cropped,
+interpolated and reprojected).
+
+Map data: **ECMWF, IFS open data, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**,
+from https://www.ecmwf.int/en/forecasts/datasets/open-data. The frames are derived from it.
+
+Map data: **NOAA/NCEP, GFS** (public domain), from https://nomads.ncep.noaa.gov/.
+
+The blend is derived from all of the map data above and carries their credits.
+
 Data: **ČHMÚ – Czech Hydrometeorological Institute, ALADIN model, open data,
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**, from
 https://opendata.chmi.cz/meteorology/weather/nwp_aladin/. The published JSON and the
 ALADIN map are derived from it (values read at points; cropped, interpolated and
 reprojected) and carry the same licence and credit.
 
-Code: MIT licence, see [LICENSE](LICENSE). Not affiliated with ČHMÚ, MET Norway, DWD or FMI.
+Code: MIT licence, see [LICENSE](LICENSE). Not affiliated with ČHMÚ, MET Norway, DWD, FMI, DMI, ECMWF or NOAA.

@@ -56,9 +56,18 @@ class Bilinear:
 
 def regular_sampler(lat, lon, lat0, lon0, dlat, dlon, columns, rows):
     """For a regular latitude/longitude grid whose first point is (lat0, lon0)."""
-    if lon0 > 180:
+    if lon0 >= 180:
         lon0 -= 360
     return Bilinear((lon - lon0) / dlon, (lat - lat0) / dlat, columns, rows)
+
+
+def grib_messages(data):
+    """The GRIB2 messages in a byte string, one by one (no temporary file)."""
+    offset = data.find(b"GRIB")
+    while offset >= 0 and offset + 16 <= len(data):
+        length = int.from_bytes(data[offset + 8:offset + 16], "big")
+        yield data[offset:offset + length]
+        offset = data.find(b"GRIB", offset + length)
 
 
 def direction_from(u, v):
