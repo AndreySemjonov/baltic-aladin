@@ -2,3 +2,5 @@
 __pycache__/
 *.grb
 *.bz2
+aladin-files/
+site/

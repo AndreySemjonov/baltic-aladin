@@ -90,13 +90,26 @@ def dods_array(data, shape):
     return values.reshape(shape)
 
 
-def main():
-    out = Path(sys.argv[1] if len(sys.argv) > 1 else "site/map")
-    (lat, lon), width, height = output_grid()
+def grid_index(lat, lon):
+    """Nearest MET Nordic column and row of each output pixel, and their range."""
     gx, gy = lcc(lat, lon)
     col = np.rint((gx - X0) / STEP).astype(int)
     row = np.rint((gy - Y0) / STEP).astype(int)
-    c0, c1, r0, r1 = col.min(), col.max(), row.min(), row.max()
+    return col, row, (col.min(), col.max(), row.min(), row.max())
+
+
+def land_fraction(lat, lon):
+    """MET Nordic's land fraction (0 = sea) at each pixel; other maps of this coast use it too."""
+    col, row, (c0, c1, r0, r1) = grid_index(lat, lon)
+    query = f"land_area_fraction[{r0}:1:{r1}][{c0}:1:{c1}]"
+    land = dods_array(get(f"{SOURCE}.dods?" + urllib.request.quote(query, safe=":,")), (r1 - r0 + 1, c1 - c0 + 1))
+    return np.clip(np.nan_to_num(land[row - r0, col - c0], nan=1.0), 0, 1)
+
+
+def main():
+    out = Path(sys.argv[1] if len(sys.argv) > 1 else "site/map")
+    (lat, lon), width, height = output_grid()
+    col, row, (c0, c1, r0, r1) = grid_index(lat, lon)
 
     times = ascii_values(get(f"{SOURCE}.ascii?time"), "time")
     run = ascii_values(get(f"{SOURCE}.ascii?forecast_reference_time"), "forecast_reference_time")[0]
@@ -110,9 +123,7 @@ def main():
 
     # Land fraction 0-1 (0 = sea), once per map: the app shows the wind strongly over
     # the sea and faintly over land, so the coast stays visible.
-    query = f"land_area_fraction[{r0}:1:{r1}][{c0}:1:{c1}]"
-    land = dods_array(get(f"{SOURCE}.dods?" + urllib.request.quote(query, safe=":,")), (r1 - r0 + 1, c1 - c0 + 1))
-    land = np.clip(np.nan_to_num(land[row - r0, col - c0], nan=1.0), 0, 1)
+    land = land_fraction(lat, lon)
     out.mkdir(parents=True, exist_ok=True)
     Image.fromarray(np.rint(land * 255).astype(np.uint8), "L").save(out / "land.png", optimize=True)
 

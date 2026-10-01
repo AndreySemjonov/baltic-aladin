@@ -9,10 +9,14 @@ the model's area and listed under "outside".
 
     python extract.py            # newest run, only if it is new
     python extract.py 2026093006 # a given run
+
+With ALADIN_KEEP set to a folder, the downloaded GRIB files stay there (with a
+run.txt) so aladin_map.py can draw the map from them without downloading again.
 """
 import bz2
 import json
 import math
+import os
 import sys
 import tempfile
 import urllib.error
@@ -105,12 +109,16 @@ def direction(weights, degrees, speeds):
 
 
 def extract(run, spots):
+    keep = os.environ.get("ALADIN_KEEP")
     with tempfile.TemporaryDirectory() as tmp:
-        folder = Path(tmp)
+        folder = Path(keep or tmp)
+        folder.mkdir(parents=True, exist_ok=True)
         fields = {}
         geometry = None
         for key, variable in VARIABLES.items():
             fields[key], geometry = read(download(run, variable, folder), spots)
+        if keep:
+            (folder / "run.txt").write_text(run)
     times = sorted(fields["speed"])
     inside = [s for s in spots if geometry[s["id"]][2] <= 3.0]
     out = {}

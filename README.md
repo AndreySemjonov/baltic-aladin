@@ -5,6 +5,8 @@ Open weather-model wind for Baltic kite spots, prepared for a phone app:
 - **ALADIN 2.3 km** (ČHMÚ) read at each kite spot, as one small JSON file.
 - **A wind map** of the Latvian coast, Gulf of Riga and western Estonia from
   **MET Nordic 1 km** (MET Norway): one small image per hour for the next ~58 hours.
+- **Two more maps of the Latvian coast:** **HARMONIE 2.5 km** (FMI, ~66 hours) and
+  **ALADIN 2.3 km** (ČHMÚ, 72 hours, up to about 57.0°N).
 - **A wind map of the whole Baltic** from **ICON-EU 7 km** (DWD) for 5 days.
 
 The Czech Hydrometeorological Institute (ČHMÚ) publishes ALADIN as open data,
@@ -46,6 +48,23 @@ x 5. About 70 KB per hour. `land.png` (same pixels, grayscale) is the land fract
 
 `pip install numpy pillow`, then `python metnordic_map.py site/map`.
 
+## HARMONIE and ALADIN maps
+
+**https://andreysemjonov.github.io/baltic-aladin/harmonie/map.json**: FMI's HARMONIE
+2.5 km, the same box and pixels as the MET Nordic map (and its land mask), hourly for
+about 66 hours, rebuilt with each deploy (FMI runs every 3 hours). FMI's open data
+service cuts the grid to the box on request, about 20 MB per run.
+`python harmonie_map.py site/harmonie`.
+
+**https://andreysemjonov.github.io/baltic-aladin/aladin/map.json**: ALADIN 2.3 km,
+55.6-57.25°N, 20.4-25.4°E (Kurzeme to Riga and Jūrmala), hourly for 72 hours, rebuilt
+for each new ALADIN run from the files the spot extraction downloads
+(`ALADIN_KEEP=aladin-files python extract.py`, then
+`python aladin_map.py site/aladin aladin-files`). The model ends at about 57.0-57.2°N,
+so these frames have an alpha channel: 0 where there is no model data.
+
+Shared code for the maps is in [`maplib.py`](maplib.py).
+
 ## Wind map of the Baltic, 5 days
 
 **https://andreysemjonov.github.io/baltic-aladin/icon-eu/map.json**: the same format
@@ -71,9 +90,15 @@ Map data: **Deutscher Wetterdienst (DWD), ICON-EU, open data,
 https://opendata.dwd.de/weather/nwp/icon-eu/. The frames are derived from it
 (cropped, interpolated and reprojected) and carry the same licence and credit.
 
+Map data: **Finnish Meteorological Institute (FMI), HARMONIE forecast, open data,
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**, from
+https://en.ilmatieteenlaitos.fi/open-data. The frames are derived from it (interpolated
+and reprojected) and carry the same licence and credit.
+
 Data: **ČHMÚ – Czech Hydrometeorological Institute, ALADIN model, open data,
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**, from
-https://opendata.chmi.cz/meteorology/weather/nwp_aladin/. The published JSON is
-derived from it (values read at points) and carries the same licence and credit.
+https://opendata.chmi.cz/meteorology/weather/nwp_aladin/. The published JSON and the
+ALADIN map are derived from it (values read at points; cropped, interpolated and
+reprojected) and carry the same licence and credit.
 
-Code: MIT licence, see [LICENSE](LICENSE). Not affiliated with ČHMÚ, MET Norway or DWD.
+Code: MIT licence, see [LICENSE](LICENSE). Not affiliated with ČHMÚ, MET Norway, DWD or FMI.
