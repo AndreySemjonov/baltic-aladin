@@ -41,7 +41,8 @@ the newest MET Nordic run (rebuilt every 3 hours): 55.6-59.1°N, 20.4-25.4°E,
 about 1 km per pixel, 300 x 390 pixels, in Web Mercator (the projection of web and
 phone maps), so an image lines up with a map by its bounds. Each PNG pixel stores
 the wind: red = speed m/s x 5, green = direction (from) x 256/360, blue = gust m/s
-x 5. About 70 KB per hour.
+x 5. About 70 KB per hour. `land.png` (same pixels, grayscale) is the land fraction x
+255, 0 = sea, for drawing the wind strongly over the sea and faintly over land.
 
 `pip install numpy pillow`, then `python metnordic_map.py site/map`.
 
@@ -52,7 +53,7 @@ for ICON-EU 7 km, 53.5-66°N, 9-31°E (Denmark to the Gulf of Bothnia), 352 x 40
 pixels (one per model grid step), hourly to 78 hours and then every 3 hours to 120
 hours, about 130 KB per frame. Rebuilt for each 00/06/12/18 UTC run, about 4 hours
 after it starts. Wind is interpolated bilinearly from the model's grid; the gust is the
-maximum of the last hour.
+maximum of the last hour. `land.png` is DWD's land plus lake fraction (lakes count as land).
 
 DWD publishes each variable and hour as a whole-Europe file, so a run means about
 280 downloads of about 1.1 MB. `pip install eccodes numpy pillow`, then

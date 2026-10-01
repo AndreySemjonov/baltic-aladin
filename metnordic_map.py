@@ -9,6 +9,7 @@ hour plus a manifest:
     <out>/map.json
     <out>/<run>/<unix time>.png   R = wind speed m/s x 5, G = direction x 256/360,
                                   B = gust m/s x 5 (0.2 m/s steps, up to 51 m/s)
+    <out>/land.png                land fraction x 255 (0 = sea), same pixels
 
     python metnordic_map.py site/map
 """
@@ -107,6 +108,14 @@ def main():
         raw = get(f"{SOURCE}.dods?" + urllib.request.quote(query, safe=":,"))
         fields[key] = dods_array(raw, (last - first + 1, r1 - r0 + 1, c1 - c0 + 1))
 
+    # Land fraction 0-1 (0 = sea), once per map: the app shows the wind strongly over
+    # the sea and faintly over land, so the coast stays visible.
+    query = f"land_area_fraction[{r0}:1:{r1}][{c0}:1:{c1}]"
+    land = dods_array(get(f"{SOURCE}.dods?" + urllib.request.quote(query, safe=":,")), (r1 - r0 + 1, c1 - c0 + 1))
+    land = np.clip(np.nan_to_num(land[row - r0, col - c0], nan=1.0), 0, 1)
+    out.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(np.rint(land * 255).astype(np.uint8), "L").save(out / "land.png", optimize=True)
+
     run_name = datetime.fromtimestamp(run, timezone.utc).strftime("%Y%m%dT%HZ")
     folder = out / run_name
     folder.mkdir(parents=True, exist_ok=True)
@@ -131,6 +140,7 @@ def main():
         "width": width, "height": height,
         "encoding": {"red": "wind speed m/s x 5", "green": "direction (from) degrees x 256/360",
                      "blue": "gust m/s x 5"},
+        "land": "land.png",
         "frames": frames,
     }
     (out / "map.json").write_text(json.dumps(manifest, separators=(",", ":")) + "\n", encoding="utf-8")

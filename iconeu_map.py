@@ -10,6 +10,7 @@ resolution and writes one PNG per hour, in the same format as the MET Nordic map
     <out>/map.json
     <out>/<run>/<unix time>.png   R = wind speed m/s x 5, G = direction x 256/360,
                                   B = gust m/s x 5
+    <out>/land.png                land fraction x 255 (0 = sea), same pixels
 
     python iconeu_map.py site/icon-eu              newest complete main run
     python iconeu_map.py site/icon-eu 2026093012   a given run
@@ -18,6 +19,7 @@ resolution and writes one PNG per hour, in the same format as the MET Nordic map
 import bz2
 import json
 import math
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -54,6 +56,17 @@ def exists(address):
             return True
     except urllib.error.URLError:
         return False
+
+
+def invariant_message(variable):
+    """A time-invariant field (FR_LAND, FR_LAKE), published with each day's 00 UTC run."""
+    folder = f"{BASE}/00/{variable.lower()}/"
+    listing = urllib.request.urlopen(request(folder), timeout=60).read().decode()
+    name = re.search(rf'href="(icon-eu_europe_regular-lat-lon_time-invariant_\d{{10}}_{variable}\.grib2\.bz2)"', listing)
+    if not name:
+        raise SystemExit(f"no ICON-EU {variable} file online")
+    with urllib.request.urlopen(request(folder + name.group(1)), timeout=120) as reply:
+        return bz2.decompress(reply.read())
 
 
 def newest_run():
@@ -166,6 +179,13 @@ def main():
             Image.fromarray(rgb, "RGB").save(folder / f"{time}.png", optimize=True)
             frames.append({"time": time, "file": f"{run_name}/{time}.png"})
 
+    # Land fraction 0-1 (0 = sea), once per map, as for MET Nordic. DWD counts lakes as
+    # water; here they count as land, so only the sea shows as sea.
+    _, land_values = decode(invariant_message("FR_LAND"))
+    _, lake_values = decode(invariant_message("FR_LAKE"))
+    land = np.clip(np.nan_to_num(sampler(land_values) + sampler(lake_values), nan=1.0), 0, 1)
+    Image.fromarray(np.rint(land * 255).astype(np.uint8), "L").save(out / "land.png", optimize=True)
+
     manifest = {
         "model": "ICON-EU 7 km",
         "source": "Deutscher Wetterdienst (DWD), ICON-EU, CC BY 4.0: https://opendata.dwd.de/",
@@ -176,6 +196,7 @@ def main():
         "width": width, "height": height,
         "encoding": {"red": "wind speed m/s x 5", "green": "direction (from) degrees x 256/360",
                      "blue": "gust m/s x 5 (maximum of the last hour)"},
+        "land": "land.png",
         "frames": frames,
     }
     (out / "map.json").write_text(json.dumps(manifest, separators=(",", ":")) + "\n", encoding="utf-8")

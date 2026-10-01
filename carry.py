@@ -22,7 +22,8 @@ def get(url):
 def main():
     out, path = Path(sys.argv[1]), sys.argv[2].strip("/")
     manifest = get(f"{SITE}{path}/map.json")
-    files = [frame["file"] for frame in json.loads(manifest)["frames"]]
+    parsed = json.loads(manifest)
+    files = [frame["file"] for frame in parsed["frames"]] + ([parsed["land"]] if "land" in parsed else [])
 
     def copy(name):
         target = out / name
