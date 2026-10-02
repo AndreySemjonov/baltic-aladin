@@ -39,10 +39,10 @@ jobs:
       - name: Check out
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Install ecCodes, NumPy and Pillow
+      - name: Install ecCodes, NumPy, Pillow and h5py
         run: |
           python3 -m venv .venv
-          .venv/bin/pip install --quiet eccodes numpy pillow
+          .venv/bin/pip install --quiet eccodes numpy pillow h5py
 
       - name: Read the newest ALADIN run
         id: aladin
@@ -54,6 +54,13 @@ jobs:
           .venv/bin/python extract.py $RUN
           if git diff --quiet docs/aladin.json; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
 
+      # NEMO-EST (Estonian sea model): water level and temperature at the spots, twice a day.
+      - name: Read the newest NEMO run
+        id: nemo
+        run: |
+          .venv/bin/python nemo.py || echo "NEMO unavailable this time"
+          if git diff --quiet --exit-code docs/nemo.json 2>/dev/null && git ls-files --error-unmatch docs/nemo.json >/dev/null 2>&1; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
+
       # Pages replaces the whole site on each deploy, so every deploy carries all of it:
       # MET Nordic, HARM-FI and HARM-DK are rebuilt each time (new runs every 1-3 hours);
       # ALADIN, ICON-EU, ECMWF and GFS only for a new run, otherwise their published frames
@@ -63,6 +70,7 @@ jobs:
         env:
           FORCE: ${{ inputs.map }}
           NEW_ALADIN: ${{ steps.aladin.outputs.changed }}
+          NEW_NEMO: ${{ steps.nemo.outputs.changed }}
         run: |
           nordic=$(python3 - <<'PY'
           import json, time
@@ -84,7 +92,7 @@ jobs:
             if [ -n "$newest" ] && { [ "$newest" != "$published" ] || [ "$FORCE" = "true" ]; }; then rebuild="$rebuild $name"; fi
           done
           deploy=false
-          if [ "$nordic" = "true" ] || [ -n "$rebuild" ] || [ "$NEW_ALADIN" = "true" ] || [ "$FORCE" = "true" ]; then deploy=true; fi
+          if [ "$nordic" = "true" ] || [ -n "$rebuild" ] || [ "$NEW_ALADIN" = "true" ] || [ "$NEW_NEMO" = "true" ] || [ "$FORCE" = "true" ]; then deploy=true; fi
           echo "MET Nordic due: $nordic; new runs:$rebuild; deploy: $deploy"
           echo "rebuild=$rebuild" >> "$GITHUB_OUTPUT"
           echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
@@ -114,6 +122,7 @@ jobs:
           done
           .venv/bin/python blend_map.py site || echo "Blend unavailable this time"
           cp docs/aladin.json docs/index.html site/
+          if [ -f docs/nemo.json ]; then cp docs/nemo.json site/; fi
           python3 - <<'PY'
           import json, os, time
           now = time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())
@@ -133,6 +142,7 @@ jobs:
         run: |
           git rm -q --ignore-unmatch docs/icon-state.json
           git add docs/aladin.json docs/map-state.json docs/runs.json
+          if [ -f docs/nemo.json ]; then git add docs/nemo.json; fi
           if git diff --cached --quiet; then exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

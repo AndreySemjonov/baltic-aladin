@@ -10,6 +10,8 @@ Open weather-model wind for Baltic kite spots, prepared for a phone app:
 - **Wind maps of the whole Baltic** from **ICON-EU 7 km** (DWD, 5 days), **ECMWF 0.25°**
   (15 days) and **GFS 0.25°** (NOAA, 16 days).
 - **A blend** of all of them for the Latvian coast, 10 days.
+- **Water level and water temperature** at the spots from **NEMO-EST** (Estonian
+  Environment Agency and TalTech, about 1 km, 5 days, twice a day).
 
 The Czech Hydrometeorological Institute (ČHMÚ) publishes ALADIN as open data,
 but only as whole-domain GRIB files of 70–80 MB per variable and run. A GitHub
@@ -145,3 +147,28 @@ ALADIN map are derived from it (values read at points; cropped, interpolated and
 reprojected) and carry the same licence and credit.
 
 Code: MIT licence, see [LICENSE](LICENSE). Not affiliated with ČHMÚ, MET Norway, DWD, FMI, DMI, ECMWF or NOAA.
+
+## NEMO-EST water level and temperature
+
+The Estonian Environment Agency (Keskkonnaagentuur) publishes its sea model NEMO-EST
+(made with TalTech) as open data, CC BY 4.0, through the
+[KAIA open data service](https://avaandmed.keskkonnaportaal.ee/): one NetCDF file of
+about 75 MB per forecast day. [`nemo.py`](nemo.py) finds the newest run through the
+service's API, reads each spot's nearest sea cell (within 5 km) and publishes:
+
+**https://andreysemjonov.github.io/baltic-aladin/nemo.json**
+
+```json
+{"run": "2026100200", "start": 1790902800, "step": 3600,
+ "spots": {"haademeeste": {"lat": 58.083, "lon": 24.4667, "km": 0.6,
+   "level": [4.8, …], "temperature": [16.21, …]}},
+ "outside": ["pavilosta", …]}
+```
+
+- `level`: sea surface height in cm above the model's geoid (its own zero; a gauge
+  reads a few tens of cm differently, so line it up with a measurement).
+- `temperature`: sea surface temperature, °C.
+- The model covers Estonia and the Gulf of Riga, from about 56.94°N and 21.55°E;
+  Liepāja, Pāvilosta and Užava are outside.
+
+Source: Keskkonnaagentuur, NEMO-EST model data, CC BY 4.0.
