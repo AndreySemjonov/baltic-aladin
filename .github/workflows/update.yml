@@ -4,8 +4,11 @@ run-name: ALADIN spots and wind maps
 on:
   schedule:
     # ČHMÚ publishes an ALADIN run about 4 hours after 00/06/12/18 UTC; MET Nordic every
-    # hour, HARMONIE every 3, ICON-EU and GFS every 6, ECMWF every 12. Hourly checks are cheap.
-    - cron: "35 * * * *"
+    # hour, HARMONIE every 3, ICON-EU and GFS every 6, ECMWF every 12. Every 15 minutes, off
+    # the full hour: GitHub skips many scheduled runs when busy (an hourly schedule ran only
+    # about 4 times a day, an ALADIN run late by hours), and a run with nothing new stops
+    # after the check.
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
     inputs:
       run:
