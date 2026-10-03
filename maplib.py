@@ -122,11 +122,17 @@ def land_share(lat, lon):
     return np.where(np.outer(inside_r, inside_c), land, np.nan).astype(np.float32)
 
 
+# Off since 3.10.2026: the filled sea ended in a cliff at the shoreline, while the models' own
+# fields (MET Nordic 1 km above all) fall off gradually over a few km, as on Windguru's maps.
+# The fine coastline is still used for the maps' land.png (the app's land shading).
+SEA_FILL = False
+
+
 def coast_fill(arrays, share, buffer_km, km_per_pixel, valid=None):
     """Sea pixels within `buffer_km` of the land (by `share`) take, in each of `arrays`
     (changed in place), the value of the nearest sea pixel beyond it; only from pixels with
     model data, and not from further than twice the buffer (a lagoon keeps its own)."""
-    if share is None or buffer_km <= 0:
+    if not SEA_FILL or share is None or buffer_km <= 0:
         return arrays
     from scipy import ndimage
     key = (id(share), buffer_km, km_per_pixel, None if valid is None else valid.tobytes())
