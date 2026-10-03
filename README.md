@@ -168,6 +168,10 @@ service's API, reads each spot's nearest sea cell (within 5 km) and publishes:
 - `level`: sea surface height in cm above the model's geoid (its own zero; a gauge
   reads a few tens of cm differently, so line it up with a measurement).
 - `temperature`: sea surface temperature, °C.
+- **https://andreysemjonov.github.io/baltic-aladin/nemo-coast.json** has the same hours at
+  about 1,800 points along the whole coast (sea cells within about 4 km of land, every
+  third cell, about 3 km apart), for places that aren't in `spots.json`: `points` as
+  [lat, lon], `level` per point in cm, `temperature` per point in tenths of a degree.
 - The model covers Estonia and the Gulf of Riga, from about 56.94°N and 21.55°E;
   Liepāja, Pāvilosta and Užava are outside.
 

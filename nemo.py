@@ -27,6 +27,11 @@ API = "https://avaandmed.keskkonnaportaal.ee/api/lists/active"
 NEMO = "0102FB02"  # the API's content type of the NEMO files
 HERE = Path(__file__).parent
 OUTPUT = HERE / "docs" / "nemo.json"
+# Points along the whole coast, for spots the helper doesn't know (a phone's own map pins):
+# not kept in git (about 1 MB), published with the site and carried over between deploys.
+COAST_OUTPUT = HERE / "nemo-coast.json"
+# Sea cells within about 4 km of the land, every third cell each way (about 3 km apart).
+COAST_CELLS, COAST_STEP = 4, 3
 USER_AGENT = "baltic-aladin (https://github.com/AndreySemjonov/baltic-aladin)"
 REACH_KM = 5
 NAME = re.compile(r"nemo_(\d{10})_EST05nm_op_run1_1h_SURF_grid_TUV\.(\d{8})\.nc$")
@@ -91,6 +96,7 @@ def main():
         return
     spots = json.loads((HERE / "spots.json").read_text(encoding="utf-8"))
     times, cells = [], {}
+    coast_cells, coast_level, coast_temperature = None, [], []
     series = {spot["id"]: {"level": [], "temperature": []} for spot in spots}
     with tempfile.TemporaryDirectory() as folder:
         for day, item in files:
@@ -105,9 +111,19 @@ def main():
                         found = sea_cell(spot["lat"], spot["lon"], lats, lons, sea)
                         if found:
                             cells[spot["id"]] = found
+                    from scipy import ndimage
+                    near_land = sea & (ndimage.distance_transform_edt(sea) <= COAST_CELLS)
+                    rows, columns = np.nonzero(near_land)
+                    keep = (rows % COAST_STEP == 0) & (columns % COAST_STEP == 0)
+                    coast_cells = (rows[keep], columns[keep])
                 base = datetime(1800, 1, 1, tzinfo=timezone.utc)
                 times += [int((base + timedelta(seconds=float(t))).timestamp()) for t in f["time_counter"][:]]
                 ssh, sst = f["SSH"], f["SST"]
+                # Whole fields per hour, then the coast points (reading point by point is slow).
+                for k in range(ssh.shape[0]):
+                    level, temperature = ssh[k][coast_cells], sst[k][coast_cells]
+                    coast_level.append([int(round(float(v) * 100)) if abs(v) < 1e10 else None for v in level])
+                    coast_temperature.append([int(round(float(v) * 10)) if abs(v) < 1e10 else None for v in temperature])
                 for spot_id, (_, j, i) in cells.items():
                     series[spot_id]["level"] += [round(float(v) * 100, 1) if abs(v) < 1e10 else None for v in ssh[:, j, i]]
                     series[spot_id]["temperature"] += [round(float(v), 2) if abs(v) < 1e10 else None for v in sst[:, j, i]]
@@ -130,6 +146,15 @@ def main():
         out["spots"][spot["id"]] = {"lat": round(float(lats[j]), 4), "lon": round(float(lons[i]), 4), "km": round(km, 1),
                                     **series[spot["id"]]}
     OUTPUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
+    # Per point: its hours, level in cm and temperature in tenths of a degree.
+    rows, columns = coast_cells
+    coast = {"source": out["source"], "run": run, "made": out["made"], "start": out["start"], "step": 3600,
+             "units": {"level": "cm above the model's geoid", "temperature": "degC x 10"},
+             "points": [[round(float(lats[j]), 4), round(float(lons[i]), 4)] for j, i in zip(rows, columns)],
+             "level": [list(x) for x in zip(*coast_level)],
+             "temperature": [list(x) for x in zip(*coast_temperature)]}
+    COAST_OUTPUT.write_text(json.dumps(coast, separators=(",", ":")) + "\n", encoding="utf-8")
+    print(f"NEMO coast: {len(coast['points'])} points, {COAST_OUTPUT.stat().st_size / 1e6:.1f} MB")
     print(f"NEMO {run}: {len(times)} hours, {len(out['spots'])} spots, outside {out['outside']}")
 
 

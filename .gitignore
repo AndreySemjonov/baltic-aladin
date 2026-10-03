@@ -4,3 +4,4 @@ __pycache__/
 *.bz2
 aladin-files/
 site/
+nemo-coast.json
