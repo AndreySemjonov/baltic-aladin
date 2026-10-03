@@ -173,6 +173,7 @@ def main():
 
     out.mkdir(parents=True, exist_ok=True)
     maplib.save_land(out / "land.png", metnordic_map.land_fraction(lat, lon))
+    share = maplib.land_share(lat, lon)
     run_name = run.strftime("%Y%m%dT%HZ")
     folder = out / run_name
     folder.mkdir(parents=True, exist_ok=True)
@@ -186,7 +187,8 @@ def main():
             interpolated = sample(speed)
             gust = sample(fields["gust"]) if "gust" in fields else interpolated
             t = int(valid.timestamp())
-            maplib.save_frame(folder / f"{t}.png", interpolated, maplib.direction_from(u, v), gust)
+            maplib.save_frame(folder / f"{t}.png", interpolated, maplib.direction_from(u, v), gust,
+                              coast=(share, 3.0, metnordic_map.KM_PER_PIXEL))
             frames.append({"time": t, "file": f"{run_name}/{t}.png"})
     frames.sort(key=lambda frame: frame["time"])
     manifest = maplib.write_manifest(out, "HARM-DK 2 km",

@@ -23,6 +23,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+import maplib
+
 SOURCE = "https://thredds.met.no/thredds/dodsC/metpplatest/met_forecast_1_0km_nordic_latest.nc"
 USER_AGENT = "baltic-aladin (https://github.com/AndreySemjonov/baltic-aladin)"
 # Lithuania, Latvia and Estonia with their coasts and the Gulf of Finland (until 3.10.2026 the
@@ -100,12 +102,21 @@ def grid_index(lat, lon):
     return col, row, (col.min(), col.max(), row.min(), row.max())
 
 
+# About 1.5 grid cells: how far a model's land reaches over the sea near the shore.
+COAST_KM = 1.5
+
+
 def land_fraction(lat, lon):
-    """MET Nordic's land fraction (0 = sea) at each pixel; other maps of this coast use it too."""
+    """The land share (0 = sea) at each pixel, for the app's paler land: from the fine
+    coastline where it reaches, else MET Nordic's land fraction. Other maps use it too."""
+    fine = maplib.land_share(lat, lon)
+    if fine is not None and np.isfinite(fine).all():
+        return fine
     col, row, (c0, c1, r0, r1) = grid_index(lat, lon)
     query = f"land_area_fraction[{r0}:1:{r1}][{c0}:1:{c1}]"
     land = dods_array(get(f"{SOURCE}.dods?" + urllib.request.quote(query, safe=":,")), (r1 - r0 + 1, c1 - c0 + 1))
-    return np.clip(np.nan_to_num(land[row - r0, col - c0], nan=1.0), 0, 1)
+    land = np.clip(np.nan_to_num(land[row - r0, col - c0], nan=1.0), 0, 1)
+    return land if fine is None else np.where(np.isfinite(fine), fine, land)
 
 
 def main():
@@ -133,10 +144,12 @@ def main():
     folder = out / run_name
     folder.mkdir(parents=True, exist_ok=True)
     frames = []
+    share = maplib.land_share(lat, lon)
     for k, step in enumerate(range(first, last + 1)):
         speed = np.nan_to_num(fields["speed"][k][row - r0, col - c0])
         direction = np.nan_to_num(fields["direction"][k][row - r0, col - c0])
         gust = np.nan_to_num(fields["gust"][k][row - r0, col - c0])
+        maplib.coast_fill([speed, direction, gust], share, COAST_KM, KM_PER_PIXEL)
         rgb = np.stack([np.clip(np.rint(speed * 5), 0, 255),
                         np.mod(np.rint(direction * 256 / 360), 256),
                         np.clip(np.rint(gust * 5), 0, 255)], axis=-1).astype(np.uint8)

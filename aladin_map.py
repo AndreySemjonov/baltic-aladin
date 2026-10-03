@@ -98,6 +98,7 @@ def build(out, folder, run):
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     maplib.save_land(out / "land.png", metnordic_map.land_fraction(lat, lon))
+    share = maplib.land_share(lat, lon)
     run_name = run_time.strftime("%Y%m%dT%HZ")
     frame_folder = out / run_name
     frame_folder.mkdir(parents=True, exist_ok=True)
@@ -109,7 +110,8 @@ def build(out, folder, run):
         # Direction through its components, so 350° and 10° don't average to 180°.
         u, v = sample(-speed * np.sin(degrees)), sample(-speed * np.cos(degrees))
         gust = sample(np.hypot(fields["gust_u"][t], fields["gust_v"][t]))
-        maplib.save_frame(frame_folder / f"{t}.png", sample(speed), maplib.direction_from(u, v), gust, sample.valid)
+        maplib.save_frame(frame_folder / f"{t}.png", sample(speed), maplib.direction_from(u, v), gust, sample.valid,
+                          coast=(share, 3.5, metnordic_map.KM_PER_PIXEL))
         frames.append({"time": t, "file": f"{run_name}/{t}.png"})
     manifest = maplib.write_manifest(out, "ALADIN 2.3 km",
                                      "ČHMÚ (Czech Hydrometeorological Institute), ALADIN, open data, CC BY 4.0: https://opendata.chmi.cz/",

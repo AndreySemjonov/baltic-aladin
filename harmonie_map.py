@@ -80,6 +80,7 @@ def main():
                                     grid["iDirectionIncrementInDegrees"], grid["Ni"], grid["Nj"])
     out.mkdir(parents=True, exist_ok=True)
     maplib.save_land(out / "land.png", metnordic_map.land_fraction(lat, lon))
+    share = maplib.land_share(lat, lon)
     run_name = run_time.strftime("%Y%m%dT%HZ")
     folder = out / run_name
     folder.mkdir(parents=True, exist_ok=True)
@@ -90,7 +91,7 @@ def main():
             continue
         u, v = sample(step["10u"]), sample(step["10v"])
         maplib.save_frame(folder / f"{t}.png", np.hypot(u, v), maplib.direction_from(u, v), sample(step["10fg"]),
-                          sample.valid)
+                          sample.valid, coast=(share, 3.75, metnordic_map.KM_PER_PIXEL))
         frames.append({"time": t, "file": f"{run_name}/{t}.png"})
     manifest = maplib.write_manifest(out, "HARM-FI 2.5 km",
                                      "FMI, HARMONIE forecast, CC BY 4.0: https://en.ilmatieteenlaitos.fi/open-data",

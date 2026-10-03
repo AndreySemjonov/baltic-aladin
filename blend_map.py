@@ -29,6 +29,8 @@ import metnordic_map
 # that have a map here (renormalized wherever some are missing).
 WEIGHTS = {"harm-dk": 0.226, "map": 0.181, "harmonie": 0.181, "aladin": 0.165,
            "icon-eu": 0.068, "ecmwf": 0.034, "gfs": 0.023}
+# How far each model's land reaches over the sea, km (about 1.5 of its grid cells).
+COAST_KM = {"harm-dk": 3.0, "map": 1.5, "harmonie": 3.75, "aladin": 3.5, "icon-eu": 10.0, "ecmwf": 25.0, "gfs": 25.0}
 NAMES = {"harm-dk": "HARM-DK", "map": "MET Nordic", "harmonie": "HARM-FI", "aladin": "ALADIN",
          "icon-eu": "ICON-EU", "ecmwf": "ECMWF", "gfs": "GFS"}
 SOUTH, NORTH, WEST, EAST = metnordic_map.SOUTH, metnordic_map.NORTH, metnordic_map.WEST, metnordic_map.EAST
@@ -38,8 +40,9 @@ MAX_GAP = 6 * 3600  # frames further apart than this aren't interpolated
 class Model:
     """One model's published frames, read on demand and placed on the blend's pixels."""
 
-    def __init__(self, folder, lat, lon):
+    def __init__(self, folder, lat, lon, share=None, coast_km=0):
         self.folder = folder
+        self.share, self.coast_km = share, coast_km
         manifest = json.loads((folder / "map.json").read_text(encoding="utf-8"))
         self.frames = {frame["time"]: frame["file"] for frame in manifest["frames"]}
         self.times = sorted(self.frames)
@@ -59,7 +62,10 @@ class Model:
             inside = (pixels[..., 3] >= 128).astype(np.float32)
             # Speed-weighted components, so 350° and 10° don't average to 180°.
             u, v = -speed * np.sin(degrees), -speed * np.cos(degrees)
-            self.cache[t] = [self.sample(a) for a in (u, v, speed, gust)] + [self.sample(inside) > 0.99]
+            values = [self.sample(a).astype(np.float32) for a in (u, v, speed, gust)]
+            inside = self.sample(inside) > 0.99
+            maplib.coast_fill(values, self.share, self.coast_km, metnordic_map.KM_PER_PIXEL, valid=inside)
+            self.cache[t] = values + [inside]
         return self.cache[t]
 
     def at(self, t):
@@ -79,7 +85,9 @@ def main():
     site = Path(sys.argv[1] if len(sys.argv) > 1 else "site")
     out = site / "blend"
     (lat, lon), width, height = maplib.output_grid(SOUTH, NORTH, WEST, EAST, metnordic_map.KM_PER_PIXEL)
-    models = {name: Model(site / name, lat, lon) for name in WEIGHTS if (site / name / "map.json").exists()}
+    share = maplib.land_share(lat, lon)
+    models = {name: Model(site / name, lat, lon, share, COAST_KM[name]) for name in WEIGHTS
+              if (site / name / "map.json").exists()}
     if not models:
         raise SystemExit("No model maps to blend")
 

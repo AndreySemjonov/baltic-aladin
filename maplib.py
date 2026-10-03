@@ -75,7 +75,91 @@ def direction_from(u, v):
     return np.mod(np.degrees(np.arctan2(-u, -v)), 360)
 
 
-def save_frame(path, speed, direction, gust, valid=None):
+# ---------- The coast ----------
+#
+# A model knows land and sea only per grid cell (1-25 km), so near the shore its weak land
+# wind leaks out over the sea in squares. With the fine coastline (coast.png, about 250 m,
+# from OpenStreetMap; build_coast.py), sea pixels within about 1.5 model cells of the land
+# take the values of the nearest sea pixel further out, where the model is clearly over the
+# sea; land pixels keep theirs. The sea wind then reaches the real shoreline.
+
+HERE = Path(__file__).parent
+_coast = {}
+
+
+def land_share(lat, lon):
+    """The share of land (0-1) in each output pixel from the fine coastline; NaN outside
+    its box, None without coast.png."""
+    if "fine" not in _coast:
+        try:
+            meta = json.loads((HERE / "coast.json").read_text(encoding="utf-8"))
+            fine = np.asarray(Image.open(HERE / "coast.png").convert("L")) > 127
+            _coast["fine"] = (meta["bounds"], np.pad(fine.cumsum(0).cumsum(1), ((1, 0), (1, 0))).astype(np.int64))
+        except (OSError, ValueError, KeyError):
+            _coast["fine"] = None
+    if _coast["fine"] is None:
+        return None
+    b, total = _coast["fine"]
+    rows, columns = total.shape[0] - 1, total.shape[1] - 1
+    lons, lats = lon[0, :], lat[:, 0]
+    # Pixel edges: the output grid is regular in longitude and in Mercator y.
+    dx = (lons[-1] - lons[0]) / max(len(lons) - 1, 1)
+    ys = mercator_y(lats)
+    dy = (ys[0] - ys[-1]) / max(len(ys) - 1, 1)
+    top, bottom = float(mercator_y(b["north"])), float(mercator_y(b["south"]))
+    c0 = np.floor((lons - dx / 2 - b["west"]) / (b["east"] - b["west"]) * columns).astype(int)
+    c1 = np.ceil((lons + dx / 2 - b["west"]) / (b["east"] - b["west"]) * columns).astype(int)
+    r0 = np.floor((top - (ys + dy / 2)) / (top - bottom) * rows).astype(int)
+    r1 = np.ceil((top - (ys - dy / 2)) / (top - bottom) * rows).astype(int)
+    inside_c = (c0 >= 0) & (c1 <= columns)
+    inside_r = (r0 >= 0) & (r1 <= rows)
+    c0, c1 = np.clip(c0, 0, columns), np.clip(c1, 0, columns)
+    r0, r1 = np.clip(r0, 0, rows), np.clip(r1, 0, rows)
+    R0, C0 = np.meshgrid(r0, c0, indexing="ij")
+    R1, C1 = np.meshgrid(r1, c1, indexing="ij")
+    count = np.maximum((R1 - R0) * (C1 - C0), 1)
+    land = (total[R1, C1] - total[R0, C1] - total[R1, C0] + total[R0, C0]) / count
+    return np.where(np.outer(inside_r, inside_c), land, np.nan).astype(np.float32)
+
+
+def coast_fill(arrays, share, buffer_km, km_per_pixel, valid=None):
+    """Sea pixels within `buffer_km` of the land (by `share`) take, in each of `arrays`
+    (changed in place), the value of the nearest sea pixel beyond it; only from pixels with
+    model data, and not from further than twice the buffer (a lagoon keeps its own)."""
+    if share is None or buffer_km <= 0:
+        return arrays
+    from scipy import ndimage
+    key = (id(share), buffer_km, km_per_pixel, None if valid is None else valid.tobytes())
+    if key not in _coast:
+        buffer = buffer_km / km_per_pixel
+        known = np.isfinite(share)
+        land = known & (share >= 0.5)
+        sea = known & ~land
+        from_land = ndimage.distance_transform_edt(~land)
+        source = sea & (from_land > buffer + 0.5)
+        if valid is not None:
+            source &= valid
+        if not source.any():
+            _coast[key] = None
+        else:
+            distance, (ri, ci) = ndimage.distance_transform_edt(~source, return_indices=True)
+            target = sea & ~source & (distance <= 2 * buffer + 1)
+            if valid is not None:
+                target &= valid
+            _coast[key] = (target, ri[target], ci[target])
+    found = _coast[key]
+    if found is not None:
+        target, ri, ci = found
+        for values in arrays:
+            values[target] = values[ri, ci]
+    return arrays
+
+
+def save_frame(path, speed, direction, gust, valid=None, coast=None):
+    """`coast`: (share, buffer_km, km_per_pixel) to fill the sea near the shore first."""
+    if coast is not None:
+        speed, direction, gust = (np.array(np.nan_to_num(a), dtype=np.float32) for a in (speed, direction, gust))
+        coast_fill([speed, direction, gust], *coast, valid=valid)
     speed = np.nan_to_num(speed)
     gust = np.maximum(np.nan_to_num(gust), speed)
     channels = [np.clip(np.rint(speed * 5), 0, 255),
