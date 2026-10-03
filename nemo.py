@@ -23,6 +23,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+import copernicus
 from water_map import WaterMap
 
 API = "https://avaandmed.keskkonnaportaal.ee/api/lists/active"
@@ -80,7 +81,8 @@ def coast_published(run):
                 # A water map from before its hours' ranges were written is made again.
                 frames = published.get("frames") or [{}]
                 if published.get("run") != wanted or (path.startswith("water") and
-                                                       ("levelRange" not in frames[0] or "gaugeDifferences" not in published)):
+                                                       ("levelRange" not in frames[0] or "gaugeDifferences" not in published
+                                                        or (copernicus.available() and "Copernicus" not in published.get("model", "")))):
                     return False
         return True
     except Exception:
