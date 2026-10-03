@@ -105,15 +105,19 @@ class WaterMap:
                                np.clip(np.rint(speed * 100), 0, 255),
                                np.mod(np.rint(towards * 256 / 360), 256)], axis=-1).astype(np.uint8)
             pixels[~self.water] = 0
+            frame = {"time": t, "file": f"{self.folder.name}/{t}.png"}
             if self.water.any():
                 levels = pixels[..., 0][self.water].astype(np.float32) - 128
                 temperatures = pixels[..., 1][self.water].astype(np.float32) / 8
+                # This hour's range, for colors stretched to the day on screen.
+                frame["levelRange"] = [float(levels.min()), float(levels.max())]
+                frame["temperatureRange"] = [round(float(temperatures.min()), 2), round(float(temperatures.max()), 2)]
                 self.level_range = [min(self.level_range[0], float(levels.min())), max(self.level_range[1], float(levels.max()))]
                 self.temperature_range = [min(self.temperature_range[0], float(temperatures.min())),
                                           max(self.temperature_range[1], float(temperatures.max()))]
             name = f"{t}.png"
             Image.fromarray(pixels, "RGBA").save(self.folder / name, optimize=True)
-            self.frames.append({"time": t, "file": f"{self.folder.name}/{name}"})
+            self.frames.append(frame)
 
     def finish(self):
         run_time = datetime.strptime(self.run, "%Y%m%d%H").replace(tzinfo=timezone.utc)

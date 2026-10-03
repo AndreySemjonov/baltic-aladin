@@ -77,8 +77,9 @@ def coast_published(run):
             with urllib.request.urlopen(urllib.request.Request(site + path, headers={"User-Agent": USER_AGENT}),
                                         timeout=60) as reply:
                 published = json.load(reply)
-                # A water map from before its run's ranges were written is made again.
-                if published.get("run") != wanted or (path.startswith("water") and "levelRange" not in published):
+                # A water map from before its hours' ranges were written is made again.
+                frames = published.get("frames") or [{}]
+                if published.get("run") != wanted or (path.startswith("water") and "levelRange" not in frames[0]):
                     return False
         return True
     except Exception:
