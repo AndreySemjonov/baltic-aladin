@@ -76,7 +76,9 @@ def coast_published(run):
         for path, wanted in (("nemo-coast.json", run), ("water/map.json", run_time)):
             with urllib.request.urlopen(urllib.request.Request(site + path, headers={"User-Agent": USER_AGENT}),
                                         timeout=60) as reply:
-                if json.load(reply).get("run") != wanted:
+                published = json.load(reply)
+                # A water map from before its run's ranges were written is made again.
+                if published.get("run") != wanted or (path.startswith("water") and "levelRange" not in published):
                     return False
         return True
     except Exception:
