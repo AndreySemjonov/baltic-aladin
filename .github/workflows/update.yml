@@ -164,7 +164,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "ALADIN $(python3 -c 'import json;print(json.load(open("docs/aladin.json"))["run"])'), MET Nordic $(python3 -c 'import json;print(json.load(open("docs/map-state.json"))["run"])'), runs $(python3 -c 'import json;print(json.load(open("docs/runs.json")))')"
           # Someone may have pushed while this ran: take their commits first.
-          git pull --rebase -q && git push
+          # On a clash over the same status files, this run's (newer) versions win.
+          git pull --rebase -X theirs -q && git push
 
       - name: Upload the site
         if: steps.due.outputs.deploy == 'true'
