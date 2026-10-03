@@ -207,3 +207,19 @@ from OpenStreetMap's land polygons (© OpenStreetMap contributors, ODbL). The wi
 the models' own: a step that replaced the sea near the shore with values from further out
 (`SEA_FILL` in maplib.py) is switched off, since it ended in a cliff at the shoreline where
 the models fall off gradually over a few km.
+
+## Water map
+
+[`water_map.py`](water_map.py) turns the same NEMO-EST files into map frames for Estonia and
+the Gulf of Riga (56.9-60.0°N, 21.5-28.4°E, 1.25 km pixels, hourly for 5 days):
+
+**https://andreysemjonov.github.io/baltic-aladin/water/map.json** (`"kind": "water"`)
+
+- red: sea level in cm + 128, shifted from the model's zero to the Estonian gauges' heights
+  (EH2000, the same as Latvia's LAS-2000,5) by the gauges' median difference to the model
+  (`levelOffset` in the manifest); 0 = no water there. `levelRange` and `temperatureRange`:
+  the run's lowest and highest values over the water, for colors stretched to the run.
+- green: water temperature °C × 8; blue: surface current m/s × 100; alpha: the current's
+  direction (towards) × 256/360.
+
+Source: Keskkonnaagentuur (Estonian Environment Agency) and TalTech, NEMO-EST, CC BY 4.0.
