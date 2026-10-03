@@ -59,6 +59,9 @@ class WaterMap:
         self.gauge_series = {name: {} for name in self.gauge_cells}
         self.offset = None
         self.frames = []
+        # The run's lowest and highest level and temperature over the water, for the app's colors.
+        self.level_range = [math.inf, -math.inf]
+        self.temperature_range = [math.inf, -math.inf]
         self.folder = OUT / datetime.strptime(run, "%Y%m%d%H").strftime("%Y%m%dT%HZ")
         self.folder.mkdir(parents=True, exist_ok=True)
         maplib.save_land(OUT / "land.png", share if share is not None else np.zeros(self.lat.shape))
@@ -102,6 +105,12 @@ class WaterMap:
                                np.clip(np.rint(speed * 100), 0, 255),
                                np.mod(np.rint(towards * 256 / 360), 256)], axis=-1).astype(np.uint8)
             pixels[~self.water] = 0
+            if self.water.any():
+                levels = pixels[..., 0][self.water].astype(np.float32) - 128
+                temperatures = pixels[..., 1][self.water].astype(np.float32) / 8
+                self.level_range = [min(self.level_range[0], float(levels.min())), max(self.level_range[1], float(levels.max()))]
+                self.temperature_range = [min(self.temperature_range[0], float(temperatures.min())),
+                                          max(self.temperature_range[1], float(temperatures.max()))]
             name = f"{t}.png"
             Image.fromarray(pixels, "RGBA").save(self.folder / name, optimize=True)
             self.frames.append({"time": t, "file": f"{self.folder.name}/{name}"})
@@ -113,6 +122,9 @@ class WaterMap:
                                          run_time, (SOUTH, NORTH, WEST, EAST), self.width, self.height, self.frames)
         manifest["kind"] = "water"
         manifest["levelOffset"] = self.offset
+        if math.isfinite(self.level_range[0]):
+            manifest["levelRange"] = [round(v, 1) for v in self.level_range]
+            manifest["temperatureRange"] = [round(v, 2) for v in self.temperature_range]
         manifest["encoding"] = {"red": "sea level cm + 128 (EH2000, the model shifted to the Estonian gauges); 0 = no water",
                                 "green": "water temperature degC x 8", "blue": "current speed m/s x 100",
                                 "alpha": "current direction (towards) degrees x 256/360"}
