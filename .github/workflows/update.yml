@@ -61,6 +61,13 @@ jobs:
           .venv/bin/python nemo.py || echo "NEMO unavailable this time"
           if git diff --quiet --exit-code docs/nemo.json 2>/dev/null && git ls-files --error-unmatch docs/nemo.json >/dev/null 2>&1; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
 
+      # The Estonian coastal gauges' last 48 hours, from their pages, once an hour.
+      - name: Read the Estonian gauges
+        id: gauges
+        run: |
+          .venv/bin/python ee_gauges.py || echo "Estonian gauges unavailable this time"
+          if git diff --quiet --exit-code docs/ee-gauges.json 2>/dev/null && git ls-files --error-unmatch docs/ee-gauges.json >/dev/null 2>&1; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
+
       # Pages replaces the whole site on each deploy, so every deploy carries all of it:
       # MET Nordic, HARM-FI and HARM-DK are rebuilt each time (new runs every 1-3 hours);
       # ALADIN, ICON-EU, ECMWF and GFS only for a new run, otherwise their published frames
@@ -71,6 +78,7 @@ jobs:
           FORCE: ${{ inputs.map }}
           NEW_ALADIN: ${{ steps.aladin.outputs.changed }}
           NEW_NEMO: ${{ steps.nemo.outputs.changed }}
+          NEW_GAUGES: ${{ steps.gauges.outputs.changed }}
         run: |
           nordic=$(python3 - <<'PY'
           import json, time
@@ -92,7 +100,7 @@ jobs:
             if [ -n "$newest" ] && { [ "$newest" != "$published" ] || [ "$FORCE" = "true" ]; }; then rebuild="$rebuild $name"; fi
           done
           deploy=false
-          if [ "$nordic" = "true" ] || [ -n "$rebuild" ] || [ "$NEW_ALADIN" = "true" ] || [ "$NEW_NEMO" = "true" ] || [ "$FORCE" = "true" ]; then deploy=true; fi
+          if [ "$nordic" = "true" ] || [ -n "$rebuild" ] || [ "$NEW_ALADIN" = "true" ] || [ "$NEW_NEMO" = "true" ] || [ "$NEW_GAUGES" = "true" ] || [ "$FORCE" = "true" ]; then deploy=true; fi
           echo "MET Nordic due: $nordic; new runs:$rebuild; deploy: $deploy"
           echo "rebuild=$rebuild" >> "$GITHUB_OUTPUT"
           echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
@@ -123,6 +131,7 @@ jobs:
           .venv/bin/python blend_map.py site || echo "Blend unavailable this time"
           cp docs/aladin.json docs/index.html site/
           if [ -f docs/nemo.json ]; then cp docs/nemo.json site/; fi
+          if [ -f docs/ee-gauges.json ]; then cp docs/ee-gauges.json site/; fi
           python3 - <<'PY'
           import json, os, time
           now = time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())
@@ -143,6 +152,7 @@ jobs:
           git rm -q --ignore-unmatch docs/icon-state.json
           git add docs/aladin.json docs/map-state.json docs/runs.json
           if [ -f docs/nemo.json ]; then git add docs/nemo.json; fi
+          if [ -f docs/ee-gauges.json ]; then git add docs/ee-gauges.json; fi
           if git diff --cached --quiet; then exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

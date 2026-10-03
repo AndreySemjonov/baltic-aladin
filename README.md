@@ -172,3 +172,25 @@ service's API, reads each spot's nearest sea cell (within 5 km) and publishes:
   Liepāja, Pāvilosta and Užava are outside.
 
 Source: Keskkonnaagentuur, NEMO-EST model data, CC BY 4.0.
+
+## Estonian coastal gauges
+
+The Estonian Environment Agency publishes only the current reading of its coastal gauges
+as a file; each gauge's page on ilmateenistus.ee carries its last 10 days in the charts.
+[`ee_gauges.py`](ee_gauges.py) reads those pages once an hour (one page every 10 seconds)
+and publishes the last 48 hours:
+
+**https://andreysemjonov.github.io/baltic-aladin/ee-gauges.json**
+
+```json
+{"made": "2026-10-03T07:00Z",
+ "gauges": {"Häädemeeste": {"start": 1790838000, "step": 3600,
+   "level": [26.0, …], "temperature": [13.5, …]}},
+ "failed": []}
+```
+
+- Gauges are named as in the agency's observations file. `level`: cm in EH2000;
+  `temperature`: water °C; hourly from `start` (Unix seconds, UTC).
+- `failed`: gauges not read this time; they keep their last hours.
+
+Source: Keskkonnaagentuur (Estonian Environment Agency), ilmateenistus.ee.
