@@ -8,7 +8,8 @@ by the Estonian gauges' median difference to the model over the hours both have
 (docs/ee-gauges.json), and the shift is written into the manifest.
 
 Frames: RGBA PNG, read as raw numbers (no colour management):
-    red   = level cm + 128 (1-255); 0 = no water here (land, or outside the model)
+    red   = level cm + 128 (1-255); 0 = outside the model (land holds its nearest sea value:
+            the app shows the colors through the coastline's sea only)
     green = water temperature °C x 8
     blue  = current speed m/s x 100
     alpha = current direction (towards) degrees x 256/360
@@ -49,7 +50,11 @@ class WaterMap:
         self.sample = maplib.regular_sampler(self.lat, self.lon, float(lats[0]), float(lons[0]),
                                              float(lats[1] - lats[0]), float(lons[1] - lons[0]), len(lons), len(lats))
         share = maplib.land_share(self.lat, self.lon)
-        self.water = self.sample.valid & (share < 0.5 if share is not None else True)
+        # Values everywhere inside the model, land too (each land cell holds its nearest sea value),
+        # so the app can cut the colors along the fine coastline instead of 1.25 km pixels;
+        # the ranges count only the sea.
+        self.inside = self.sample.valid
+        self.water = self.inside & (share < 0.5 if share is not None else True)
         # Model cells of the gauges, for the shift to the gauges' heights.
         self.gauge_cells = {}
         for name, (lat, lon) in GAUGES.items():
@@ -100,11 +105,11 @@ class WaterMap:
             speed = np.hypot(u, v)
             towards = np.mod(np.degrees(np.arctan2(u, v)), 360)
             red = np.clip(np.rint(level * 100 + self.offset + 128), 1, 255)
-            pixels = np.stack([np.where(self.water, red, 0),
+            pixels = np.stack([np.where(self.inside, red, 0),
                                np.clip(np.rint(temperature * 8), 0, 255),
                                np.clip(np.rint(speed * 100), 0, 255),
                                np.mod(np.rint(towards * 256 / 360), 256)], axis=-1).astype(np.uint8)
-            pixels[~self.water] = 0
+            pixels[~self.inside] = 0
             frame = {"time": t, "file": f"{self.folder.name}/{t}.png"}
             if self.water.any():
                 levels = pixels[..., 0][self.water].astype(np.float32) - 128
@@ -126,10 +131,11 @@ class WaterMap:
                                          run_time, (SOUTH, NORTH, WEST, EAST), self.width, self.height, self.frames)
         manifest["kind"] = "water"
         manifest["levelOffset"] = self.offset
+        manifest["landFilled"] = True
         if math.isfinite(self.level_range[0]):
             manifest["levelRange"] = [round(v, 1) for v in self.level_range]
             manifest["temperatureRange"] = [round(v, 2) for v in self.temperature_range]
-        manifest["encoding"] = {"red": "sea level cm + 128 (EH2000, the model shifted to the Estonian gauges); 0 = no water",
+        manifest["encoding"] = {"red": "sea level cm + 128 (EH2000, the model shifted to the Estonian gauges); 0 = outside the model; land holds its nearest sea value",
                                 "green": "water temperature degC x 8", "blue": "current speed m/s x 100",
                                 "alpha": "current direction (towards) degrees x 256/360"}
         (OUT / "map.json").write_text(json.dumps(manifest, separators=(",", ":")) + "\n", encoding="utf-8")

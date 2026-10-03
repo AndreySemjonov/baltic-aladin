@@ -79,7 +79,8 @@ def coast_published(run):
                 published = json.load(reply)
                 # A water map from before its hours' ranges were written is made again.
                 frames = published.get("frames") or [{}]
-                if published.get("run") != wanted or (path.startswith("water") and "levelRange" not in frames[0]):
+                if published.get("run") != wanted or (path.startswith("water") and
+                                                       ("levelRange" not in frames[0] or not published.get("landFilled"))):
                     return False
         return True
     except Exception:
