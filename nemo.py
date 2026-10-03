@@ -66,6 +66,16 @@ def download(item, path):
             out.write(chunk)
 
 
+def coast_published(run):
+    """Whether the live site has this run's coast points (they aren't kept in git)."""
+    url = "https://andreysemjonov.github.io/baltic-aladin/nemo-coast.json"
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}), timeout=60) as reply:
+            return json.load(reply).get("run") == run
+    except Exception:
+        return False
+
+
 def sea_cell(lat, lon, lats, lons, sea):
     """The nearest sea cell within REACH_KM of a spot, or None."""
     j0, i0 = int(np.abs(lats - lat).argmin()), int(np.abs(lons - lon).argmin())
@@ -91,7 +101,7 @@ def main():
         published = json.loads(OUTPUT.read_text(encoding="utf-8")).get("run")
     except (OSError, ValueError):
         published = None
-    if run == published and not force:
+    if run == published and not force and coast_published(run):
         print(f"NEMO {run} already published")
         return
     spots = json.loads((HERE / "spots.json").read_text(encoding="utf-8"))
