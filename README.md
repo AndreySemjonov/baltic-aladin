@@ -209,3 +209,18 @@ by [`build_coast.py`](build_coast.py) from OpenStreetMap's land polygons
 land (1.5 km for MET Nordic, 3 km for HARM-DK, 25 km for ECMWF and GFS) take the value of
 the nearest sea pixel further out, so the sea wind reaches the real shoreline; land pixels
 keep theirs. The maps' `land.png` (the app's paler land) follows the same coastline.
+
+## Water map
+
+[`water_map.py`](water_map.py) turns the same NEMO-EST files into map frames for Estonia and
+the Gulf of Riga (56.9-60.0°N, 21.5-28.4°E, 1.25 km pixels, hourly for 5 days):
+
+**https://andreysemjonov.github.io/baltic-aladin/water/map.json** (`"kind": "water"`)
+
+- red: sea level in cm + 128, shifted from the model's zero to the Estonian gauges' heights
+  (EH2000, the same as Latvia's LAS-2000,5) by the gauges' median difference to the model
+  (`levelOffset` in the manifest); 0 = no water there.
+- green: water temperature °C × 8; blue: surface current m/s × 100; alpha: the current's
+  direction (towards) × 256/360.
+
+Source: Keskkonnaagentuur (Estonian Environment Agency) and TalTech, NEMO-EST, CC BY 4.0.

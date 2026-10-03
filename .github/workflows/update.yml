@@ -132,6 +132,8 @@ jobs:
           .venv/bin/python blend_map.py site || echo "Blend unavailable this time"
           cp docs/aladin.json docs/index.html site/
           if [ -f docs/nemo.json ]; then cp docs/nemo.json site/; fi
+          # The water map (NEMO-EST): this run's frames, else the published ones.
+          if [ -d water-site ]; then cp -r water-site site/water; else .venv/bin/python carry.py site/water water || echo "Water map unavailable this time"; fi
           # The coast points (about 1 MB, not in git): this run's, else the live ones.
           if [ -f nemo-coast.json ]; then cp nemo-coast.json site/; else curl -sf -o site/nemo-coast.json https://andreysemjonov.github.io/baltic-aladin/nemo-coast.json || echo "No NEMO coast points yet"; fi
           if [ -f docs/ee-gauges.json ]; then cp docs/ee-gauges.json site/; fi

@@ -23,6 +23,8 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from water_map import WaterMap
+
 API = "https://avaandmed.keskkonnaportaal.ee/api/lists/active"
 NEMO = "0102FB02"  # the API's content type of the NEMO files
 HERE = Path(__file__).parent
@@ -67,11 +69,16 @@ def download(item, path):
 
 
 def coast_published(run):
-    """Whether the live site has this run's coast points (they aren't kept in git)."""
-    url = "https://andreysemjonov.github.io/baltic-aladin/nemo-coast.json"
+    """Whether the live site has this run's coast points and water map (they aren't kept in git)."""
+    site = "https://andreysemjonov.github.io/baltic-aladin/"
+    run_time = datetime.strptime(run, "%Y%m%d%H").strftime("%Y-%m-%dT%H:%MZ")
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}), timeout=60) as reply:
-            return json.load(reply).get("run") == run
+        for path, wanted in (("nemo-coast.json", run), ("water/map.json", run_time)):
+            with urllib.request.urlopen(urllib.request.Request(site + path, headers={"User-Agent": USER_AGENT}),
+                                        timeout=60) as reply:
+                if json.load(reply).get("run") != wanted:
+                    return False
+        return True
     except Exception:
         return False
 
@@ -106,6 +113,7 @@ def main():
         return
     spots = json.loads((HERE / "spots.json").read_text(encoding="utf-8"))
     times, cells = [], {}
+    water = None
     coast_cells, coast_level, coast_temperature = None, [], []
     series = {spot["id"]: {"level": [], "temperature": []} for spot in spots}
     with tempfile.TemporaryDirectory() as folder:
@@ -126,8 +134,11 @@ def main():
                     rows, columns = np.nonzero(near_land)
                     keep = (rows % COAST_STEP == 0) & (columns % COAST_STEP == 0)
                     coast_cells = (rows[keep], columns[keep])
+                    water = WaterMap(run, lats, lons, sea, sea_cell)
                 base = datetime(1800, 1, 1, tzinfo=timezone.utc)
-                times += [int((base + timedelta(seconds=float(t))).timestamp()) for t in f["time_counter"][:]]
+                file_times = [int((base + timedelta(seconds=float(t))).timestamp()) for t in f["time_counter"][:]]
+                times += file_times
+                water.add_file(file_times, f)
                 ssh, sst = f["SSH"], f["SST"]
                 # Whole fields per hour, then the coast points (reading point by point is slow).
                 for k in range(ssh.shape[0]):
@@ -165,6 +176,8 @@ def main():
              "temperature": [list(x) for x in zip(*coast_temperature)]}
     COAST_OUTPUT.write_text(json.dumps(coast, separators=(",", ":")) + "\n", encoding="utf-8")
     print(f"NEMO coast: {len(coast['points'])} points, {COAST_OUTPUT.stat().st_size / 1e6:.1f} MB")
+    if water:
+        water.finish()
     print(f"NEMO {run}: {len(times)} hours, {len(out['spots'])} spots, outside {out['outside']}")
 
 
