@@ -112,7 +112,8 @@ jobs:
           NEW_ALADIN: ${{ steps.aladin.outputs.changed }}
           FORCE: ${{ inputs.map }}
         run: |
-          .venv/bin/python metnordic_map.py site/map
+          # MET Norway's server sometimes drops the connection: keep the last map then.
+          .venv/bin/python metnordic_map.py site/map || .venv/bin/python carry.py site/map map || echo "MET Nordic map unavailable this time"
           # A busy source keeps its last published map rather than failing the deploy.
           .venv/bin/python harmonie_map.py site/harmonie || .venv/bin/python carry.py site/harmonie harmonie || echo "HARM-FI map unavailable this time"
           .venv/bin/python dmi_map.py site/harm-dk || .venv/bin/python carry.py site/harm-dk harm-dk || echo "HARM-DK map unavailable this time"
@@ -135,8 +136,9 @@ jobs:
           python3 - <<'PY'
           import json, os, time
           now = time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())
-          m = json.load(open("site/map/map.json"))
-          json.dump({"built": now, "run": m["run"], "frames": len(m["frames"])}, open("docs/map-state.json", "w"))
+          if os.path.exists("site/map/map.json"):
+              m = json.load(open("site/map/map.json"))
+              json.dump({"built": now, "run": m["run"], "frames": len(m["frames"])}, open("docs/map-state.json", "w"))
           runs = {}
           for name in ("icon-eu", "ecmwf", "gfs"):
               path = f"site/{name}/map.json"
