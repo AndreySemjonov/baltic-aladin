@@ -39,10 +39,10 @@ jobs:
       - name: Check out
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Install ecCodes, NumPy, Pillow and h5py
+      - name: Install ecCodes, NumPy, Pillow, h5py and SciPy
         run: |
           python3 -m venv .venv
-          .venv/bin/pip install --quiet eccodes numpy pillow h5py
+          .venv/bin/pip install --quiet eccodes numpy pillow h5py scipy
 
       - name: Read the newest ALADIN run
         id: aladin

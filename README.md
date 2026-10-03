@@ -194,3 +194,14 @@ and publishes the last 48 hours:
 - `failed`: gauges not read this time; they keep their last hours.
 
 Source: Keskkonnaagentuur (Estonian Environment Agency), ilmateenistus.ee.
+
+## The coast
+
+A model knows land and sea only per grid cell (1–25 km), so near the shore its weak land
+wind leaks out over the sea in squares. The regional maps and the blend therefore use a
+fine coastline: [`coast.png`](coast.png), a land mask of their box at about 250 m made once
+by [`build_coast.py`](build_coast.py) from OpenStreetMap's land polygons
+(© OpenStreetMap contributors, ODbL). Sea pixels within about 1.5 grid cells of the
+land (1.5 km for MET Nordic, 3 km for HARM-DK, 25 km for ECMWF and GFS) take the value of
+the nearest sea pixel further out, so the sea wind reaches the real shoreline; land pixels
+keep theirs. The maps' `land.png` (the app's paler land) follows the same coastline.
