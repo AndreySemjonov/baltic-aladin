@@ -80,7 +80,7 @@ def coast_published(run):
                 # A water map from before its hours' ranges were written is made again.
                 frames = published.get("frames") or [{}]
                 if published.get("run") != wanted or (path.startswith("water") and
-                                                       ("levelRange" not in frames[0] or not published.get("landFilled"))):
+                                                       ("levelRange" not in frames[0] or "gaugeDifferences" not in published)):
                     return False
         return True
     except Exception:

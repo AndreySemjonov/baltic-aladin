@@ -210,17 +210,27 @@ the models fall off gradually over a few km.
 
 ## Water map
 
-[`water_map.py`](water_map.py) turns the same NEMO-EST files into map frames for Estonia and
-the Gulf of Riga (56.9-60.0°N, 21.5-28.4°E, 1.25 km pixels, hourly for 5 days):
+[`water_map.py`](water_map.py) makes map frames of sea level, water temperature and the
+surface current for Lithuania, Latvia and Estonia (the regional maps' box, 1.25 km pixels,
+hourly for the NEMO-EST run's 5 days):
 
 **https://andreysemjonov.github.io/baltic-aladin/water/map.json** (`"kind": "water"`)
 
-- red: sea level in cm + 128, shifted from the model's zero to the Estonian gauges' heights
-  (EH2000, the same as Latvia's LAS-2000,5) by the gauges' median difference to the model
-  (`levelOffset` in the manifest); 0 = no water there. `levelRange` and `temperatureRange`:
-  the run's lowest and highest values over the water; each frame has its own hour's
-  `levelRange` and `temperatureRange` too, for colors stretched to the day on screen.
-- green: water temperature °C × 8; blue: surface current m/s × 100; alpha: the current's
-  direction (towards) × 256/360.
+- **Models:** NEMO-EST (about 1 km) in Estonia and the Gulf of Riga, the Copernicus Marine
+  Baltic model (about 1.7 km, [`copernicus.py`](copernicus.py)) elsewhere, crossfaded over
+  20 km inside NEMO's edge. Copernicus needs a free Copernicus Marine account; the workflow
+  reads it from the secrets `COPERNICUSMARINE_SERVICE_USERNAME` and
+  `COPERNICUSMARINE_SERVICE_PASSWORD`. Without them the map is NEMO-EST only.
+- **Heights:** each model is shifted to the gauges (`levelOffset`, `copernicusOffset`), and
+  what is left at each gauge (`gaugeDifferences`, cm) nudges the map nearby, fading out over
+  about 25 km. Levels are cm on EH2000 = LAS-2000,5.
+- red: level + 128 (0 = outside the models; land holds its nearest sea value), green: water
+  temperature × 8, blue: current m/s × 100, alpha: current direction (towards) × 256/360.
+  Each frame and the manifest carry `levelRange` and `temperatureRange`.
 
-Source: Keskkonnaagentuur (Estonian Environment Agency) and TalTech, NEMO-EST, CC BY 4.0.
+**https://andreysemjonov.github.io/baltic-aladin/gauges.json**: the Estonian and Latvian coastal
+gauges' last 48 hours on one height system ([`gauges.py`](gauges.py); the Latvian gauges,
+LVĢMC open data CC0, corrected from each gauge's own zero to LAS-2000,5).
+
+Sources: Keskkonnaagentuur (Estonian Environment Agency) and TalTech, NEMO-EST, CC BY 4.0;
+E.U. Copernicus Marine Service Information; LVĢMC (data.gov.lv, CC0).

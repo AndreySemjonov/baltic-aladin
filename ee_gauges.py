@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import gauges as all_gauges
+
 HERE = Path(__file__).parent
 OUTPUT = HERE / "docs" / "ee-gauges.json"
 USER_AGENT = "baltic-aladin (https://github.com/AndreySemjonov/baltic-aladin)"
@@ -119,6 +121,8 @@ def main():
            "units": {"level": "cm, EH2000", "temperature": "degC"},
            "gauges": gauges, "failed": failed}
     OUTPUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
+    # With the Latvian gauges, all in one file (the app's gauge pins, the water map's nudge).
+    all_gauges.write(gauges, now)
     newest = max((g["start"] + 3600 * (len(g["level"]) - 1) for g in gauges.values()), default=None)
     print(f"Estonian gauges: {len(gauges)} read, failed {failed}, newest hour "
           f"{datetime.fromtimestamp(newest, timezone.utc):%Y-%m-%d %H:%M}Z" if newest else "Estonian gauges: none")

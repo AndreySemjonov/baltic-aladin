@@ -39,10 +39,10 @@ jobs:
       - name: Check out
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Install ecCodes, NumPy, Pillow, h5py and SciPy
+      - name: Install ecCodes, NumPy, Pillow, h5py, SciPy and the Copernicus Marine toolbox
         run: |
           python3 -m venv .venv
-          .venv/bin/pip install --quiet eccodes numpy pillow h5py scipy
+          .venv/bin/pip install --quiet eccodes numpy pillow h5py scipy copernicusmarine
 
       - name: Read the newest ALADIN run
         id: aladin
@@ -57,6 +57,10 @@ jobs:
       # NEMO-EST (Estonian sea model): water level and temperature at the spots, twice a day.
       - name: Read the newest NEMO run
         id: nemo
+        env:
+          # The Copernicus Baltic model for the water map's coasts outside NEMO (free account).
+          COPERNICUSMARINE_SERVICE_USERNAME: ${{ secrets.COPERNICUSMARINE_SERVICE_USERNAME }}
+          COPERNICUSMARINE_SERVICE_PASSWORD: ${{ secrets.COPERNICUSMARINE_SERVICE_PASSWORD }}
         run: |
           .venv/bin/python nemo.py || echo "NEMO unavailable this time"
           if git diff --quiet --exit-code docs/nemo.json 2>/dev/null && git ls-files --error-unmatch docs/nemo.json >/dev/null 2>&1; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
@@ -137,6 +141,7 @@ jobs:
           # The coast points (about 1 MB, not in git): this run's, else the live ones.
           if [ -f nemo-coast.json ]; then cp nemo-coast.json site/; else curl -sf -o site/nemo-coast.json https://andreysemjonov.github.io/baltic-aladin/nemo-coast.json || echo "No NEMO coast points yet"; fi
           if [ -f docs/ee-gauges.json ]; then cp docs/ee-gauges.json site/; fi
+          if [ -f docs/gauges.json ]; then cp docs/gauges.json site/; fi
           python3 - <<'PY'
           import json, os, time
           now = time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())
@@ -159,6 +164,7 @@ jobs:
           git add docs/aladin.json docs/map-state.json docs/runs.json
           if [ -f docs/nemo.json ]; then git add docs/nemo.json; fi
           if [ -f docs/ee-gauges.json ]; then git add docs/ee-gauges.json; fi
+          if [ -f docs/gauges.json ]; then git add docs/gauges.json; fi
           if git diff --cached --quiet; then exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
