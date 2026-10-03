@@ -25,14 +25,16 @@ from PIL import Image
 
 SOURCE = "https://thredds.met.no/thredds/dodsC/metpplatest/met_forecast_1_0km_nordic_latest.nc"
 USER_AGENT = "baltic-aladin (https://github.com/AndreySemjonov/baltic-aladin)"
-# Latvian coast, Gulf of Riga and western Estonia.
-SOUTH, NORTH, WEST, EAST = 55.6, 59.1, 20.4, 25.4
+# Lithuania, Latvia and Estonia with their coasts and the Gulf of Finland (until 3.10.2026 the
+# Latvian coast, Gulf of Riga and western Estonia: 55.6-59.1°N, 20.4-25.4°E at 1 km).
+SOUTH, NORTH, WEST, EAST = 53.8, 60.0, 20.0, 28.4
 # MET Nordic's grid: +proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +R=6371000
 R = 6371000.0
 LAT0 = LAT1 = math.radians(63.0)
 LON0 = math.radians(15.0)
 X0, Y0, STEP = -897442.2, -1104322.0, 1000.0
-KM_PER_PIXEL = 1.0
+# 1.25 km pixels keep a frame near 100 KB over the larger area.
+KM_PER_PIXEL = 1.25
 EARTH_WEB = 6378137.0  # Web Mercator sphere
 
 

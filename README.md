@@ -3,13 +3,13 @@
 Open weather-model wind for Baltic kite spots, prepared for a phone app:
 
 - **ALADIN 2.3 km** (ČHMÚ) read at each kite spot, as one small JSON file.
-- **A wind map** of the Latvian coast, Gulf of Riga and western Estonia from
+- **A wind map** of Lithuania, Latvia and Estonia from
   **MET Nordic 1 km** (MET Norway): one small image per hour for the next ~58 hours.
-- **More maps of the Latvian coast:** **HARM-DK 2 km** (DMI, 60 hours), **HARMONIE
+- **More maps of the same area:** **HARM-DK 2 km** (DMI, 60 hours), **HARMONIE
   2.5 km** (FMI, ~66 hours) and **ALADIN 2.3 km** (ČHMÚ, 72 hours, up to about 57.0°N).
 - **Wind maps of the whole Baltic** from **ICON-EU 7 km** (DWD, 5 days), **ECMWF 0.25°**
   (15 days) and **GFS 0.25°** (NOAA, 16 days).
-- **A blend** of all of them for the Latvian coast, 10 days.
+- **A blend** of all of them for Lithuania, Latvia and Estonia, 10 days.
 - **Water level and water temperature** at the spots from **NEMO-EST** (Estonian
   Environment Agency and TalTech, about 1 km, 5 days, twice a day).
 
@@ -43,7 +43,7 @@ Run it yourself: `pip install eccodes`, then `python extract.py` (newest run) or
 ## Wind map
 
 **https://andreysemjonov.github.io/baltic-aladin/map/map.json** lists the frames of
-the newest MET Nordic run (rebuilt every 3 hours): 55.6-59.1°N, 20.4-25.4°E,
+the newest MET Nordic run (rebuilt every 3 hours): 53.8-60.0°N, 20.0-28.4°E (1.25 km pixels),
 about 1 km per pixel, 300 x 390 pixels, in Web Mercator (the projection of web and
 phone maps), so an image lines up with a map by its bounds. Each PNG pixel stores
 the wind: red = speed m/s x 5, green = direction (from) x 256/360, blue = gust m/s
