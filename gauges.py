@@ -1,7 +1,7 @@
 """The coastal water level gauges of Estonia and Latvia in one file, docs/gauges.json: each
-gauge's place and its last 48 hours, level in cm on one height system (EH2000 = LAS-2000,5,
-both on EVRF2007) and water temperature. For the app's gauge pins on the water map and for
-nudging the water map towards the measurements.
+gauge's place and its last 7 days, level in cm on one height system (EH2000 = LAS-2000,5,
+both on EVRF2007) and water temperature. For the app's gauge pins and charts on the water
+map and for nudging the water map towards the measurements (its last 48 hours only).
 
 Estonia: the Estonian Environment Agency, read from the gauges' pages (ee_gauges.py).
 Latvia: LVĢMC's hourly hydrological data on data.gov.lv (CC0). LVĢMC counts each gauge from
@@ -19,6 +19,10 @@ OUTPUT = HERE / "docs" / "gauges.json"
 USER_AGENT = "baltic-aladin (https://github.com/AndreySemjonov/baltic-aladin)"
 LATVIA_DATA = "https://data.gov.lv/dati/api/3/action/datastore_search"
 LATVIA_RESOURCE = "de5f06e9-6f44-497d-8ec2-72a2483608e8"
+# LVĢMC's file has the last 48 hours; each run adds them to the hours kept in gauges.json.
+KEEP_HOURS = 7 * 24
+# The water map's nudge looks at the last 48 hours only, as before the history grew.
+NUDGE_HOURS = 48
 
 # name -> (latitude, longitude), as in the agency's observations file.
 ESTONIA = {
@@ -57,6 +61,21 @@ def latvia(gauge, correction):
     return hours
 
 
+def hours_of(gauge):
+    """{unix hour: [level, temperature]} from a gauge's series in a file (empty without one)."""
+    if not gauge:
+        return {}
+    start, step = gauge["start"], gauge["step"]
+    levels, temperatures = gauge.get("level") or [], gauge.get("temperature") or []
+    hours = {}
+    for k in range(max(len(levels), len(temperatures))):
+        level = levels[k] if k < len(levels) else None
+        temperature = temperatures[k] if k < len(temperatures) else None
+        if level is not None or temperature is not None:
+            hours[int(start + k * step)] = [level, temperature]
+    return hours
+
+
 def series(hours):
     first, last = min(hours), max(hours)
     times = range(first, last + 1, 3600)
@@ -67,6 +86,11 @@ def series(hours):
 
 def write(estonia, now):
     """All gauges into docs/gauges.json: Estonia's from `estonia` (ee-gauges' "gauges"), Latvia's read now."""
+    try:
+        old = {g["id"]: g for g in json.loads(OUTPUT.read_text(encoding="utf-8"))["gauges"]}
+    except (OSError, ValueError, KeyError):
+        old = {}
+    cutoff = now.timestamp() - KEEP_HOURS * 3600
     gauges = []
     for name, (lat, lon) in ESTONIA.items():
         if name in estonia:
@@ -74,10 +98,13 @@ def write(estonia, now):
                            "lat": lat, "lon": lon, **estonia[name]})
     for gauge, (name, lat, lon, correction) in LATVIA.items():
         try:
-            hours = latvia(gauge, correction)
-        except Exception as error:  # a gauge failing is left out this time
+            fresh = latvia(gauge, correction)
+        except Exception as error:  # a gauge failing keeps the hours it had
             print(f"{name}: {error}")
-            continue
+            fresh = {}
+        hours = hours_of(old.get(gauge))
+        hours.update(fresh)
+        hours = {t: v for t, v in hours.items() if t >= cutoff}
         if hours:
             gauges.append({"id": gauge, "name": name, "country": "LV", "lat": lat, "lon": lon, "correction": correction,
                            **series(hours)})
@@ -91,11 +118,13 @@ def write(estonia, now):
 
 
 def load():
-    """docs/gauges.json's gauges with {unix hour: level} added as "levels"."""
+    """docs/gauges.json's gauges with {unix hour: level} of their last 48 hours added as "levels"."""
     try:
         gauges = json.loads(OUTPUT.read_text(encoding="utf-8"))["gauges"]
     except (OSError, ValueError, KeyError):
         return []
     for gauge in gauges:
-        gauge["levels"] = {int(gauge["start"] + k * gauge["step"]): v for k, v in enumerate(gauge["level"]) if v is not None}
+        levels = {int(gauge["start"] + k * gauge["step"]): v for k, v in enumerate(gauge["level"]) if v is not None}
+        newest = max(levels, default=0)
+        gauge["levels"] = {t: v for t, v in levels.items() if t > newest - NUDGE_HOURS * 3600}
     return gauges

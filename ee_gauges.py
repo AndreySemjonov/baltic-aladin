@@ -1,7 +1,8 @@
-"""The last 48 hours of the Estonian coastal gauges: sea level (EH2000, cm) and water
+"""The last 7 days of the Estonian coastal gauges: sea level (EH2000, cm) and water
 temperature (°C), hour by hour, from each gauge's page on ilmateenistus.ee (Estonian
-Environment Agency), whose charts carry 10 days. Writes docs/ee-gauges.json, at most
-once an hour (the pages change hourly).
+Environment Agency), whose charts carry 10 days. Each run adds to the hours it kept, so a
+page that fails keeps its history. Writes docs/ee-gauges.json, at most once an hour (the
+pages change hourly).
 
     python ee_gauges.py           # only if the file is older than 50 minutes
     python ee_gauges.py --force
@@ -23,7 +24,7 @@ OUTPUT = HERE / "docs" / "ee-gauges.json"
 USER_AGENT = "baltic-aladin (https://github.com/AndreySemjonov/baltic-aladin)"
 PAGE = "https://www.ilmateenistus.ee/meri/vaatlusandmed/{}/"
 TALLINN = ZoneInfo("Europe/Tallinn")
-KEEP_HOURS = 48
+KEEP_HOURS = 7 * 24
 # The site answers "429 Too Many Requests" after a handful of quick page loads: one page
 # every 10 seconds, and on a 429 the rest keep their last hours until the next run.
 PAUSE = 10
@@ -105,11 +106,18 @@ def main():
                 slowed = error.code == 429
             except Exception as error:  # one gauge failing keeps its last hours
                 print(f"{name}: {error}")
-        hours = {t: v for t, v in hours.items() if t >= cutoff}
         if not hours:
             failed.append(name)
-            if name in (old.get("gauges") or {}):
-                gauges[name] = old["gauges"][name]
+        # The hours kept from earlier runs, the page's hours over them.
+        kept = all_gauges.hours_of((old.get("gauges") or {}).get(name))
+        for t, (level, temperature) in hours.items():
+            values = kept.setdefault(t, [None, None])
+            if level is not None:
+                values[0] = level
+            if temperature is not None:
+                values[1] = temperature
+        hours = {t: v for t, v in kept.items() if t >= cutoff}
+        if not hours:
             continue
         first, last = min(hours), max(hours)
         times = range(first, last + 1, 3600)
