@@ -43,8 +43,8 @@ Run it yourself: `pip install eccodes`, then `python extract.py` (newest run) or
 ## Wind map
 
 **https://andreysemjonov.github.io/baltic-aladin/map/map.json** lists the frames of
-the newest MET Nordic run (rebuilt every 3 hours): 53.8-60.0°N, 20.0-28.4°E (1.25 km pixels),
-about 1 km per pixel, 300 x 390 pixels, in Web Mercator (the projection of web and
+the newest MET Nordic run (rebuilt for each new run, hourly): 53.8-61.0°N, 16.5-28.5°E
+(1.25 km pixels, 576 x 644), in Web Mercator (the projection of web and
 phone maps), so an image lines up with a map by its bounds. Each PNG pixel stores
 the wind: red = speed m/s x 5, green = direction (from) x 256/360, blue = gust m/s
 x 5. About 70 KB per hour. `land.png` (same pixels, grayscale) is the land fraction x

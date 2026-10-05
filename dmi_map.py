@@ -10,6 +10,7 @@ DMI's direction is relative to true north (its u/v components are relative to th
 Same box, pixels and land mask as the MET Nordic map; format in maplib.py.
 
     python dmi_map.py site/harm-dk
+    python dmi_map.py --check                    print the newest complete run (YYYYMMDDHH)
 """
 import json
 import struct
@@ -152,6 +153,9 @@ def rows(url, info, r0, r1):
 
 
 def main():
+    if sys.argv[1:] == ["--check"]:
+        print(newest_run()[0].strftime("%Y%m%d%H"))
+        return
     out = Path(sys.argv[1] if len(sys.argv) > 1 else "site/harm-dk")
     run, files = newest_run()
     (lat, lon), width, height = maplib.output_grid(SOUTH, NORTH, WEST, EAST, metnordic_map.KM_PER_PIXEL)

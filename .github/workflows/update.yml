@@ -7,7 +7,8 @@ on:
     # hour, HARMONIE every 3, ICON-EU and GFS every 6, ECMWF every 12. Every 15 minutes, off
     # the full hour: GitHub skips many scheduled runs when busy (an hourly schedule ran only
     # about 4 times a day, an ALADIN run late by hours), and a run with nothing new stops
-    # after the check.
+    # after the check. Since 6.10.2026 a Cloudflare Worker also starts it (workflow_dispatch)
+    # whenever no run is going, checked every 5 minutes; this schedule is the fallback.
     - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
     inputs:
@@ -72,10 +73,11 @@ jobs:
           .venv/bin/python ee_gauges.py || echo "Estonian gauges unavailable this time"
           if git diff --quiet --exit-code docs/ee-gauges.json 2>/dev/null && git ls-files --error-unmatch docs/ee-gauges.json >/dev/null 2>&1; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
 
-      # Pages replaces the whole site on each deploy, so every deploy carries all of it:
-      # MET Nordic, HARM-FI and HARM-DK are rebuilt each time (new runs every 1-3 hours);
-      # ALADIN, ICON-EU, ECMWF, GFS and the EWAM waves only for a new run, otherwise their published frames
-      # are copied over. The blend is mixed from whatever maps the site then holds.
+      # Pages replaces the whole site on each deploy, so every deploy carries all of it: each map is
+      # rebuilt only for a new run of its model (MET Nordic and the rain every hour, HARM-FI and
+      # HARM-DK every 3 hours, ALADIN, ICON-EU and GFS 4 times a day, ECMWF and the EWAM waves
+      # twice), otherwise its published frames are copied over. The blend is mixed again when any
+      # wind map is new. A run with nothing new stops here in about two minutes.
       - name: What is due?
         id: due
         env:
@@ -84,19 +86,8 @@ jobs:
           NEW_NEMO: ${{ steps.nemo.outputs.changed }}
           NEW_GAUGES: ${{ steps.gauges.outputs.changed }}
         run: |
-          nordic=$(python3 - <<'PY'
-          import json, time
-          from datetime import datetime
-          try:
-              built = json.load(open("docs/map-state.json"))["built"]
-              age = time.time() - datetime.strptime(built, "%Y-%m-%dT%H:%MZ").timestamp()
-          except Exception:
-              age = 1e9
-          print("true" if age >= 3 * 3600 - 600 else "false")
-          PY
-          )
           rebuild=""
-          for pair in icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py waves:wave_map.py; do
+          for pair in map:metnordic_map.py rain:rain_map.py harmonie:harmonie_map.py harm-dk:dmi_map.py icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py waves:wave_map.py; do
             name=${pair%%:*}; script=${pair##*:}
             newest=$(.venv/bin/python $script --check || echo "")
             published=$(python3 -c "import json; print(json.load(open('docs/runs.json')).get('$name', ''))" 2>/dev/null || echo "")
@@ -104,8 +95,8 @@ jobs:
             if [ -n "$newest" ] && { [ "$newest" != "$published" ] || [ "$FORCE" = "true" ]; }; then rebuild="$rebuild $name"; fi
           done
           deploy=false
-          if [ "$nordic" = "true" ] || [ -n "$rebuild" ] || [ "$NEW_ALADIN" = "true" ] || [ "$NEW_NEMO" = "true" ] || [ "$NEW_GAUGES" = "true" ] || [ "$FORCE" = "true" ]; then deploy=true; fi
-          echo "MET Nordic due: $nordic; new runs:$rebuild; deploy: $deploy"
+          if [ -n "$rebuild" ] || [ "$NEW_ALADIN" = "true" ] || [ "$NEW_NEMO" = "true" ] || [ "$NEW_GAUGES" = "true" ] || [ "$FORCE" = "true" ]; then deploy=true; fi
+          echo "New runs:$rebuild; ALADIN new: $NEW_ALADIN; deploy: $deploy"
           echo "rebuild=$rebuild" >> "$GITHUB_OUTPUT"
           echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
 
@@ -116,26 +107,29 @@ jobs:
           NEW_ALADIN: ${{ steps.aladin.outputs.changed }}
           FORCE: ${{ inputs.map }}
         run: |
-          # MET Norway's server sometimes drops the connection: keep the last map then.
-          .venv/bin/python metnordic_map.py site/map || .venv/bin/python carry.py site/map map || echo "MET Nordic map unavailable this time"
-          # Rain (MET Nordic precipitation, the app adds the radar before now), rebuilt with it.
-          .venv/bin/python rain_map.py site/rain || .venv/bin/python carry.py site/rain rain || echo "Rain map unavailable this time"
-          # A busy source keeps its last published map rather than failing the deploy.
-          .venv/bin/python harmonie_map.py site/harmonie || .venv/bin/python carry.py site/harmonie harmonie || echo "HARM-FI map unavailable this time"
-          .venv/bin/python dmi_map.py site/harm-dk || .venv/bin/python carry.py site/harm-dk harm-dk || echo "HARM-DK map unavailable this time"
-          if [ "$NEW_ALADIN" = "true" ] && [ -f aladin-files/run.txt ]; then
-            .venv/bin/python aladin_map.py site/aladin aladin-files
-          elif [ "$FORCE" = "true" ] || ! .venv/bin/python carry.py site/aladin aladin; then
-            .venv/bin/python aladin_map.py site/aladin || echo "ALADIN map unavailable this time"
-          fi
-          for pair in icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py waves:wave_map.py; do
+          # A new run is built (a busy source keeps its last published map rather than failing
+          # the deploy); otherwise the published frames are copied (built if that fails). Rain is
+          # MET Nordic's precipitation; the app adds the radar before now.
+          for pair in map:metnordic_map.py rain:rain_map.py harmonie:harmonie_map.py harm-dk:dmi_map.py icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py waves:wave_map.py; do
             name=${pair%%:*}; script=${pair##*:}
             case " $REBUILD " in
               *" $name "*) .venv/bin/python $script site/$name || .venv/bin/python carry.py site/$name $name || echo "$name map unavailable this time" ;;
               *) .venv/bin/python carry.py site/$name $name || .venv/bin/python $script site/$name || echo "$name map unavailable this time" ;;
             esac
           done
-          .venv/bin/python blend_map.py site || echo "Blend unavailable this time"
+          if [ "$NEW_ALADIN" = "true" ] && [ -f aladin-files/run.txt ]; then
+            .venv/bin/python aladin_map.py site/aladin aladin-files
+          elif [ "$FORCE" = "true" ] || ! .venv/bin/python carry.py site/aladin aladin; then
+            .venv/bin/python aladin_map.py site/aladin || echo "ALADIN map unavailable this time"
+          fi
+          # The blend: mixed again when a wind map is new, else the published one.
+          case " $REBUILD " in
+            *" map "*|*" harmonie "*|*" harm-dk "*|*" icon-eu "*|*" ecmwf "*|*" gfs "*) mix=true ;;
+            *) mix=$NEW_ALADIN ;;
+          esac
+          if [ "$mix" = "true" ] || [ "$FORCE" = "true" ] || ! .venv/bin/python carry.py site/blend blend; then
+            .venv/bin/python blend_map.py site || .venv/bin/python carry.py site/blend blend || echo "Blend unavailable this time"
+          fi
           cp docs/aladin.json docs/index.html site/
           if [ -f docs/nemo.json ]; then cp docs/nemo.json site/; fi
           # The water map (NEMO-EST): this run's frames, else the published ones.
@@ -151,7 +145,7 @@ jobs:
               m = json.load(open("site/map/map.json"))
               json.dump({"built": now, "run": m["run"], "frames": len(m["frames"])}, open("docs/map-state.json", "w"))
           runs = {}
-          for name in ("icon-eu", "ecmwf", "gfs", "waves"):
+          for name in ("map", "rain", "harmonie", "harm-dk", "icon-eu", "ecmwf", "gfs", "waves"):
               path = f"site/{name}/map.json"
               if os.path.exists(path):
                   run = json.load(open(path))["run"]

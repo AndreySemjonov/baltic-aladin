@@ -8,6 +8,7 @@ OPERA, read by the app itself) before now and these frames after it.
         red = sqrt(precipitation mm in the hour) x 50 (0 = none; 255 = 26 mm)
 
     python rain_map.py site/rain
+    python rain_map.py --check                   print the newest run (MET Nordic's)
 """
 import json
 import sys
@@ -28,6 +29,9 @@ STRIDE = 2
 
 
 def main():
+    if sys.argv[1:] == ["--check"]:
+        print(nordic.newest_run())
+        return
     out = Path(sys.argv[1] if len(sys.argv) > 1 else "site/rain")
     (lat, lon), width, height = maplib.output_grid(SOUTH, NORTH, WEST, EAST, KM_PER_PIXEL)
     col, row, (c0, c1, r0, r1) = nordic.grid_index(lat, lon)

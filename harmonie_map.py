@@ -8,6 +8,7 @@ shares that map's land mask) and writes one PNG per hour plus a manifest, in the
 format as the other maps (see maplib.py).
 
     python harmonie_map.py site/harmonie
+    python harmonie_map.py --check               print the newest run (YYYYMMDDHH)
 """
 import re
 import sys
@@ -67,6 +68,9 @@ def read(path):
 
 
 def main():
+    if sys.argv[1:] == ["--check"]:
+        print(newest_file()[1].strftime("%Y%m%d%H"))
+        return
     out = Path(sys.argv[1] if len(sys.argv) > 1 else "site/harmonie")
     link, run_time = newest_file()
     (lat, lon), width, height = maplib.output_grid(SOUTH, NORTH, WEST, EAST, metnordic_map.KM_PER_PIXEL)

@@ -12,6 +12,7 @@ hour plus a manifest:
     <out>/land.png                land fraction x 255 (0 = sea), same pixels
 
     python metnordic_map.py site/map
+    python metnordic_map.py --check              print the newest run (YYYYMMDDHH)
 """
 import http.client
 import json
@@ -146,7 +147,16 @@ def land_fraction(lat, lon):
     return land if fine is None else np.where(np.isfinite(fine), fine, land)
 
 
+def newest_run():
+    """The newest run, as YYYYMMDDHH (two small requests)."""
+    run = ascii_values(get(f"{SOURCE}.ascii?forecast_reference_time", timeout=60), "forecast_reference_time")[0]
+    return datetime.fromtimestamp(run, timezone.utc).strftime("%Y%m%d%H")
+
+
 def main():
+    if sys.argv[1:] == ["--check"]:
+        print(newest_run())
+        return
     out = Path(sys.argv[1] if len(sys.argv) > 1 else "site/map")
     (lat, lon), width, height = output_grid()
     col, row, (c0, c1, r0, r1) = grid_index(lat, lon)
