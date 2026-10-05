@@ -13,6 +13,7 @@ hour plus a manifest:
 
     python metnordic_map.py site/map
 """
+import http.client
 import json
 import math
 import sys
@@ -27,9 +28,11 @@ import maplib
 
 SOURCE = "https://thredds.met.no/thredds/dodsC/metpplatest/met_forecast_1_0km_nordic_latest.nc"
 USER_AGENT = "baltic-aladin (https://github.com/AndreySemjonov/baltic-aladin)"
-# Lithuania, Latvia and Estonia with their coasts and the Gulf of Finland (until 3.10.2026 the
-# Latvian coast, Gulf of Riga and western Estonia: 55.6-59.1°N, 20.4-25.4°E at 1 km).
-SOUTH, NORTH, WEST, EAST = 53.8, 60.0, 20.0, 28.4
+# The eastern Baltic: Lithuania, Latvia and Estonia with their coasts, the Gulf of Finland and
+# Gulf of Riga, and from 6.10.2026 west to Stockholm, Gotland and Åland and north to Turku
+# (before: 53.8-60.0°N, 20.0-28.4°E; until 3.10.2026 55.6-59.1°N, 20.4-25.4°E). Every regional
+# map (the 1 km models, the blend, water, waves, rain) and the fine coastline use this box.
+SOUTH, NORTH, WEST, EAST = 53.8, 61.0, 16.5, 28.5
 # MET Nordic's grid: +proj=lcc +lat_0=63 +lon_0=15 +lat_1=63 +lat_2=63 +R=6371000
 R = 6371000.0
 LAT0 = LAT1 = math.radians(63.0)
@@ -94,6 +97,30 @@ def dods_array(data, shape):
     return values.reshape(shape)
 
 
+# Hours per request: the server cuts replies off at about 140 MB, and the box since 6.10.2026
+# needs about 170 MB per field for the whole run.
+CHUNK_HOURS = 8
+
+
+def fetch(name, first, last, box):
+    """A variable's hours `first`...`last` over the box (rows r0-r1, columns c0-c1), in chunks."""
+    r0, r1, c0, c1 = box
+    parts = []
+    for start in range(first, last + 1, CHUNK_HOURS):
+        end = min(start + CHUNK_HOURS - 1, last)
+        query = f"{name}[{start}:1:{end}][{r0}:1:{r1}][{c0}:1:{c1}]"
+        # MET Norway's server sometimes drops a long reply: up to three tries per chunk.
+        for attempt in range(3):
+            try:
+                raw = get(f"{SOURCE}.dods?" + urllib.request.quote(query, safe=":,"))
+                parts.append(dods_array(raw, (end - start + 1, r1 - r0 + 1, c1 - c0 + 1)))
+                break
+            except (OSError, ValueError, http.client.IncompleteRead):
+                if attempt == 2:
+                    raise
+    return np.concatenate(parts)
+
+
 def grid_index(lat, lon):
     """Nearest MET Nordic column and row of each output pixel, and their range."""
     gx, gy = lcc(lat, lon)
@@ -128,11 +155,8 @@ def main():
     run = ascii_values(get(f"{SOURCE}.ascii?forecast_reference_time"), "forecast_reference_time")[0]
     steps = [i for i, t in enumerate(times) if t >= run]
     first, last = steps[0], steps[-1]
-    fields = {}
-    for key, name in (("speed", "wind_speed_10m"), ("direction", "wind_direction_10m"), ("gust", "wind_speed_of_gust")):
-        query = f"{name}[{first}:1:{last}][{r0}:1:{r1}][{c0}:1:{c1}]"
-        raw = get(f"{SOURCE}.dods?" + urllib.request.quote(query, safe=":,"))
-        fields[key] = dods_array(raw, (last - first + 1, r1 - r0 + 1, c1 - c0 + 1))
+    fields = {key: fetch(name, first, last, (r0, r1, c0, c1))
+              for key, name in (("speed", "wind_speed_10m"), ("direction", "wind_direction_10m"), ("gust", "wind_speed_of_gust"))}
 
     # Land fraction 0-1 (0 = sea), once per map: the app shows the wind strongly over
     # the sea and faintly over land, so the coast stays visible.
