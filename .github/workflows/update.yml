@@ -74,7 +74,7 @@ jobs:
 
       # Pages replaces the whole site on each deploy, so every deploy carries all of it:
       # MET Nordic, HARM-FI and HARM-DK are rebuilt each time (new runs every 1-3 hours);
-      # ALADIN, ICON-EU, ECMWF and GFS only for a new run, otherwise their published frames
+      # ALADIN, ICON-EU, ECMWF, GFS and the EWAM waves only for a new run, otherwise their published frames
       # are copied over. The blend is mixed from whatever maps the site then holds.
       - name: What is due?
         id: due
@@ -96,7 +96,7 @@ jobs:
           PY
           )
           rebuild=""
-          for pair in icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py; do
+          for pair in icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py waves:wave_map.py; do
             name=${pair%%:*}; script=${pair##*:}
             newest=$(.venv/bin/python $script --check || echo "")
             published=$(python3 -c "import json; print(json.load(open('docs/runs.json')).get('$name', ''))" 2>/dev/null || echo "")
@@ -126,7 +126,7 @@ jobs:
           elif [ "$FORCE" = "true" ] || ! .venv/bin/python carry.py site/aladin aladin; then
             .venv/bin/python aladin_map.py site/aladin || echo "ALADIN map unavailable this time"
           fi
-          for pair in icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py; do
+          for pair in icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py waves:wave_map.py; do
             name=${pair%%:*}; script=${pair##*:}
             case " $REBUILD " in
               *" $name "*) .venv/bin/python $script site/$name || .venv/bin/python carry.py site/$name $name || echo "$name map unavailable this time" ;;
@@ -149,7 +149,7 @@ jobs:
               m = json.load(open("site/map/map.json"))
               json.dump({"built": now, "run": m["run"], "frames": len(m["frames"])}, open("docs/map-state.json", "w"))
           runs = {}
-          for name in ("icon-eu", "ecmwf", "gfs"):
+          for name in ("icon-eu", "ecmwf", "gfs", "waves"):
               path = f"site/{name}/map.json"
               if os.path.exists(path):
                   run = json.load(open(path))["run"]

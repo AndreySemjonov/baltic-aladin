@@ -138,6 +138,11 @@ from https://www.ecmwf.int/en/forecasts/datasets/open-data. The frames are deriv
 
 Map data: **NOAA/NCEP, GFS** (public domain), from https://nomads.ncep.noaa.gov/.
 
+Wave data: **Deutscher Wetterdienst (DWD), EWAM European wave model, open data,
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**, from
+https://opendata.dwd.de/weather/maritime/wave_models/ewam/. The wave frames are derived from
+it (cropped, interpolated and reprojected) and carry the same licence and credit.
+
 The blend is derived from all of the map data above and carries their credits.
 
 Data: **ČHMÚ – Czech Hydrometeorological Institute, ALADIN model, open data,
@@ -234,3 +239,15 @@ LVĢMC open data CC0, corrected from each gauge's own zero to LAS-2000,5).
 
 Sources: Keskkonnaagentuur (Estonian Environment Agency) and TalTech, NEMO-EST, CC BY 4.0;
 E.U. Copernicus Marine Service Information; LVĢMC (data.gov.lv, CC0).
+
+## Wave map
+
+[`wave_map.py`](wave_map.py) makes map frames of the waves from DWD's European wave model EWAM
+(00 and 12 UTC runs, 78 hours, hourly, about 5.5 km) on the water map's box at 2.5 km pixels:
+
+**https://andreysemjonov.github.io/baltic-aladin/waves/map.json** (`"kind": "waves"`)
+
+- red: significant wave height m × 40 + 1 (0 = no data; land holds its nearest sea value),
+  green: mean wave period s × 10, blue: mean wave direction (from) × 256/360.
+- Each frame and the manifest carry `heightMax` (m). A new run is built when one is online,
+  like ICON-EU (`docs/runs.json`: `waves`).
