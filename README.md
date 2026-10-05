@@ -240,6 +240,17 @@ LVĢMC open data CC0, corrected from each gauge's own zero to LAS-2000,5).
 Sources: Keskkonnaagentuur (Estonian Environment Agency) and TalTech, NEMO-EST, CC BY 4.0;
 E.U. Copernicus Marine Service Information; LVĢMC (data.gov.lv, CC0).
 
+## Rain map
+
+[`rain_map.py`](rain_map.py) makes map frames of the forecast rain from MET Nordic 1 km (each
+hour's precipitation, about 57 hours, rebuilt with the MET Nordic wind map) on the water map's
+box at 2.5 km pixels:
+
+**https://andreysemjonov.github.io/baltic-aladin/rain/map.json** (`"kind": "rain"`)
+
+- red: sqrt(precipitation mm in the hour) × 50 (0 = none). The app shows the EUMETNET OPERA
+  radar composite (open data, CC BY 4.0) before now, read directly from OPERA's 24-hour cache.
+
 ## Wave map
 
 [`wave_map.py`](wave_map.py) makes map frames of the waves from DWD's European wave model EWAM

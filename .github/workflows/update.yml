@@ -118,6 +118,8 @@ jobs:
         run: |
           # MET Norway's server sometimes drops the connection: keep the last map then.
           .venv/bin/python metnordic_map.py site/map || .venv/bin/python carry.py site/map map || echo "MET Nordic map unavailable this time"
+          # Rain (MET Nordic precipitation, the app adds the radar before now), rebuilt with it.
+          .venv/bin/python rain_map.py site/rain || .venv/bin/python carry.py site/rain rain || echo "Rain map unavailable this time"
           # A busy source keeps its last published map rather than failing the deploy.
           .venv/bin/python harmonie_map.py site/harmonie || .venv/bin/python carry.py site/harmonie harmonie || echo "HARM-FI map unavailable this time"
           .venv/bin/python dmi_map.py site/harm-dk || .venv/bin/python carry.py site/harm-dk harm-dk || echo "HARM-DK map unavailable this time"
