@@ -265,6 +265,15 @@ box at 2.5 km pixels:
   chance × 255. A new set comes every hour (`docs/runs.json`: `rain-chance`), about 210 MB read
   and under a minute.
 
+## Map lines
+
+[`build_lines.py`](build_lines.py) (run by hand, like `build_coast.py`) makes `map-lines.bin`, the
+lines the app draws over its map colors: the coastline (from `coast.png`), named lakes, rivers and
+country borders on land, simplified, each with a detail level for the zoom (about 3 MB). Lakes,
+rivers and borders come from OpenStreetMap through the Overpass API, in 1° tiles cached in
+`lines-cache/` (not in git; about 300 MB). `map-lines.bin` is © OpenStreetMap contributors and
+available under the Open Database License (ODbL): https://www.openstreetmap.org/copyright
+
 ## Wave map
 
 [`wave_map.py`](wave_map.py) makes map frames of the waves from DWD's European wave model EWAM

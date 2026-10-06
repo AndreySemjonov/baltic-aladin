@@ -10,8 +10,8 @@ simplified, in one small binary file the app carries (MapLines.bin).
   © OpenStreetMap contributors, ODbL.
 
 Each line has a detail level, so the app draws less when zoomed out: 0 always (long coasts,
-lakes from 5 km2, rivers 60 km and longer, borders), 1 from the middle zoom (lakes from 0.5 km2,
-rivers from 15 km, coasts from 5 km), 2 close up (the rest).
+lakes from 5 km2, rivers 100 km and longer, borders), 1 from the middle zoom (lakes from 0.5 km2,
+rivers from 25 km, coasts from 5 km), 2 close up (the rest).
 
     python build_lines.py              writes map-lines.bin
     python build_lines.py --fetch      reads the missing tiles from Overpass first
@@ -227,15 +227,32 @@ def osm_lines():
         islands, loose_inner = stitch(inner)
         lines += [(LAKE, 2 if area_km2(r) < 0.5 else detail, 1, r) for r in islands]
         lines += [(LAKE, detail, 0, l) for l in loose_inner]
-    # Rivers: their detail by the whole river's length (all ways of the same name).
+    # Rivers: their detail by the whole river's length: the ways of the same name that join end
+    # to end (names like Mustjõgi repeat across the country, so the name alone isn't one river).
     rivers = [w for w in ways.values() if w.get("tags", {}).get("waterway") == "river" and "geometry" in w]
+    parent = list(range(len(rivers)))
+
+    def root(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    ends = defaultdict(list)
+    for i, w in enumerate(rivers):
+        for p in (w["geometry"][0], w["geometry"][-1]):
+            ends[(w["tags"].get("name", ""), round(p["lat"], 6), round(p["lon"], 6))].append(i)
+    for (name, _, _), group in ends.items():
+        if name:
+            for i in group[1:]:
+                parent[root(i)] = root(group[0])
+    lengths = [length_km([(p["lat"], p["lon"]) for p in w["geometry"]]) for w in rivers]
     total = defaultdict(float)
-    for w in rivers:
-        total[w["tags"].get("name", "")] += length_km([(p["lat"], p["lon"]) for p in w["geometry"]])
-    for w in rivers:
-        name = w["tags"].get("name", "")
-        km = total[name] if name else 0
-        detail = 0 if km >= 60 else 1 if km >= 15 else 2
+    for i, km in enumerate(lengths):
+        total[root(i)] += km
+    for i, w in enumerate(rivers):
+        km = total[root(i)] if w["tags"].get("name") else lengths[i]
+        detail = 0 if km >= 100 else 1 if km >= 25 else 2
         lines.append((RIVER, detail, 0, [(p["lat"], p["lon"]) for p in w["geometry"]]))
     # Borders on land.
     for w in ways.values():
