@@ -249,7 +249,14 @@ box at 2.5 km pixels:
 **https://andreysemjonov.github.io/baltic-aladin/rain/map.json** (`"kind": "rain"`)
 
 - red: sqrt(precipitation mm in the hour) × 50 (0 = none). The app shows the EUMETNET OPERA
-  radar composite (open data, CC BY 4.0) before now, read directly from OPERA's 24-hour cache.
+  radar composite (open data, CC BY 4.0) before now, read directly from OPERA's 24-hour cache,
+  and its own 2-hour nowcast from the radar's motion.
+- green: how cloudy it looks × 255, from HARM-FI's low, middle and high cloud (FMI, CC BY 4.0;
+  low counts in full, middle 0.6, high 0.3), else MET Nordic's total cover × 0.6.
+- Days 3-5: [`rain_icon.py`](rain_icon.py) makes the same frames from ICON-EU 7 km (DWD, CC BY
+  4.0; rain and its low, middle and high cloud) per ICON-EU main run, published at
+  `rain-icon/map.json`; [`rain_join.py`](rain_join.py) adds those after MET Nordic's last hour
+  to `rain/map.json` (frames marked `"models": ["ICON-EU"]`).
 
 ## Wave map
 

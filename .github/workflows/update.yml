@@ -87,7 +87,7 @@ jobs:
           NEW_GAUGES: ${{ steps.gauges.outputs.changed }}
         run: |
           rebuild=""
-          for pair in map:metnordic_map.py rain:rain_map.py harmonie:harmonie_map.py harm-dk:dmi_map.py icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py waves:wave_map.py; do
+          for pair in map:metnordic_map.py rain:rain_map.py harmonie:harmonie_map.py harm-dk:dmi_map.py icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py waves:wave_map.py rain-icon:rain_icon.py; do
             name=${pair%%:*}; script=${pair##*:}
             newest=$(.venv/bin/python $script --check || echo "")
             published=$(python3 -c "import json; print(json.load(open('docs/runs.json')).get('$name', ''))" 2>/dev/null || echo "")
@@ -110,7 +110,7 @@ jobs:
           # A new run is built (a busy source keeps its last published map rather than failing
           # the deploy); otherwise the published frames are copied (built if that fails). Rain is
           # MET Nordic's precipitation; the app adds the radar before now.
-          for pair in map:metnordic_map.py rain:rain_map.py harmonie:harmonie_map.py harm-dk:dmi_map.py icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py waves:wave_map.py; do
+          for pair in map:metnordic_map.py rain:rain_map.py harmonie:harmonie_map.py harm-dk:dmi_map.py icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py waves:wave_map.py rain-icon:rain_icon.py; do
             name=${pair%%:*}; script=${pair##*:}
             case " $REBUILD " in
               *" $name "*) .venv/bin/python $script site/$name || .venv/bin/python carry.py site/$name $name || echo "$name map unavailable this time" ;;
@@ -122,6 +122,8 @@ jobs:
           elif [ "$FORCE" = "true" ] || ! .venv/bin/python carry.py site/aladin aladin; then
             .venv/bin/python aladin_map.py site/aladin || echo "ALADIN map unavailable this time"
           fi
+          # The rain map's days 3-5 (ICON-EU) joined after its MET Nordic hours.
+          .venv/bin/python rain_join.py site || echo "Rain join failed"
           # The blend: mixed again when a wind map is new, else the published one.
           case " $REBUILD " in
             *" map "*|*" harmonie "*|*" harm-dk "*|*" icon-eu "*|*" ecmwf "*|*" gfs "*) mix=true ;;
@@ -145,7 +147,7 @@ jobs:
               m = json.load(open("site/map/map.json"))
               json.dump({"built": now, "run": m["run"], "frames": len(m["frames"])}, open("docs/map-state.json", "w"))
           runs = {}
-          for name in ("map", "rain", "harmonie", "harm-dk", "icon-eu", "ecmwf", "gfs", "waves"):
+          for name in ("map", "rain", "harmonie", "harm-dk", "icon-eu", "ecmwf", "gfs", "waves", "rain-icon"):
               path = f"site/{name}/map.json"
               if os.path.exists(path):
                   run = json.load(open(path))["run"]
