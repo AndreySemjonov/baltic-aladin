@@ -257,6 +257,12 @@ box at 2.5 km pixels:
   4.0; rain and its low, middle and high cloud) per ICON-EU main run, published at
   `rain-icon/map.json`; [`rain_join.py`](rain_join.py) adds those after MET Nordic's last hour
   to `rain/map.json` (frames marked `"models": ["ICON-EU"]`).
+- Chance of rain: [`rain_chance.py`](rain_chance.py) reads MET Norway's MEPS ensemble (open
+  data, CC BY 4.0; the newest runs lagged over 6 hours, 30 members at 2.5 km, about 61 hours,
+  read at 5 km) and makes, for each hour, the share of members with 0.5 mm or more in that hour,
+  on the same box and pixels: **`rain-chance/map.json`** (`"kind": "rain-chance"`), red =
+  chance × 255. A new set comes every hour (`docs/runs.json`: `rain-chance`), about 210 MB read
+  and under a minute.
 
 ## Wave map
 
