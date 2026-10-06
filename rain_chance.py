@@ -21,6 +21,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from scipy import ndimage
 
 import maplib
 import metnordic_map as nordic
@@ -39,6 +40,10 @@ COLUMNS, ROWS = 949, 1069
 STRIDE = 2
 # Hours per request (about 3.4 MB each): well under the server's limit of about 140 MB a reply.
 CHUNK_HOURS = 8
+# The chance smoothed over its neighbourhood (Gaussian, in strided cells: about 6 km), as weather
+# services do with an ensemble: the chance of rain near a place rather than in one 5 km cell,
+# whose 30 members alone gave blocky edges on the map (7.10.2026).
+SMOOTH_CELLS = 1.2
 
 
 def grid_position(lat, lon):
@@ -108,6 +113,7 @@ def main():
                 wet = (np.where(known, hour, 0) >= THRESHOLD).sum(axis=0)
                 count = known.sum(axis=0)
                 chance = np.where(count > 0, wet / np.maximum(count, 1), 0).astype(np.float32)
+                chance = ndimage.gaussian_filter(chance, SMOOTH_CELLS, mode="nearest")
                 red = np.rint(np.clip(sample(chance), 0, 1) * 255).astype(np.uint8)
                 time = int(times[start + k])
                 rgb = np.stack([red, np.zeros_like(red), np.zeros_like(red)], axis=-1)
