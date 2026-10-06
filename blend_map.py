@@ -27,8 +27,9 @@ import maplib
 import metnordic_map
 
 # Model folder -> weight: the shares of the app's Baltic forecast blend for the models
-# that have a map here (renormalized wherever some are missing).
-WEIGHTS = {"harm-dk": 0.226, "map": 0.181, "harmonie": 0.181, "aladin": 0.165,
+# that have a map here (renormalized wherever some are missing). ALADIN is left out since
+# 7.10.2026: it covers only Kurzeme to Riga, and its edge showed across the map.
+WEIGHTS = {"harm-dk": 0.226, "map": 0.181, "harmonie": 0.181,
            "icon-eu": 0.068, "ecmwf": 0.034, "gfs": 0.023}
 # How far each model's land reaches over the sea, km (about 1.5 of its grid cells).
 COAST_KM = {"harm-dk": 3.0, "map": 1.5, "harmonie": 3.75, "aladin": 3.5, "icon-eu": 10.0, "ecmwf": 25.0, "gfs": 25.0}

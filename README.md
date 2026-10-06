@@ -94,8 +94,9 @@ here), land mask from ICON-EU.
 **https://andreysemjonov.github.io/baltic-aladin/blend/map.json**: the maps above mixed
 per pixel and hour on the MET Nordic pixels, with fixed weights (`WEIGHTS` in
 [`blend_map.py`](blend_map.py)): wind and gust as weighted means, direction as a
-speed-weighted vector mean. Where or when a model has no data (ALADIN north of 57°N,
-the 2-3 day models after their last hour), the others share its weight. Hourly to 72
+speed-weighted vector mean. Where or when a model has no data (the 2-3 day models after
+their last hour), the others share its weight; a model covering only part of the box fades
+out over its last 30 km. ALADIN (Kurzeme to Riga only) is not in the blend. Hourly to 72
 hours, then every 3 hours to 240. `python blend_map.py site` after building the others.
 
 ## Wind map of the Baltic, 5 days
