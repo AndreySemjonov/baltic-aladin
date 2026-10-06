@@ -21,6 +21,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from scipy import ndimage
 
 import maplib
 import metnordic_map
@@ -35,6 +36,9 @@ NAMES = {"harm-dk": "HARM-DK", "map": "MET Nordic", "harmonie": "HARM-FI", "alad
          "icon-eu": "ICON-EU", "ecmwf": "ECMWF", "gfs": "GFS"}
 SOUTH, NORTH, WEST, EAST = metnordic_map.SOUTH, metnordic_map.NORTH, metnordic_map.WEST, metnordic_map.EAST
 MAX_GAP = 6 * 3600  # frames further apart than this aren't interpolated
+# A model that covers only part of the box (ALADIN, the 1-2.5 km models at their edges) fades out
+# over its last 30 km, so the blend has no straight line where it stops (7.10.2026).
+EDGE_KM = 30.0
 
 
 class Model:
@@ -53,6 +57,18 @@ class Model:
         fy = (top - maplib.mercator_y(lat)) / (top - bottom) * height - 0.5
         self.sample = maplib.Bilinear(fx, fy, width, height)
         self.cache = {}
+        self.tapers = {}
+
+    def taper(self, inside):
+        """0 at the edge of the model's area to 1 at EDGE_KM inside it (1 everywhere when it
+        covers the whole box); the same area gives the same taper, worked out once."""
+        if inside.all():
+            return np.ones(inside.shape, np.float32)
+        key = hash(inside.tobytes())
+        if key not in self.tapers:
+            distance = ndimage.distance_transform_edt(inside) * metnordic_map.KM_PER_PIXEL
+            self.tapers[key] = np.clip(distance / EDGE_KM, 0, 1).astype(np.float32)
+        return self.tapers[key]
 
     def frame(self, t):
         """u, v, speed, gust (m/s) and validity at the blend's pixels for frame time t."""
@@ -63,9 +79,11 @@ class Model:
             # Speed-weighted components, so 350° and 10° don't average to 180°.
             u, v = -speed * np.sin(degrees), -speed * np.cos(degrees)
             values = [self.sample(a).astype(np.float32) for a in (u, v, speed, gust)]
-            inside = self.sample(inside) > 0.99
+            # Only inside the model's own map: outside it the sampler repeats the edge (ALADIN's
+            # edge values were smeared over the rest of the box until 7.10.2026).
+            inside = (self.sample(inside) > 0.99) & self.sample.valid
             maplib.coast_fill(values, self.share, self.coast_km, metnordic_map.KM_PER_PIXEL, valid=inside)
-            self.cache[t] = values + [inside]
+            self.cache[t] = values + [inside, self.taper(inside)]
         return self.cache[t]
 
     def at(self, t):
@@ -78,7 +96,7 @@ class Model:
             return None
         share = (t - earlier) / (later - earlier)
         a, b = self.frame(earlier), self.frame(later)
-        return [x + (y - x) * share for x, y in zip(a[:4], b[:4])] + [a[4] & b[4]]
+        return [x + (y - x) * share for x, y in zip(a[:4], b[:4])] + [a[4] & b[4], np.minimum(a[5], b[5])]
 
 
 def main():
@@ -118,8 +136,8 @@ def main():
             if values is None or not values[4].any():
                 continue
             here.append(name)
-            u, v, s, g, inside = values
-            w = WEIGHTS[name] * inside
+            u, v, s, g, inside, taper = values
+            w = WEIGHTS[name] * inside * taper
             # Direction weight: share x speed, calm counted as 1 m/s.
             unit = np.maximum(np.hypot(u, v), 1e-6)
             pull = w * np.maximum(s, 1.0)
