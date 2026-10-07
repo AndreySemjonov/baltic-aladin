@@ -43,7 +43,22 @@ jobs:
       - name: Note the start (for the admin panel's report)
         run: echo "RUN_STARTED=$(date -u +%s)" >> "$GITHUB_ENV"
 
+      - name: Python version (for the package cache)
+        id: python
+        run: echo "version=$(python3 -c 'import sys; print(sys.version.split()[0])')" >> "$GITHUB_OUTPUT"
+
+      # The installed packages are kept between runs (GitHub's cache, keyed by the Python version and
+      # the package list; v1: change it to install them afresh), so a run doesn't spend 1-7 minutes
+      # installing them again (7.10.2026).
+      - name: Restore the installed packages
+        id: venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py${{ steps.python.outputs.version }}-eccodes-numpy-pillow-h5py-scipy-copernicusmarine-v1
+
       - name: Install ecCodes, NumPy, Pillow, h5py, SciPy and the Copernicus Marine toolbox
+        if: steps.venv.outputs.cache-hit != 'true'
         run: |
           python3 -m venv .venv
           .venv/bin/pip install --quiet eccodes numpy pillow h5py scipy copernicusmarine
