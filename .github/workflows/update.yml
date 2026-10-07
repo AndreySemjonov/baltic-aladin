@@ -40,6 +40,9 @@ jobs:
       - name: Check out
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      - name: Note the start (for the admin panel's report)
+        run: echo "RUN_STARTED=$(date -u +%s)" >> "$GITHUB_ENV"
+
       - name: Install ecCodes, NumPy, Pillow, h5py, SciPy and the Copernicus Marine toolbox
         run: |
           python3 -m venv .venv
@@ -92,6 +95,7 @@ jobs:
             newest=$(.venv/bin/python $script --check || echo "")
             published=$(python3 -c "import json; print(json.load(open('docs/runs.json')).get('$name', ''))" 2>/dev/null || echo "")
             echo "$name: newest $newest, published $published"
+            echo "$name|$newest|$published" >> due.txt
             if [ -n "$newest" ] && { [ "$newest" != "$published" ] || [ "$FORCE" = "true" ]; }; then rebuild="$rebuild $name"; fi
           done
           deploy=false
@@ -101,6 +105,7 @@ jobs:
           echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
 
       - name: Build the site
+        id: build
         if: steps.due.outputs.deploy == 'true'
         env:
           REBUILD: ${{ steps.due.outputs.rebuild }}
@@ -110,33 +115,35 @@ jobs:
           # A new run is built (a busy source keeps its last published map rather than failing
           # the deploy); otherwise the published frames are copied (built if that fails). Rain is
           # MET Nordic's precipitation; the app adds the radar before now. The chance of rain is
-          # MEPS's ensemble (30 members, a new lagged set every hour).
+          # MEPS's ensemble (30 members, a new lagged set every hour). What couldn't be made is noted
+          # for the admin panel's report.
+          failed() { echo "$1"; echo "$1" >> failed.txt; }
           for pair in map:metnordic_map.py rain:rain_map.py harmonie:harmonie_map.py harm-dk:dmi_map.py icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py waves:wave_map.py rain-icon:rain_icon.py rain-chance:rain_chance.py; do
             name=${pair%%:*}; script=${pair##*:}
             case " $REBUILD " in
-              *" $name "*) .venv/bin/python $script site/$name || .venv/bin/python carry.py site/$name $name || echo "$name map unavailable this time" ;;
-              *) .venv/bin/python carry.py site/$name $name || .venv/bin/python $script site/$name || echo "$name map unavailable this time" ;;
+              *" $name "*) .venv/bin/python $script site/$name || .venv/bin/python carry.py site/$name $name || failed "$name map unavailable this time" ;;
+              *) .venv/bin/python carry.py site/$name $name || .venv/bin/python $script site/$name || failed "$name map unavailable this time" ;;
             esac
           done
           if [ "$NEW_ALADIN" = "true" ] && [ -f aladin-files/run.txt ]; then
             .venv/bin/python aladin_map.py site/aladin aladin-files
           elif [ "$FORCE" = "true" ] || ! .venv/bin/python carry.py site/aladin aladin; then
-            .venv/bin/python aladin_map.py site/aladin || echo "ALADIN map unavailable this time"
+            .venv/bin/python aladin_map.py site/aladin || failed "ALADIN map unavailable this time"
           fi
           # The rain map's days 3-5 (ICON-EU) joined after its MET Nordic hours.
-          .venv/bin/python rain_join.py site || echo "Rain join failed"
+          .venv/bin/python rain_join.py site || failed "Rain join failed"
           # The blend: mixed again when a wind map is new, else the published one.
           case " $REBUILD " in
             *" map "*|*" harmonie "*|*" harm-dk "*|*" icon-eu "*|*" ecmwf "*|*" gfs "*) mix=true ;;
             *) mix=$NEW_ALADIN ;;
           esac
           if [ "$mix" = "true" ] || [ "$FORCE" = "true" ] || ! .venv/bin/python carry.py site/blend blend; then
-            .venv/bin/python blend_map.py site || .venv/bin/python carry.py site/blend blend || echo "Blend unavailable this time"
+            .venv/bin/python blend_map.py site || .venv/bin/python carry.py site/blend blend || failed "Blend unavailable this time"
           fi
           cp docs/aladin.json docs/index.html site/
           if [ -f docs/nemo.json ]; then cp docs/nemo.json site/; fi
           # The water map (NEMO-EST): this run's frames, else the published ones.
-          if [ -d water-site ]; then cp -r water-site site/water; else .venv/bin/python carry.py site/water water || echo "Water map unavailable this time"; fi
+          if [ -d water-site ]; then cp -r water-site site/water; else .venv/bin/python carry.py site/water water || failed "Water map unavailable this time"; fi
           # The coast points (about 1 MB, not in git): this run's, else the live ones.
           if [ -f nemo-coast.json ]; then cp nemo-coast.json site/; else curl -sf -o site/nemo-coast.json https://andreysemjonov.github.io/baltic-aladin/nemo-coast.json || echo "No NEMO coast points yet"; fi
           if [ -f docs/ee-gauges.json ]; then cp docs/ee-gauges.json site/; fi
@@ -157,6 +164,7 @@ jobs:
           PY
 
       - name: Commit the small status files
+        id: commit
         if: steps.due.outputs.deploy == 'true'
         run: |
           git rm -q --ignore-unmatch docs/icon-state.json
@@ -173,11 +181,70 @@ jobs:
           git pull --rebase -X theirs -q && git push
 
       - name: Upload the site
+        id: upload
         if: steps.due.outputs.deploy == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
       - name: Publish on GitHub Pages
+        id: publish
         if: steps.due.outputs.deploy == 'true'
         uses: actions/deploy-pages@v4
+
+      # A short report of every run (also the quick "nothing new" ones) for the admin panel: what was
+      # due, what was rebuilt, what failed, each map's newest and published run. Sent to the
+      # station-history Worker, which keeps 14 days; nothing secret in it. Without the
+      # ADMIN_INGEST_TOKEN secret nothing is sent; a failed report never fails the run.
+      - name: Report to the admin panel
+        if: always()
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          REBUILD: ${{ steps.due.outputs.rebuild }}
+          DEPLOY: ${{ steps.due.outputs.deploy }}
+          FORCE: ${{ inputs.map }}
+          EVENT: ${{ github.event_name }}
+          OUTCOMES: aladin=${{ steps.aladin.outcome }} nemo=${{ steps.nemo.outcome }} gauges=${{ steps.gauges.outcome }} due=${{ steps.due.outcome }} build=${{ steps.build.outcome }} commit=${{ steps.commit.outcome }} upload=${{ steps.upload.outcome }} publish=${{ steps.publish.outcome }}
+          CHANGED: aladin=${{ steps.aladin.outputs.changed }} nemo=${{ steps.nemo.outputs.changed }} gauges=${{ steps.gauges.outputs.changed }}
+        run: |
+          if [ -z "$INGEST_TOKEN" ]; then echo "No ADMIN_INGEST_TOKEN secret: no report"; exit 0; fi
+          python3 - > report.json <<'PY'
+          import glob, json, os, time
+
+          def pairs(text):
+              return dict(p.split("=", 1) for p in text.split() if "=" in p)
+
+          maps = {}
+          if os.path.exists("due.txt"):
+              for line in open("due.txt"):
+                  name, newest, published = (line.strip().split("|") + ["", "", ""])[:3]
+                  maps[name] = {"newest": newest, "published": published}
+          try:
+              runs = json.load(open("docs/runs.json"))
+          except Exception:
+              runs = {}
+          for name, run in runs.items():
+              maps.setdefault(name, {})["published"] = run
+          for path in glob.glob("site/*/map.json"):
+              name = os.path.basename(os.path.dirname(path))
+              try:
+                  m = json.load(open(path))
+              except Exception:
+                  continue
+              maps.setdefault(name, {}).update({"run": m.get("run"), "updated": m.get("updated"), "frames": len(m.get("frames", []))})
+          failed = [l.strip() for l in open("failed.txt")] if os.path.exists("failed.txt") else []
+          steps = pairs(os.environ.get("OUTCOMES", ""))
+          deploy = os.environ.get("DEPLOY") == "true"
+          result = ("failed" if "failure" in steps.values() or "cancelled" in steps.values()
+                    else "published" if steps.get("publish") == "success" else "nothing new" if not deploy else "partial")
+          print(json.dumps({
+              "run_id": int(os.environ["GITHUB_RUN_ID"]), "number": int(os.environ["GITHUB_RUN_NUMBER"]),
+              "attempt": int(os.environ.get("GITHUB_RUN_ATTEMPT", "1")), "event": os.environ.get("EVENT"),
+              "started": int(os.environ.get("RUN_STARTED") or 0), "finished": int(time.time()),
+              "rebuild": os.environ.get("REBUILD", "").split(), "deploy": deploy, "force": os.environ.get("FORCE") == "true",
+              "changed": pairs(os.environ.get("CHANGED", "")), "steps": steps, "failed": failed, "result": result, "maps": maps,
+          }, separators=(",", ":")))
+          PY
+          curl -s -m 20 -o /dev/null -w "Report sent: HTTP %{http_code}\n" -X POST \
+            -H "authorization: Bearer $INGEST_TOKEN" -H "content-type: application/json" \
+            --data @report.json https://station-history.andrejs-semjonovs.workers.dev/ingest || echo "Report not sent"
