@@ -268,8 +268,9 @@ box at 2.5 km pixels:
 ## Map lines
 
 [`build_lines.py`](build_lines.py) (run by hand, like `build_coast.py`) makes `map-lines.bin`, the
-lines the app draws over its map colors: the coastline (from `coast.png`), named lakes, rivers and
-country borders on land, simplified, each with a detail level for the zoom (about 3 MB). Lakes,
+lines the app draws over its map colors: the coastline (OpenStreetMap's coastline lines, simplified
+for zoomed out and in full detail for closer in; `osm-cache/`, not in git), named lakes, rivers and
+country borders on land, simplified, each with a detail level for the zoom (about 6.5 MB). Lakes,
 rivers and borders come from OpenStreetMap through the Overpass API, in 1° tiles cached in
 `lines-cache/` (not in git; about 300 MB). `map-lines.bin` is © OpenStreetMap contributors and
 available under the Open Database License (ODbL): https://www.openstreetmap.org/copyright

@@ -2,8 +2,9 @@
 build_coast.py): the coastline, lakes, rivers and country borders of the regional maps' box,
 simplified, in one small binary file the app carries (MapLines.bin).
 
-- Coastline: the 0.5 line of the fine land mask (coast.png, OpenStreetMap land polygons), so it
-  runs exactly where the map colors change from sea to land.
+- Coastline: OpenStreetMap's coastline lines (osm-cache/coastlines-split-4326.zip from
+  osmdata.openstreetmap.de, about 0.9 GB, not in git), twice: simplified (80 m) for zoomed out and
+  in full detail (15 m, kind 4) for closer in. Without that file: the 0.5 line of coast.png (250 m).
 - Lakes (named natural=water, not river areas: ponds are rarely named; from about 0.05 km2), rivers
   (waterway=river) and country borders on land (admin_level 2, not maritime): OpenStreetMap,
   read through the Overpass API in 1 degree tiles (cached in lines-cache/, about 250 MB).
@@ -18,7 +19,7 @@ rivers from 25 km, coasts from 5 km), 2 close up (the rest).
 
 File (little-endian): "SWL1", south, north, west, east (float64: the box the points are
 quantized over, Web Mercator), count (uint32), then per line: kind (uint8: 0 coast, 1 lake,
-2 river, 3 border), detail (uint8), flags (uint8: 1 closed, 2 filled), 0, n (uint32), n x
+2 river, 3 border, 4 coast in full detail), detail (uint8), flags (uint8: 1 closed, 2 filled), 0, n (uint32), n x
 (x, y) uint16 (0 = west / north, 65535 = east / south).
 """
 import json
@@ -28,11 +29,13 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+import zipfile
 from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
+import shapefile  # pyshp
 from skimage import measure
 
 import metnordic_map
@@ -47,9 +50,12 @@ SOUTH, NORTH, WEST, EAST = metnordic_map.SOUTH, metnordic_map.NORTH, metnordic_m
 # Lines are kept a little past the box, so they don't stop at its edge.
 MARGIN = 0.3
 BOX = (SOUTH - MARGIN, NORTH + MARGIN, WEST - MARGIN, EAST + MARGIN)
-COAST, LAKE, RIVER, BORDER = 0, 1, 2, 3
+COAST, LAKE, RIVER, BORDER, COAST_FINE = 0, 1, 2, 3, 4
 # How far a simplified line may stray, m.
-TOLERANCE = {COAST: 60, LAKE: 25, RIVER: 30, BORDER: 50}
+TOLERANCE = {COAST: 80, LAKE: 25, RIVER: 30, BORDER: 50, COAST_FINE: 15}
+# OpenStreetMap's coastline as lines (osmdata.openstreetmap.de, "split, WGS84"; about 0.9 GB, not in
+# git): the coast in full detail. Without it the coast is traced from coast.png (250 m) as before.
+COASTLINES = HERE / "osm-cache" / "coastlines-split-4326.zip"
 
 
 def merc(lat):
@@ -282,10 +288,67 @@ def coast_lines():
     return lines
 
 
+def coast_vector_lines():
+    """OpenStreetMap's coastline in the box, its 1° pieces joined end to end: a simplified version
+    (detail by the whole line's length: islands under 0.8 km left out) for zoomed out, and the full
+    detail (from 0.2 km) for closer in."""
+    folder = COASTLINES.parent / "coastlines"
+    if not folder.exists():
+        with zipfile.ZipFile(COASTLINES) as archive:
+            archive.extractall(folder)
+    path = next(folder.rglob("*.shp"))
+    s, n, w, e = BOX
+    pieces = []
+    with shapefile.Reader(str(path)) as reader:
+        for shape in reader.iterShapes(bbox=(w, s, e, n)):
+            parts = list(shape.parts) + [len(shape.points)]
+            for a, b in zip(parts, parts[1:]):
+                points = [(lat, lon) for lon, lat in shape.points[a:b]]
+                if len(points) > 1:
+                    pieces.append(points)
+    # Join the pieces where one ends and the next starts (the 1° cuts).
+    key = lambda p: (round(p[0], 7), round(p[1], 7))
+    starts = defaultdict(list)
+    for i, piece in enumerate(pieces):
+        starts[key(piece[0])].append(i)
+    used = [False] * len(pieces)
+    has_before = set()
+    for i, piece in enumerate(pieces):
+        for j in starts.get(key(piece[-1]), []):
+            if j != i:
+                has_before.add(j)
+                break
+    lines = []
+
+    def walk(i):
+        chain = list(pieces[i])
+        used[i] = True
+        while True:
+            nxt = next((j for j in starts.get(key(chain[-1]), []) if not used[j]), None)
+            if nxt is None:
+                return chain
+            used[nxt] = True
+            chain += pieces[nxt][1:]
+
+    for i in [i for i in range(len(pieces)) if i not in has_before] + list(range(len(pieces))):
+        if not used[i]:
+            lines.append(walk(i))
+    out = []
+    for points in lines:
+        km = length_km(points)
+        closed = 1 if key(points[0]) == key(points[-1]) else 0
+        if km >= 0.8:
+            out.append((COAST, 0 if km >= 30 else 1 if km >= 5 else 2, closed, points))
+        if km >= 0.2:
+            out.append((COAST_FINE, 2, closed, points))
+    print(f"coastline: {len(pieces)} pieces joined into {len(lines)} lines")
+    return out
+
+
 def main():
     if "--fetch" in sys.argv:
         fetch()
-    lines = coast_lines() + osm_lines()
+    lines = (coast_vector_lines() if COASTLINES.exists() else coast_lines()) + osm_lines()
     s, n, w, e = BOX
     top, bottom = merc(n), merc(s)
     out = bytearray(b"SWL1")
@@ -309,7 +372,7 @@ def main():
     for record in records:
         out += record
     (HERE / "map-lines.bin").write_bytes(bytes(out))
-    names = {COAST: "coast", LAKE: "lake", RIVER: "river", BORDER: "border"}
+    names = {COAST: "coast", LAKE: "lake", RIVER: "river", BORDER: "border", COAST_FINE: "coastfine"}
     print({f"{names[k]}{d}": c for (k, d), c in sorted(counts.items())})
     print(f"map-lines.bin: {len(records)} lines, {points_total} points, {len(out) / 1e6:.1f} MB")
 
