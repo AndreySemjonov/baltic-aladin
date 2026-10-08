@@ -10,7 +10,8 @@ the two between, so there is no jump.
     <out>/<run>/<unix time>.png     RGB, read as raw numbers:
         red   = (air °C + 40) x 3 + 1 (1-255: -40 to +44.7 °C); 0 = no data
         green = (feels like °C + 40) x 3 + 1, the same way
-        blue  = 0
+        blue  = (sea-level pressure hPa - 940) x 2 (1-255: 940.5 to 1067.5 hPa); 0 = no data,
+                for the app's isobars
 
     python temp_map.py site/temp
     python temp_map.py --check                   print the newest run (MET Nordic's)
@@ -84,6 +85,7 @@ def main():
     kelvin = strided("air_temperature_2m")
     wind = strided("wind_speed_10m")
     humidity = strided("relative_humidity_2m")
+    pressure = strided("air_pressure_at_sea_level")
     sample_row = np.clip(np.rint((row - r0) / STRIDE).astype(int), 0, rows - 1)
     sample_col = np.clip(np.rint((col - c0) / STRIDE).astype(int), 0, cols - 1)
 
@@ -103,7 +105,10 @@ def main():
         feel = feels_like(t, w, h)
         if np.isfinite(t).any():
             low, high = min(low, float(np.nanmin(t))), max(high, float(np.nanmax(t)))
-        rgb = np.stack([encode(t), encode(feel), np.zeros(t.shape, np.uint8)], axis=-1)
+        hpa = pressure[k][sample_row, sample_col].astype(np.float32) / 100
+        hpa = np.where((hpa > 850) & (hpa < 1100), hpa, np.nan)
+        blue = np.where(np.isfinite(hpa), np.clip(np.rint((hpa - 940) * 2), 1, 255), 0).astype(np.uint8)
+        rgb = np.stack([encode(t), encode(feel), blue], axis=-1)
         name = f"{int(times[step])}.png"
         Image.fromarray(rgb, "RGB").save(folder / name, optimize=True)
         frames.append({"time": int(times[step]), "file": f"{run_name}/{name}"})
@@ -117,7 +122,9 @@ def main():
         "bounds": {"south": SOUTH, "north": NORTH, "west": WEST, "east": EAST},
         "width": width, "height": height,
         "encoding": {"red": "(air temperature degC + 40) x 3 + 1; 0 = no data",
-                     "green": "(feels like degC + 40) x 3 + 1: wind chill to 10 degC, apparent temperature from 20, blended between"},
+                     "green": "(feels like degC + 40) x 3 + 1: wind chill to 10 degC, apparent temperature from 20, blended between",
+                     "blue": "(sea-level pressure hPa - 940) x 2; 0 = no data"},
+        "pressure": True,
         "temperatureRange": [round(low, 1), round(high, 1)] if np.isfinite(low) else None,
         "frames": frames,
     }
