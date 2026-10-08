@@ -105,7 +105,7 @@ jobs:
           NEW_GAUGES: ${{ steps.gauges.outputs.changed }}
         run: |
           rebuild=""
-          for pair in map:metnordic_map.py rain:rain_map.py harmonie:harmonie_map.py harm-dk:dmi_map.py icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py waves:wave_map.py rain-icon:rain_icon.py rain-chance:rain_chance.py; do
+          for pair in map:metnordic_map.py rain:rain_map.py temp:temp_map.py harmonie:harmonie_map.py harm-dk:dmi_map.py icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py waves:wave_map.py rain-icon:rain_icon.py rain-chance:rain_chance.py; do
             name=${pair%%:*}; script=${pair##*:}
             newest=$(.venv/bin/python $script --check || echo "")
             published=$(python3 -c "import json; print(json.load(open('docs/runs.json')).get('$name', ''))" 2>/dev/null || echo "")
@@ -133,7 +133,7 @@ jobs:
           # MEPS's ensemble (30 members, a new lagged set every hour). What couldn't be made is noted
           # for the admin panel's report.
           failed() { echo "$1"; echo "$1" >> failed.txt; }
-          for pair in map:metnordic_map.py rain:rain_map.py harmonie:harmonie_map.py harm-dk:dmi_map.py icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py waves:wave_map.py rain-icon:rain_icon.py rain-chance:rain_chance.py; do
+          for pair in map:metnordic_map.py rain:rain_map.py temp:temp_map.py harmonie:harmonie_map.py harm-dk:dmi_map.py icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py waves:wave_map.py rain-icon:rain_icon.py rain-chance:rain_chance.py; do
             name=${pair%%:*}; script=${pair##*:}
             case " $REBUILD " in
               *" $name "*) .venv/bin/python $script site/$name || .venv/bin/python carry.py site/$name $name || failed "$name map unavailable this time" ;;
@@ -159,6 +159,8 @@ jobs:
           if [ -f docs/nemo.json ]; then cp docs/nemo.json site/; fi
           # The water map (NEMO-EST): this run's frames, else the published ones.
           if [ -d water-site ]; then cp -r water-site site/water; else .venv/bin/python carry.py site/water water || failed "Water map unavailable this time"; fi
+          # The sea ice beside it (Copernicus): this run's frames, else the published ones.
+          if [ -d ice-site ]; then cp -r ice-site site/ice; else .venv/bin/python carry.py site/ice ice || echo "No ice map yet"; fi
           # The coast points (about 1 MB, not in git): this run's, else the live ones.
           if [ -f nemo-coast.json ]; then cp nemo-coast.json site/; else curl -sf -o site/nemo-coast.json https://andreysemjonov.github.io/baltic-aladin/nemo-coast.json || echo "No NEMO coast points yet"; fi
           if [ -f docs/ee-gauges.json ]; then cp docs/ee-gauges.json site/; fi
@@ -170,7 +172,7 @@ jobs:
               m = json.load(open("site/map/map.json"))
               json.dump({"built": now, "run": m["run"], "frames": len(m["frames"])}, open("docs/map-state.json", "w"))
           runs = {}
-          for name in ("map", "rain", "harmonie", "harm-dk", "icon-eu", "ecmwf", "gfs", "waves", "rain-icon", "rain-chance"):
+          for name in ("map", "rain", "temp", "harmonie", "harm-dk", "icon-eu", "ecmwf", "gfs", "waves", "rain-icon", "rain-chance"):
               path = f"site/{name}/map.json"
               if os.path.exists(path):
                   run = json.load(open(path))["run"]

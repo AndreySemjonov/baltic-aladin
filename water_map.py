@@ -14,6 +14,11 @@ that fades out over about NUDGE_KM, kept the same for the whole run.
 
 nemo.py calls `WaterMap` with each NEMO surface file it downloads.
 
+Sea ice from the same Copernicus model goes beside it, ice-site/ (kind "ice"), hour by hour:
+    RGB PNG: red = 1 + ice cover x 200 (1-201); 0 = outside the model; land holds its nearest
+    sea value. green = ice thickness cm (0-255). blue = 0.
+    map.json "iceMax": the run's largest cover (0: no ice anywhere, the app says so).
+
 Frames: RGBA PNG, read as raw numbers (no colour management):
     red   = level cm + 128 (1-255); 0 = outside both models (land holds its nearest sea value:
             the app shows the colors through the coastline's sea only)
@@ -23,6 +28,7 @@ Frames: RGBA PNG, read as raw numbers (no colour management):
 """
 import json
 import math
+import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -36,6 +42,7 @@ import metnordic_map
 
 HERE = Path(__file__).parent
 OUT = HERE / "water-site"
+ICE_OUT = HERE / "ice-site"
 SOUTH, NORTH, WEST, EAST = metnordic_map.SOUTH, metnordic_map.NORTH, metnordic_map.WEST, metnordic_map.EAST
 BLEND_KM = 20
 NUDGE_KM = 25
@@ -73,6 +80,21 @@ class WaterMap:
                                                      len(clons), len(clats))
             self.cop_index = {t: k for k, t in enumerate(self.cop["times"])}
             self.cop_cells = {}
+        # Sea ice (Copernicus only): the run's hours.
+        self.ice = copernicus.load_ice(SOUTH, NORTH, WEST, EAST, start, start + timedelta(hours=126))
+        self.ice_frames = []
+        self.ice_max = 0.0
+        if self.ice and self.ice["times"]:
+            ilats, ilons = self.ice["lats"], self.ice["lons"]
+            self.ice_fill = fill_land(np.isfinite(self.ice["cover"][0]))
+            self.ice_sample = maplib.regular_sampler(self.lat, self.lon, float(ilats[0]), float(ilons[0]),
+                                                     float(ilats[1] - ilats[0]), float(ilons[1] - ilons[0]),
+                                                     len(ilons), len(ilats))
+            self.ice_index = {t: k for k, t in enumerate(self.ice["times"])}
+            self.ice_folder = ICE_OUT / start.strftime("%Y%m%dT%HZ")
+            self.ice_folder.mkdir(parents=True, exist_ok=True)
+        else:
+            self.ice = None
         # NEMO's weight: 1 well inside its area, fading to 0 over BLEND_KM towards its edge
         # (where Copernicus takes over); without Copernicus, simply its area.
         inside_nemo = self.nemo_sample.valid
@@ -225,6 +247,25 @@ class WaterMap:
                                           max(self.temperature_range[1], float(temperatures.max()))]
             Image.fromarray(pixels, "RGBA").save(self.folder / f"{t}.png", optimize=True)
             self.frames.append(frame)
+            if self.ice and t in self.ice_index:
+                self.add_ice(t)
+
+    def add_ice(self, t):
+        k = self.ice_index[t]
+
+        def sample(field):
+            values = np.asarray(field, dtype=np.float32)[self.ice_fill]
+            return np.nan_to_num(self.ice_sample(np.where(np.isfinite(values), values, 0)))
+
+        cover = np.clip(sample(self.ice["cover"][k]), 0, 1)
+        thickness = np.clip(sample(self.ice["thickness"][k]), 0, None)
+        pixels = np.stack([np.rint(1 + cover * 200), np.clip(np.rint(thickness * 100), 0, 255),
+                           np.zeros(cover.shape)], axis=-1).astype(np.uint8)
+        pixels[~self.ice_sample.valid] = 0
+        most = float(cover[self.water & self.ice_sample.valid].max()) if (self.water & self.ice_sample.valid).any() else 0.0
+        self.ice_max = max(self.ice_max, most)
+        Image.fromarray(pixels, "RGB").save(self.ice_folder / f"{t}.png", optimize=True)
+        self.ice_frames.append({"time": t, "file": f"{self.ice_folder.name}/{t}.png", "iceMax": round(most, 2)})
 
     def finish(self):
         run_time = datetime.strptime(self.run, "%Y%m%d%H").replace(tzinfo=timezone.utc)
@@ -251,3 +292,16 @@ class WaterMap:
                                       encoding="utf-8")
         size = sum(p.stat().st_size for p in self.folder.glob("*.png"))
         print(f"Water map {self.run}: {len(self.frames)} frames {self.width}x{self.height}, {size / 1e6:.1f} MB")
+        if self.ice and self.ice_frames:
+            ice = maplib.write_manifest(ICE_OUT, "Copernicus Baltic sea ice",
+                                        "E.U. Copernicus Marine Service Information (Baltic Sea physics: sea ice)",
+                                        run_time, (SOUTH, NORTH, WEST, EAST), self.width, self.height, self.ice_frames)
+            # The same pixels as the water map, so its land mask goes along.
+            shutil.copyfile(OUT / "land.png", ICE_OUT / "land.png")
+            ice["kind"] = "ice"
+            ice["iceMax"] = round(self.ice_max, 2)
+            ice["encoding"] = {"red": "1 + ice cover x 200; 0 = outside the model; land holds its nearest sea value",
+                               "green": "ice thickness cm", "blue": "0"}
+            (ICE_OUT / "map.json").write_text(json.dumps(ice, ensure_ascii=False, separators=(",", ":")) + "\n",
+                                              encoding="utf-8")
+            print(f"Ice map {self.run}: {len(self.ice_frames)} frames, most cover {self.ice_max:.2f}")

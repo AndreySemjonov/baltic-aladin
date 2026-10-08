@@ -47,3 +47,25 @@ def load(south, north, west, east, start, end):
     except Exception as error:  # the water map then stays NEMO-EST only
         print(f"Copernicus unavailable: {error}")
         return None
+
+
+def load_ice(south, north, west, east, start, end):
+    """The same model's sea ice, hourly: {"times": [unix], "lats", "lons", "cover" (0-1),
+    "thickness" (m)}, NaN over land; None when unavailable. Asked apart from `load`, so the water
+    map keeps Copernicus when the ice can't be read."""
+    if not available():
+        return None
+    try:
+        import copernicusmarine
+        ds = copernicusmarine.open_dataset(
+            dataset_id=DATASET, variables=["siconc", "sithick"],
+            minimum_longitude=west, maximum_longitude=east, minimum_latitude=south, maximum_latitude=north,
+            start_datetime=start.strftime("%Y-%m-%dT%H:%M:%S"), end_datetime=end.strftime("%Y-%m-%dT%H:%M:%S"))
+        times = [int(t) for t in ds["time"].values.astype("datetime64[s]").astype(np.int64)]
+        out = {"times": times, "lats": ds["latitude"].values.astype(np.float64), "lons": ds["longitude"].values.astype(np.float64),
+               "cover": ds["siconc"].values.astype(np.float32), "thickness": ds["sithick"].values.astype(np.float32)}
+        print(f"Copernicus ice: {len(times)} hours, most cover {float(np.nanmax(out['cover'])) if times else 0:.2f}")
+        return out
+    except Exception as error:  # no ice map this time
+        print(f"Copernicus ice unavailable: {error}")
+        return None
