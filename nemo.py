@@ -103,10 +103,42 @@ def sea_cell(lat, lon, lats, lons, sea):
     return best
 
 
+def published_water_run():
+    """The live water map's run (YYYY-MM-DDTHH:MMZ), or None."""
+    try:
+        request = urllib.request.Request("https://andreysemjonov.github.io/baltic-aladin/water/map.json",
+                                         headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(request, timeout=60) as reply:
+            return json.load(reply).get("run")
+    except Exception:
+        return None
+
+
+def copernicus_only(now):
+    """NEMO far behind: the water map from the Copernicus model alone, from the last 00 or 12 UTC,
+    once per half day."""
+    start = now.replace(minute=0, second=0, microsecond=0, hour=0 if now.hour < 12 else 12)
+    if published_water_run() == start.strftime("%Y-%m-%dT%H:%MZ"):
+        print(f"Copernicus water map {start:%Y%m%d%H} already published")
+        return
+    print(f"NEMO is behind: the water map from Copernicus alone, {start:%Y%m%d%H}")
+    water = WaterMap(start.strftime("%Y%m%d%H"), None, None, None, sea_cell, nemo=False)
+    water.add_copernicus()
+    water.finish()
+
+
 def main():
     force = "--force" in sys.argv
     now = datetime.now(timezone.utc)
     run, files = newest_files(now)
+    run_time = datetime.strptime(run, "%Y%m%d%H").replace(tzinfo=timezone.utc) if run else None
+    # The agency sometimes stops publishing for a day or more: then Copernicus alone.
+    if (run_time is None or now - run_time > timedelta(hours=30)) and copernicus.available() and "--nemo" not in sys.argv:
+        try:
+            copernicus_only(now)
+            return
+        except Exception as error:  # then NEMO's own (old) run as before
+            print(f"Copernicus water map failed: {error}")
     if not run:
         print("No NEMO files found")
         return

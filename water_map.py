@@ -7,6 +7,11 @@ Gulf of Riga; CC BY 4.0) wherever it reaches, and the Copernicus Marine Baltic m
 1.7 km, the whole Baltic; copernicus.py, when the helper has a login) elsewhere, crossfaded
 over BLEND_KM inside NEMO's edge.
 
+When NEMO-EST falls behind (its newest run more than about 30 hours old: the agency sometimes
+stops publishing for a day or more), nemo.py builds the map from the Copernicus model alone
+(`copernicus_only`), twice a day, so the currents, levels and temperatures stay fresh; the next
+NEMO run brings NEMO back.
+
 Heights: each model counts from its own zero, so each is shifted by its median difference to
 the gauges over the hours both have (docs/gauges.json: Estonian and Latvian gauges on
 EH2000 = LAS-2000,5). What is left at each gauge then nudges the map nearby: a correction
@@ -56,17 +61,20 @@ def fill_land(sea):
 
 
 class WaterMap:
-    def __init__(self, run, lats, lons, sea, nearest_sea_cell):
+    def __init__(self, run, lats, lons, sea, nearest_sea_cell, nemo=True):
+        """`nemo` False: the Copernicus model alone (lats, lons and sea unused)."""
         from scipy import ndimage
         self.run = run
+        self.uses_nemo = nemo
         (self.lat, self.lon), self.width, self.height = maplib.output_grid(SOUTH, NORTH, WEST, EAST,
                                                                            metnordic_map.KM_PER_PIXEL)
         km = metnordic_map.KM_PER_PIXEL
         # NEMO: land cells take their nearest sea cell's values first, so blending near the
         # coast never mixes in the model's land filler.
-        self.nemo_fill = fill_land(sea)
-        self.nemo_sample = maplib.regular_sampler(self.lat, self.lon, float(lats[0]), float(lons[0]),
-                                                  float(lats[1] - lats[0]), float(lons[1] - lons[0]), len(lons), len(lats))
+        if nemo:
+            self.nemo_fill = fill_land(sea)
+            self.nemo_sample = maplib.regular_sampler(self.lat, self.lon, float(lats[0]), float(lons[0]),
+                                                      float(lats[1] - lats[0]), float(lons[1] - lons[0]), len(lons), len(lats))
         self.nemo_cells = {}
         # Copernicus for the rest, the run's hours and a day before (the gauges' hours).
         start = datetime.strptime(run, "%Y%m%d%H").replace(tzinfo=timezone.utc)
@@ -97,14 +105,19 @@ class WaterMap:
             self.ice = None
         # NEMO's weight: 1 well inside its area, fading to 0 over BLEND_KM towards its edge
         # (where Copernicus takes over); without Copernicus, simply its area.
-        inside_nemo = self.nemo_sample.valid
-        if self.cop:
+        if not nemo:
+            if not self.cop:
+                raise RuntimeError("Copernicus unavailable: no water map without NEMO")
+            self.nemo_weight = np.zeros(self.lat.shape, np.float32)
+            self.inside = self.cop_sample.valid
+        elif self.cop:
+            inside_nemo = self.nemo_sample.valid
             distance = ndimage.distance_transform_edt(inside_nemo) * km
             self.nemo_weight = np.clip(distance / BLEND_KM, 0, 1).astype(np.float32)
             self.inside = inside_nemo | self.cop_sample.valid
         else:
-            self.nemo_weight = inside_nemo.astype(np.float32)
-            self.inside = inside_nemo
+            self.nemo_weight = self.nemo_sample.valid.astype(np.float32)
+            self.inside = self.nemo_sample.valid
         share = maplib.land_share(self.lat, self.lon)
         # Values everywhere inside the models, land too, so the app can cut the colors along
         # the fine coastline; the ranges count only the sea.
@@ -112,7 +125,7 @@ class WaterMap:
         # The gauges, with each model's nearest sea cell and the gauge's map pixel.
         self.gauges = all_gauges.load()
         for gauge in self.gauges:
-            found = nearest_sea_cell(gauge["lat"], gauge["lon"], lats, lons, sea)
+            found = nearest_sea_cell(gauge["lat"], gauge["lon"], lats, lons, sea) if nemo else None
             if found:
                 self.nemo_cells[gauge["id"]] = found[1:]
             if self.cop:
@@ -226,29 +239,45 @@ class WaterMap:
                 u = w * u + (1 - w) * self.sample_cop(self.cop["u"][c])
                 v = w * v + (1 - w) * self.sample_cop(self.cop["v"][c])
                 inside = self.inside
-            level = level + self.nudge
-            speed = np.hypot(u, v)
-            towards = np.mod(np.degrees(np.arctan2(u, v)), 360)
-            pixels = np.stack([np.clip(np.rint(level + 128), 1, 255), np.clip(np.rint(temperature * 8), 0, 255),
-                               np.clip(np.rint(speed * 100), 0, 255),
-                               np.mod(np.rint(towards * 256 / 360), 256)], axis=-1).astype(np.uint8)
-            pixels[~inside] = 0
-            frame = {"time": t, "file": f"{self.folder.name}/{t}.png"}
-            water = self.water & inside
-            if water.any():
-                levels = pixels[..., 0][water].astype(np.float32) - 128
-                temperatures = pixels[..., 1][water].astype(np.float32) / 8
-                # This hour's range, for colors stretched to the day on screen.
-                frame["levelRange"] = [float(levels.min()), float(levels.max())]
-                frame["temperatureRange"] = [round(float(temperatures.min()), 2), round(float(temperatures.max()), 2)]
-                self.level_range = [min(self.level_range[0], float(levels.min())),
-                                    max(self.level_range[1], float(levels.max()))]
-                self.temperature_range = [min(self.temperature_range[0], float(temperatures.min())),
-                                          max(self.temperature_range[1], float(temperatures.max()))]
-            Image.fromarray(pixels, "RGBA").save(self.folder / f"{t}.png", optimize=True)
-            self.frames.append(frame)
-            if self.ice and t in self.ice_index:
-                self.add_ice(t)
+            self.write_hour(t, level, temperature, u, v, inside)
+
+    def add_copernicus(self):
+        """The Copernicus model alone: its hours from a day before the run's start (so the drift can
+        start from a loss up to a day ago), shifted and nudged to the gauges like NEMO's."""
+        start = int(datetime.strptime(self.run, "%Y%m%d%H").replace(tzinfo=timezone.utc).timestamp())
+        hours = [t for t in self.cop["times"] if t >= start - 24 * 3600]
+        self.calibrate(self.cop["times"], None)
+        for t in hours:
+            c = self.cop_index[t]
+            level = self.sample_cop(self.cop["level"][c]) * 100 + self.cop_offset
+            self.write_hour(t, level, self.sample_cop(self.cop["temperature"][c]), self.sample_cop(self.cop["u"][c]),
+                            self.sample_cop(self.cop["v"][c]), self.inside)
+
+    def write_hour(self, t, level, temperature, u, v, inside):
+        """One hour's frame (and the ice's, when read)."""
+        level = level + self.nudge
+        speed = np.hypot(u, v)
+        towards = np.mod(np.degrees(np.arctan2(u, v)), 360)
+        pixels = np.stack([np.clip(np.rint(level + 128), 1, 255), np.clip(np.rint(temperature * 8), 0, 255),
+                           np.clip(np.rint(speed * 100), 0, 255),
+                           np.mod(np.rint(towards * 256 / 360), 256)], axis=-1).astype(np.uint8)
+        pixels[~inside] = 0
+        frame = {"time": t, "file": f"{self.folder.name}/{t}.png"}
+        water = self.water & inside
+        if water.any():
+            levels = pixels[..., 0][water].astype(np.float32) - 128
+            temperatures = pixels[..., 1][water].astype(np.float32) / 8
+            # This hour's range, for colors stretched to the day on screen.
+            frame["levelRange"] = [float(levels.min()), float(levels.max())]
+            frame["temperatureRange"] = [round(float(temperatures.min()), 2), round(float(temperatures.max()), 2)]
+            self.level_range = [min(self.level_range[0], float(levels.min())),
+                                max(self.level_range[1], float(levels.max()))]
+            self.temperature_range = [min(self.temperature_range[0], float(temperatures.min())),
+                                      max(self.temperature_range[1], float(temperatures.max()))]
+        Image.fromarray(pixels, "RGBA").save(self.folder / f"{t}.png", optimize=True)
+        self.frames.append(frame)
+        if self.ice and t in self.ice_index:
+            self.add_ice(t)
 
     def add_ice(self, t):
         k = self.ice_index[t]
@@ -269,10 +298,10 @@ class WaterMap:
 
     def finish(self):
         run_time = datetime.strptime(self.run, "%Y%m%d%H").replace(tzinfo=timezone.utc)
-        model = "NEMO-EST + Copernicus" if self.cop else "NEMO-EST 1 km"
-        source = "NEMO-EST, Estonian Environment Agency (Keskkonnaagentuur) and TalTech, CC BY 4.0"
+        model = ("NEMO-EST + Copernicus" if self.cop else "NEMO-EST 1 km") if self.uses_nemo else "Copernicus Baltic"
+        source = "NEMO-EST, Estonian Environment Agency (Keskkonnaagentuur) and TalTech, CC BY 4.0" if self.uses_nemo else ""
         if self.cop:
-            source += "; E.U. Copernicus Marine Service Information (Baltic Sea physics)"
+            source += ("; " if source else "") + "E.U. Copernicus Marine Service Information (Baltic Sea physics)"
         manifest = maplib.write_manifest(OUT, model, source, run_time, (SOUTH, NORTH, WEST, EAST),
                                          self.width, self.height, self.frames)
         manifest["kind"] = "water"

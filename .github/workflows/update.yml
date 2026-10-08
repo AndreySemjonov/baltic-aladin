@@ -82,7 +82,8 @@ jobs:
           COPERNICUSMARINE_SERVICE_PASSWORD: ${{ secrets.COPERNICUSMARINE_SERVICE_PASSWORD }}
         run: |
           .venv/bin/python nemo.py || echo "NEMO unavailable this time"
-          if git diff --quiet --exit-code docs/nemo.json 2>/dev/null && git ls-files --error-unmatch docs/nemo.json >/dev/null 2>&1; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
+          # A new water map (NEMO's, or Copernicus's alone while NEMO is behind) is new too.
+          if [ -d water-site ]; then echo "changed=true" >> "$GITHUB_OUTPUT"; elif git diff --quiet --exit-code docs/nemo.json 2>/dev/null && git ls-files --error-unmatch docs/nemo.json >/dev/null 2>&1; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
 
       # The Estonian coastal gauges' last 48 hours, from their pages, once an hour.
       - name: Read the Estonian gauges
