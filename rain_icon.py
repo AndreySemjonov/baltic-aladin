@@ -4,8 +4,8 @@ to 78, then every 3 hours to 120), in the rain map's format, so rain_join.py can
 
     <out>/map.json                  "kind": "rain", "clouds": true
     <out>/<run>/<unix time>.png     red = sqrt(precipitation mm per hour) x 50,
-                                    green = how cloudy it looks x 255 (low cloud in full, middle 0.6,
-                                    high 0.3, as from HARM-FI in rain_map.py)
+                                    green = total cloud cover x 255 (low, middle and high
+                                    overlapping at random, in full, as in rain_map.py)
 
 Per ICON-EU main run (4 a day): about 40 hours x 4 fields of 1 MB.
 
@@ -73,7 +73,9 @@ def main():
         hours = step - before
         mm = np.clip(fields[(step, "TOT_PREC")] - fields[(before, "TOT_PREC")], 0, None) / hours
         low, mid, high = (np.clip(fields.get((step, v), np.zeros_like(mm)) / 100, 0, 1) for v in CLOUDS)
-        looks = 1 - (1 - low) * (1 - 0.6 * mid) * (1 - 0.3 * high)
+        # The total cover (layers overlapping at random), in full: overcast shows as overcast
+        # (the owner, 9.10.2026: the map showed fewer clouds than there were).
+        looks = 1 - (1 - low) * (1 - mid) * (1 - high)
         red = np.clip(np.rint(np.sqrt(mm) * 50), 0, 255).astype(np.uint8)
         green = np.rint(np.clip(looks, 0, 1) * 255).astype(np.uint8)
         time = int((run_time + timedelta(hours=step)).timestamp())
@@ -90,7 +92,7 @@ def main():
         "bounds": {"south": rain_map.SOUTH, "north": rain_map.NORTH, "west": rain_map.WEST, "east": rain_map.EAST},
         "width": width, "height": height,
         "encoding": {"red": "sqrt(precipitation mm per hour) x 50 (0 = none)",
-                     "green": "how cloudy it looks x 255 (low 1, middle 0.6, high 0.3)"},
+                     "green": "total cloud cover x 255 (low, middle and high overlapping at random)"},
         "frames": frames,
     }
     (out / "map.json").write_text(json.dumps(manifest, separators=(",", ":")) + "\n", encoding="utf-8")

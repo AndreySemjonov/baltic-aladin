@@ -7,10 +7,9 @@ these frames after it.
     <out>/map.json                  "kind": "rain"
     <out>/<run>/<unix time>.png     RGB, read as raw numbers:
         red = sqrt(precipitation mm in the hour) x 50 (0 = none; 255 = 26 mm)
-        green = how cloudy it looks x 255 (0 = clear); "clouds": true in map.json. From HARM-FI's
-                low, middle and high cloud (FMI open data, CC BY 4.0) where it has the hour: low
-                cloud (thick, the rain clouds) counts in full, middle 0.6, high (thin) 0.3, so an
-                overcast sky keeps the shape of its rain clouds; else MET Nordic's total cover x 0.6
+        green = total cloud cover x 255 (0 = clear); "clouds": true in map.json. The larger of
+                HARM-FI's low, middle and high cloud overlapping at random (FMI open data, CC BY 4.0)
+                and MET Nordic's total cover, in full, so an overcast sky shows as overcast
 
     python rain_map.py site/rain
     python rain_map.py --check                   print the newest run (MET Nordic's)
@@ -68,7 +67,8 @@ def layered_clouds(lat, lon):
         if not {"lcc", "mcc", "hcc"} <= step.keys():
             continue
         low, mid, high = (np.clip(sample(step[k]), 0, 1) for k in ("lcc", "mcc", "hcc"))
-        looks = 1 - (1 - low) * (1 - 0.6 * mid) * (1 - 0.3 * high)
+        # The total cover in full: overcast shows as overcast (9.10.2026).
+        looks = 1 - (1 - low) * (1 - mid) * (1 - high)
         out[t] = np.where(sample.valid, looks, np.nan)
     print(f"HARM-FI cloud layers: {len(out)} hours")
     return out
@@ -115,9 +115,9 @@ def main():
     for k, step in enumerate(range(first, last + 1)):
         mm = np.clip(np.nan_to_num(rain[k][sample_row, sample_col]), 0, None)
         red = np.clip(np.rint(np.sqrt(mm) * 50), 0, 255).astype(np.uint8)
-        total = np.clip(np.nan_to_num(cloud[k][sample_row, sample_col]), 0, 1) * 0.6
+        total = np.clip(np.nan_to_num(cloud[k][sample_row, sample_col]), 0, 1)
         layered = layers.get(int(times[step]))
-        cover = total if layered is None else np.where(np.isnan(layered), total, layered)
+        cover = total if layered is None else np.where(np.isnan(layered), total, np.maximum(layered, total))
         green = np.rint(np.clip(cover, 0, 1) * 255).astype(np.uint8)
         rgb = np.stack([red, green, np.zeros_like(red)], axis=-1)
         name = f"{int(times[step])}.png"
@@ -133,7 +133,7 @@ def main():
         "bounds": {"south": SOUTH, "north": NORTH, "west": WEST, "east": EAST},
         "width": width, "height": height,
         "encoding": {"red": "sqrt(precipitation mm in the hour) x 50 (0 = none)",
-                     "green": "how cloudy it looks x 255 (HARM-FI layers: low 1, middle 0.6, high 0.3; else MET Nordic total x 0.6)"},
+                     "green": "total cloud cover x 255 (the larger of HARM-FI's layers overlapping at random and MET Nordic's total)"},
         "clouds": True,
         "frames": frames,
     }
