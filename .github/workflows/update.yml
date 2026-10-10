@@ -92,6 +92,15 @@ jobs:
           .venv/bin/python ee_gauges.py || echo "Estonian gauges unavailable this time"
           if git diff --quiet --exit-code docs/ee-gauges.json 2>/dev/null && git ls-files --error-unmatch docs/ee-gauges.json >/dev/null 2>&1; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
 
+      # The rain map's satellite clouds (clouds.py): every 15 minutes of the last day, made from
+      # Meteosat's infrared and Cloud Mask in the app's style and uploaded to MeteoGust's file store
+      # (files.meteogust.com/clouds) through the station-history Worker with the report token; on
+      # every run, not part of the Pages site. A failure never fails the run.
+      - name: Satellite clouds
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+        run: .venv/bin/python clouds.py || echo "Clouds unavailable this time"
+
       # Pages replaces the whole site on each deploy, so every deploy carries all of it: each map is
       # rebuilt only for a new run of its model (MET Nordic and the rain every hour, HARM-FI and
       # HARM-DK every 3 hours, ALADIN, ICON-EU and GFS 4 times a day, ECMWF and the EWAM waves
