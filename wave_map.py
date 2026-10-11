@@ -1,10 +1,11 @@
-"""Wave map frames over Lithuania, Latvia and Estonia from DWD's European wave model EWAM
-(Deutscher Wetterdienst open data, CC BY 4.0).
-
-EWAM runs at 00 and 12 UTC and goes 78 hours ahead, hourly, on a 0.1 x 0.05 degree grid
-(about 5.5 km here). This downloads significant wave height (SWH), mean wave direction (MWD)
-and mean wave period (TM10) for the newest complete run and writes one PNG per hour on the
-water map's Web Mercator box (the app draws them through the fine coastline's sea only):
+"""Wave map frames over Lithuania, Latvia and Estonia: the Copernicus Baltic wave forecast
+(BALTICSEA_ANALYSISFORECAST_WAV_003_010, WAM at 1 nautical mile, hourly, up to 10 days; E.U.
+Copernicus Marine Service Information; the owner, 11.10.2026: EWAM's 3 days were too few), hourly
+for 3 days and every 3 hours after; when it can't be read (no login, late), DWD's European wave
+model EWAM as before (Deutscher Wetterdienst open data, CC BY 4.0: 00 and 12 UTC, 78 hours
+ahead, hourly, 0.1 x 0.05 degrees, about 5.5 km). Significant wave height, mean wave direction
+and mean wave period (TM10), one PNG per frame on the water map's Web Mercator box (the app draws
+them through the fine coastline's sea only):
 
     <out>/map.json                  "kind": "waves"
     <out>/<run>/<unix time>.png     RGB, read as raw numbers:
@@ -14,9 +15,9 @@ water map's Web Mercator box (the app draws them through the fine coastline's se
 
 Land cells take their nearest sea cell's values first, so the coast never mixes in nothing.
 
-    python wave_map.py site/waves              newest complete run
-    python wave_map.py site/waves 2026100500   a given run
-    python wave_map.py --check                 print the newest complete run
+    python wave_map.py site/waves              Copernicus, else EWAM's newest complete run
+    python wave_map.py site/waves 2026100500   EWAM, a given run
+    python wave_map.py --check                 print the run to show (Copernicus: the half day)
 """
 import bz2
 import json
@@ -31,6 +32,7 @@ import eccodes
 import numpy as np
 from PIL import Image
 
+import copernicus
 import maplib
 import metnordic_map
 
@@ -124,21 +126,44 @@ class Cropped:
         return self.sampler(values)
 
 
-def main():
-    if sys.argv[1:] == ["--check"]:
-        print(newest_run())
-        return
-    out = Path(sys.argv[1] if len(sys.argv) > 1 else "site/waves")
-    run = sys.argv[2] if len(sys.argv) > 2 else newest_run()
-    run_time = datetime.strptime(run, "%Y%m%d%H").replace(tzinfo=timezone.utc)
-    (lat, lon), width, height = maplib.output_grid(SOUTH, NORTH, WEST, EAST, KM_PER_PIXEL)
-    run_name = run_time.strftime("%Y%m%dT%HZ")
-    folder = out / run_name
-    folder.mkdir(parents=True, exist_ok=True)
+def copernicus_run(now=None):
+    """The Copernicus run to show: its runs are online by about 10 hours after 00 and 12 UTC, so
+    the half day 10 hours ago (the map is made again twice a day, at 10 and 22 UTC)."""
+    now = now or datetime.now(timezone.utc)
+    slot = now - timedelta(hours=10)
+    return slot.replace(hour=slot.hour // 12 * 12, minute=0, second=0, microsecond=0)
 
+
+def copernicus_frames(lat, lon):
+    """The Copernicus frames from 3 hours ago: hourly for 3 days, then every 3 hours as far as it
+    goes. Each: (unix time, height, period, direction, valid) on the output pixels; None when it
+    can't be read or has under 3 days."""
+    from scipy import ndimage
+    start = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0) - timedelta(hours=3)
+    times = [start + timedelta(hours=h) for h in range(0, 75)] + [start + timedelta(hours=h) for h in range(75, 243, 3)]
+    data = copernicus.load_waves(SOUTH - 0.2, NORTH + 0.2, WEST - 0.3, EAST + 0.3, times)
+    if data is None or len(data["times"]) < 72:
+        return None
+    lats, lons = data["lats"], data["lons"]
+    sampler = maplib.regular_sampler(lat, lon, float(lats[0]), float(lons[0]), float(lats[1] - lats[0]),
+                                     float(lons[1] - lons[0]), len(lons), len(lats))
+    # Land takes the nearest sea cell's values (the land mask is the same every hour).
+    sea = np.isfinite(data["height"][0])
+    _, fill = ndimage.distance_transform_edt(~sea, return_indices=True)
+    out = []
+    for k, time in enumerate(data["times"]):
+        height_m, direction, period = (data[name][k][fill[0], fill[1]] for name in ("height", "direction", "period"))
+        radians = np.radians(direction)
+        east, north = sampler(np.sin(radians)), sampler(np.cos(radians))
+        out.append((time, np.clip(sampler(height_m), 0, None), np.clip(sampler(period), 0, None),
+                    np.mod(np.degrees(np.arctan2(east, north)), 360), sampler.valid))
+    return out
+
+
+def ewam_frames(run, run_time, lat, lon):
+    """EWAM's frames of a run, hourly for its 78 hours: as copernicus_frames."""
     crop = None
-    frames = []
-    highest = 0.0
+    out = []
 
     def fetch(step):
         return step, [download(run, step, variable) for variable in VARIABLES]
@@ -152,24 +177,52 @@ def main():
             # Directions blend as their sine and cosine, so 350 and 10 make 0, not 180.
             radians = np.radians(direction)
             east, north = crop.sample(np.sin(radians)), crop.sample(np.cos(radians))
-            direction_out = np.mod(np.degrees(np.arctan2(east, north)), 360)
-            height_out = np.clip(crop.sample(height_m), 0, None)
-            period_out = np.clip(crop.sample(period), 0, None)
-            valid = crop.sampler.valid & np.isfinite(height_out)
-            red = np.where(valid, np.clip(np.rint(np.nan_to_num(height_out) * 40) + 1, 1, 255), 0)
-            rgb = np.stack([red,
-                            np.clip(np.rint(np.nan_to_num(period_out) * 10), 0, 255),
-                            np.mod(np.rint(np.nan_to_num(direction_out) * 256 / 360), 256)], axis=-1).astype(np.uint8)
             time = int((run_time + timedelta(hours=step)).timestamp())
-            Image.fromarray(rgb, "RGB").save(folder / f"{time}.png", optimize=True)
-            top = float(np.nanmax(np.where(valid, height_out, np.nan))) if valid.any() else 0.0
-            highest = max(highest, top)
-            frames.append({"time": time, "file": f"{run_name}/{time}.png", "heightMax": round(top, 2)})
+            out.append((time, np.clip(crop.sample(height_m), 0, None), np.clip(crop.sample(period), 0, None),
+                        np.mod(np.degrees(np.arctan2(east, north)), 360), crop.sampler.valid))
+    return out
+
+
+def main():
+    if sys.argv[1:] == ["--check"]:
+        print(copernicus_run().strftime("%Y%m%d%H") if copernicus.available() else newest_run())
+        return
+    out = Path(sys.argv[1] if len(sys.argv) > 1 else "site/waves")
+    (lat, lon), width, height = maplib.output_grid(SOUTH, NORTH, WEST, EAST, KM_PER_PIXEL)
+    frames_in = None
+    if len(sys.argv) <= 2:
+        frames_in = copernicus_frames(lat, lon)
+    if frames_in is not None:
+        run_time = copernicus_run()
+        model = "Baltic WAM 2 km"
+        source = "E.U. Copernicus Marine Service Information, BALTICSEA_ANALYSISFORECAST_WAV_003_010: https://marine.copernicus.eu/"
+    else:
+        run = sys.argv[2] if len(sys.argv) > 2 else newest_run()
+        run_time = datetime.strptime(run, "%Y%m%d%H").replace(tzinfo=timezone.utc)
+        frames_in = ewam_frames(run, run_time, lat, lon)
+        model = "EWAM 5 km"
+        source = "Deutscher Wetterdienst (DWD), EWAM, CC BY 4.0: https://opendata.dwd.de/"
+    run_name = run_time.strftime("%Y%m%dT%HZ")
+    folder = out / run_name
+    folder.mkdir(parents=True, exist_ok=True)
+
+    frames = []
+    highest = 0.0
+    for time, height_out, period_out, direction_out, inside in frames_in:
+        valid = inside & np.isfinite(height_out)
+        red = np.where(valid, np.clip(np.rint(np.nan_to_num(height_out) * 40) + 1, 1, 255), 0)
+        rgb = np.stack([red,
+                        np.clip(np.rint(np.nan_to_num(period_out) * 10), 0, 255),
+                        np.mod(np.rint(np.nan_to_num(direction_out) * 256 / 360), 256)], axis=-1).astype(np.uint8)
+        Image.fromarray(rgb, "RGB").save(folder / f"{time}.png", optimize=True)
+        top = float(np.nanmax(np.where(valid, height_out, np.nan))) if valid.any() else 0.0
+        highest = max(highest, top)
+        frames.append({"time": time, "file": f"{run_name}/{time}.png", "heightMax": round(top, 2)})
 
     manifest = {
-        "model": "EWAM 5 km",
+        "model": model,
         "kind": "waves",
-        "source": "Deutscher Wetterdienst (DWD), EWAM, CC BY 4.0: https://opendata.dwd.de/",
+        "source": source,
         "run": run_time.strftime("%Y-%m-%dT%H:%MZ"),
         "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
         "projection": "Web Mercator (EPSG:3857); the image spans the bounds edge to edge",
@@ -184,7 +237,7 @@ def main():
     }
     (out / "map.json").write_text(json.dumps(manifest, separators=(",", ":")) + "\n", encoding="utf-8")
     size = sum(p.stat().st_size for p in folder.glob("*.png"))
-    print(f"EWAM run {manifest['run']}: {len(frames)} frames {width}x{height}, {size / 1e6:.1f} MB, highest {highest:.1f} m")
+    print(f"{model} run {manifest['run']}: {len(frames)} frames {width}x{height}, {size / 1e6:.1f} MB, highest {highest:.1f} m")
 
 
 if __name__ == "__main__":

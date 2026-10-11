@@ -103,13 +103,16 @@ jobs:
 
       # Pages replaces the whole site on each deploy, so every deploy carries all of it: each map is
       # rebuilt only for a new run of its model (MET Nordic and the rain every hour, HARM-FI and
-      # HARM-DK every 3 hours, ALADIN, ICON-EU and GFS 4 times a day, ECMWF and the EWAM waves
+      # HARM-DK every 3 hours, ALADIN, ICON-EU and GFS 4 times a day, ECMWF and the waves
       # twice), otherwise its published frames are copied over. The blend is mixed again when any
       # wind map is new. A run with nothing new stops here in about two minutes.
       - name: What is due?
         id: due
         env:
           FORCE: ${{ inputs.map }}
+          # The wave map's Copernicus run (its check needs the login, else it falls back to EWAM's).
+          COPERNICUSMARINE_SERVICE_USERNAME: ${{ secrets.COPERNICUSMARINE_SERVICE_USERNAME }}
+          COPERNICUSMARINE_SERVICE_PASSWORD: ${{ secrets.COPERNICUSMARINE_SERVICE_PASSWORD }}
           NEW_ALADIN: ${{ steps.aladin.outputs.changed }}
           NEW_NEMO: ${{ steps.nemo.outputs.changed }}
           NEW_GAUGES: ${{ steps.gauges.outputs.changed }}
@@ -134,6 +137,9 @@ jobs:
         if: steps.due.outputs.deploy == 'true'
         env:
           REBUILD: ${{ steps.due.outputs.rebuild }}
+          # The wave map from the Copernicus Baltic wave forecast (10 days), else EWAM.
+          COPERNICUSMARINE_SERVICE_USERNAME: ${{ secrets.COPERNICUSMARINE_SERVICE_USERNAME }}
+          COPERNICUSMARINE_SERVICE_PASSWORD: ${{ secrets.COPERNICUSMARINE_SERVICE_PASSWORD }}
           NEW_ALADIN: ${{ steps.aladin.outputs.changed }}
           FORCE: ${{ inputs.map }}
         run: |

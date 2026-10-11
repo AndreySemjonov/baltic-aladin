@@ -69,3 +69,37 @@ def load_ice(south, north, west, east, start, end):
     except Exception as error:  # no ice map this time
         print(f"Copernicus ice unavailable: {error}")
         return None
+
+
+WAVES = "cmems_mod_bal_wav_anfc_PT1H-i"
+
+
+def load_waves(south, north, west, east, times):
+    """The Copernicus Baltic wave forecast (BALTICSEA_ANALYSISFORECAST_WAV_003_010: WAM, 1
+    nautical mile, hourly, up to 10 days from the 00 UTC run and 6 from the 12 UTC one) at the
+    given hours (UTC datetimes; the ones it doesn't have are left out): {"times": [unix], "lats",
+    "lons", "height" (significant wave height, m), "direction" (mean, from, degrees), "period"
+    (mean, TM10, s)}, NaN over land; None when unavailable."""
+    if not available():
+        print("Copernicus: no login, the wave map stays EWAM")
+        return None
+    try:
+        import copernicusmarine
+        ds = copernicusmarine.open_dataset(
+            dataset_id=WAVES, variables=["VHM0", "VMDR", "VTM10"],
+            minimum_longitude=west, maximum_longitude=east, minimum_latitude=south, maximum_latitude=north)
+        stamps = [int(t) for t in ds["time"].values.astype("datetime64[s]").astype(np.int64)]
+        wanted = {int(t.timestamp()) for t in times}
+        keep = [i for i, t in enumerate(stamps) if t in wanted]
+        if not keep:
+            print("Copernicus waves: none of the hours asked for")
+            return None
+        ds = ds.isel(time=keep)
+        out = {"times": [stamps[i] for i in keep], "lats": ds["latitude"].values.astype(np.float64),
+               "lons": ds["longitude"].values.astype(np.float64), "height": ds["VHM0"].values.astype(np.float32),
+               "direction": ds["VMDR"].values.astype(np.float32), "period": ds["VTM10"].values.astype(np.float32)}
+        print(f"Copernicus waves: {len(keep)} hours, {len(out['lats'])}x{len(out['lons'])} cells")
+        return out
+    except Exception as error:  # the wave map then stays EWAM
+        print(f"Copernicus waves unavailable: {error}")
+        return None
