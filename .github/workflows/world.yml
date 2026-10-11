@@ -1,0 +1,63 @@
+name: World weather tiles
+run-name: World tiles (GFS, ECMWF)
+
+# The world's models as weather tiles on our file store (world_tiles.py; the app's map plan
+# step 1, the owner, 12.10.2026): every hour each model's newest run is checked and, when it is
+# new, made into packs of tiles and uploaded through our service (station-history). Apart from
+# the Baltic maps' workflow, so a long world run never holds them up. GFS runs 4 times a day,
+# ECMWF's open data twice (00 and 12 UTC, 15 days).
+on:
+  schedule:
+    - cron: "41 * * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Make the newest runs again even if published"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  tiles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        model: [gfs, ecmwf]
+    concurrency:
+      group: world-${{ matrix.model }}
+      cancel-in-progress: false
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Python version (for the package cache)
+        id: python
+        run: echo "version=$(python3 -c 'import sys; print(sys.version.split()[0])')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the installed packages
+        id: venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: world-venv-${{ runner.os }}-py${{ steps.python.outputs.version }}-eccodes-numpy-pillow-v1
+
+      - name: Install ecCodes, NumPy and Pillow
+        if: steps.venv.outputs.cache-hit != 'true'
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow
+
+      - name: Make and upload the newest run's tiles
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          if [ "$FORCE" = "true" ]; then
+            .venv/bin/python world_tiles.py ${{ matrix.model }} --force
+          else
+            .venv/bin/python world_tiles.py ${{ matrix.model }}
+          fi
