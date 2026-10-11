@@ -118,7 +118,7 @@ jobs:
           NEW_GAUGES: ${{ steps.gauges.outputs.changed }}
         run: |
           rebuild=""
-          for pair in map:metnordic_map.py rain:rain_map.py temp:temp_map.py harmonie:harmonie_map.py harm-dk:dmi_map.py icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py waves:wave_map.py rain-icon:rain_icon.py rain-chance:rain_chance.py; do
+          for pair in map:metnordic_map.py rain:rain_map.py temp:temp_map.py harmonie:harmonie_map.py harm-dk:dmi_map.py icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py world:gfs_world.py waves:wave_map.py rain-icon:rain_icon.py rain-chance:rain_chance.py; do
             name=${pair%%:*}; script=${pair##*:}
             newest=$(.venv/bin/python $script --check || echo "")
             published=$(python3 -c "import json; print(json.load(open('docs/runs.json')).get('$name', ''))" 2>/dev/null || echo "")
@@ -149,7 +149,7 @@ jobs:
           # MEPS's ensemble (30 members, a new lagged set every hour). What couldn't be made is noted
           # for the admin panel's report.
           failed() { echo "$1"; echo "$1" >> failed.txt; }
-          for pair in map:metnordic_map.py rain:rain_map.py temp:temp_map.py harmonie:harmonie_map.py harm-dk:dmi_map.py icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py waves:wave_map.py rain-icon:rain_icon.py rain-chance:rain_chance.py; do
+          for pair in map:metnordic_map.py rain:rain_map.py temp:temp_map.py harmonie:harmonie_map.py harm-dk:dmi_map.py icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py world:gfs_world.py waves:wave_map.py rain-icon:rain_icon.py rain-chance:rain_chance.py; do
             name=${pair%%:*}; script=${pair##*:}
             case " $REBUILD " in
               *" $name "*) .venv/bin/python $script site/$name || .venv/bin/python carry.py site/$name $name || failed "$name map unavailable this time" ;;
@@ -188,7 +188,7 @@ jobs:
               m = json.load(open("site/map/map.json"))
               json.dump({"built": now, "run": m["run"], "frames": len(m["frames"])}, open("docs/map-state.json", "w"))
           runs = {}
-          for name in ("map", "rain", "temp", "harmonie", "harm-dk", "icon-eu", "ecmwf", "gfs", "waves", "rain-icon", "rain-chance"):
+          for name in ("map", "rain", "temp", "harmonie", "harm-dk", "icon-eu", "ecmwf", "gfs", "world", "waves", "rain-icon", "rain-chance"):
               path = f"site/{name}/map.json"
               if os.path.exists(path):
                   run = json.load(open(path))["run"]
