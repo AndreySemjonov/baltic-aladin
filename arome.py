@@ -21,6 +21,44 @@ NI, NJ, LAT_TOP, LON0, STEP = 2801, 1791, 55.4, -12.0, 0.01
 SOUTH, NORTH, WEST, EAST = 37.5, 55.4, -12.0, 16.0
 LAST = 42
 FADE_KM = 50
+# The model's own area is slanted inside the grid: its corners carry no data (the bitmap; ecCodes
+# gives them 9999, drawn as storms on 12.10.2026). Where there is data, on a coarse grid (every
+# 5th cell, about 4.5 km), and its distance to the area's edge; learnt from the first field read.
+COARSE = 5
+COARSE_KM = 4.5
+_edge_km = None
+
+
+def _values(handle):
+    """A message's values (rows from the south as the others'), NaN where it has none."""
+    values = eccodes.codes_get_values(handle).astype(np.float32)
+    if eccodes.codes_get(handle, "bitmapPresent"):
+        values[values == eccodes.codes_get(handle, "missingValue")] = np.nan
+    grid = values.reshape(NJ, NI)[::-1]
+    _learn(grid)
+    return grid
+
+
+def _learn(grid):
+    """The area's edge distance from a field's cells with data (once)."""
+    global _edge_km
+    if _edge_km is not None:
+        return
+    valid = np.isfinite(grid[::COARSE, ::COARSE])
+    d = np.where(valid, 1e4, 0.0).astype(np.float32)
+    d[0, :] = d[-1, :] = 0
+    d[:, 0] = d[:, -1] = 0
+    ny, nx = d.shape
+    for _ in range(2):
+        for j in range(1, ny):
+            d[j] = np.minimum(d[j], d[j - 1] + 1)
+        for j in range(ny - 2, -1, -1):
+            d[j] = np.minimum(d[j], d[j + 1] + 1)
+        for i in range(1, nx):
+            d[:, i] = np.minimum(d[:, i], d[:, i - 1] + 1)
+        for i in range(nx - 2, -1, -1):
+            d[:, i] = np.minimum(d[:, i], d[:, i + 1] + 1)
+    _edge_km = d * COARSE_KM
 
 
 def get(url, start=None, end=None, timeout=300):
@@ -78,7 +116,7 @@ class Model:
             length = struct.unpack(">Q", data[at + 8:at + 16])[0]
             handle = eccodes.codes_new_from_message(data[at:at + length])
             try:
-                fields[eccodes.codes_get(handle, "shortName")] = eccodes.codes_get_values(handle).astype(np.float32).reshape(NJ, NI)[::-1]
+                fields[eccodes.codes_get(handle, "shortName")] = _values(handle)
             finally:
                 eccodes.codes_release(handle)
             at += length
@@ -132,7 +170,7 @@ class Model:
             try:
                 name = eccodes.codes_get(handle, "shortName")
                 if name not in fields:
-                    fields[name] = eccodes.codes_get_values(handle).astype(np.float32).reshape(NJ, NI)[::-1]
+                    fields[name] = _values(handle)
             finally:
                 eccodes.codes_release(handle)
             at += length
@@ -181,12 +219,16 @@ class Model:
 
     def place(self, lon, lat):
         """Fractional column and row (rows from the south), the weight by the distance to the
-        area's edge, as the other models."""
+        area's edge (the model's own, slanted, once a field is read), as the other models."""
         col = (lon - LON0) / STEP
         row = (lat - (LAT_TOP - (NJ - 1) * STEP)) / STEP
         inside = (col >= 0) & (row >= 0) & (col <= NI - 1) & (row <= NJ - 1)
         km = np.minimum.reduce([(lat - SOUTH) * 111, (NORTH - lat) * 111,
                                 (lon - WEST) * 111 * np.cos(np.radians(lat)), (EAST - lon) * 111 * np.cos(np.radians(lat))])
+        if _edge_km is not None:
+            j = np.clip((row / COARSE).astype(int), 0, _edge_km.shape[0] - 1)
+            i = np.clip((col / COARSE).astype(int), 0, _edge_km.shape[1] - 1)
+            km = np.minimum(km, _edge_km[j, i])
         return col, row, np.where(inside, np.clip(km / FADE_KM, 0, 1), 0)
 
     @staticmethod
