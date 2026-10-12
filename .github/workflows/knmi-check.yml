@@ -1,0 +1,23 @@
+name: KNMI check
+run-name: KNMI HARMONIE-AROME files (a look)
+
+# A one-off look at KNMI's HARMONIE-AROME Netherlands files with the KNMI_API_KEY secret
+# (tools/knmi_check.py), to build the regional tiles' HARM-NL on.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  look:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy
+      - env:
+          KNMI_API_KEY: ${{ secrets.KNMI_API_KEY }}
+        run: .venv/bin/python tools/knmi_check.py
