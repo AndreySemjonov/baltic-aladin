@@ -49,6 +49,7 @@ jobs:
       - name: Make and upload the newest run's tiles
         env:
           INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          KNMI_API_KEY: ${{ secrets.KNMI_API_KEY }}
           FORCE: ${{ inputs.force }}
         run: |
           if [ "$FORCE" = "true" ]; then

@@ -1,7 +1,9 @@
 """The regional models over their whole area as map tiles (the owner, 12.10.2026: the detailed
 maps beyond the Baltic's box): MET Nordic (MET Norway, 1 km; here every second cell, 2 km) over the
 Nordic countries and the Baltic, and for the wind DWD's ICON-D2 (2.2 km) over Germany, Benelux,
-Denmark, the Alps and western Poland where MET Nordic isn't (each by its weight, MET Nordic first). The same packs as the world's tiles
+Denmark, the Alps and western Poland, DMI's HARMONIE DINI (2 km) over the British Isles, the North
+Sea and the Channel, and KNMI's HARMONIE-AROME (2 km) over the Netherlands and Belgium, where MET
+Nordic isn't (MET Nordic first; the others averaged by their weights where they overlap). The same packs as the world's tiles
 (world_tiles.py: "MGT1", a header, PNG tiles), zooms 4-6 on the web map's grid, one pack an hour
 (hourly for the first day, then every 3 hours), uploaded through station-history as
 tiles/metnordic/; the app draws them between our Baltic mix and ECMWF's world.
@@ -28,7 +30,9 @@ from pathlib import Path
 
 import numpy as np
 
+import dini
 import icond2
+import knmi
 import metnordic_map as mn
 import temp_map
 import world_tiles
@@ -171,30 +175,53 @@ def main():
         steps = steps[:limit]
     rows, cols = 2321, 1796
     srows, scols = (rows - 1) // STRIDE + 1, (cols - 1) // STRIDE + 1
-    # ICON-D2 with the wind: its newest complete run, the hours MET Nordic's frames need.
-    icon_run = icond2.newest_run() if which == "wind" else None
-    icon, icon_weights, icon_time = {}, None, 0
-    if icon_run is not None:
-        icon_time = int(icon_run.timestamp())
-        wanted = sorted({round((int(times[s]) - icon_time) / 3600) for s in steps} & set(range(icond2.LAST + 1)))
-        icon = {name: icond2.fields(icon_run, var, wanted)
-                for name, var in (("u", "u_10m"), ("v", "v_10m"), ("gust", "vmax_10m"))}
-        icon_weights = icond2.weight_grid(next(iter(icon["u"].values())))
-        print(f"ICON-D2 {icon_run:%Y%m%dT%HZ}: {len(wanted)} hours", flush=True)
-    placer = Placer(srows, scols, extra=(lambda lon, lat: icond2.place(lon, lat)[2].any()) if icon_run is not None else None)
+    # The other regional models with the wind (each may be missing: the rest go on): {name:
+    # (place(lon, lat) -> col, row, weight; {unix time: (east, north, gust)}; sample(grid, col, row))}.
+    others = {}
+    wanted_times = [int(times[s]) for s in steps]
+    if which == "wind":
+        try:
+            icon_run = icond2.newest_run()
+            if icon_run is not None:
+                icon_time = int(icon_run.timestamp())
+                hours = sorted({round((t - icon_time) / 3600) for t in wanted_times} & set(range(icond2.LAST + 1)))
+                icon = {name: icond2.fields(icon_run, var, hours)
+                        for name, var in (("u", "u_10m"), ("v", "v_10m"), ("gust", "vmax_10m"))}
+                icon_weights = icond2.weight_grid(next(iter(icon["u"].values())))
+
+                def icon_place(lon, lat):
+                    c, r, on = icond2.place(lon, lat)
+                    return c, r, np.where(on, np.nan_to_num(icond2.sample(icon_weights, c, r)), 0)
+                winds = {icon_time + k * 3600: (icon["u"][k], icon["v"][k], icon["gust"][k]) for k in hours}
+                others["ICON-D2"] = (icon_place, winds, icond2.sample)
+                print(f"ICON-D2 {icon_run:%Y%m%dT%HZ}: {len(hours)} hours", flush=True)
+        except Exception as error:
+            print(f"ICON-D2 left out: {error}", flush=True)
+        try:
+            harmonie = dini.Model()
+            winds = harmonie.winds(wanted_times)
+            others["DINI"] = (harmonie.place, winds, harmonie.sample)
+            print(f"HARMONIE DINI {harmonie.run:%Y%m%dT%HZ}: {len(winds)} hours, rows {harmonie.height} x {harmonie.width}", flush=True)
+        except Exception as error:
+            print(f"HARMONIE DINI left out: {error}", flush=True)
+        try:
+            dutch = knmi.Model()
+            winds = dutch.winds(wanted_times)
+            others["HARM-NL"] = (dutch.place, winds, dutch.sample)
+            print(f"HARM-NL {dutch.run:%Y%m%dT%HZ}: {len(winds)} hours", flush=True)
+        except Exception as error:
+            print(f"HARM-NL left out: {error}", flush=True)
+    placer = Placer(srows, scols, extra=(lambda lon, lat: any(place(lon, lat)[2].any() for place, _, _ in others.values()))
+                    if others else None)
     print(f"{len(placer.tiles)} tiles, {len(steps)} hours, run {run_name}", flush=True)
     names = (("speed", "wind_speed_10m"), ("direction", "wind_direction_10m"), ("gust", "wind_speed_of_gust")) if which == "wind"         else (("speed", "wind_speed_10m"), ("air", "air_temperature_2m"), ("humidity", "relative_humidity_2m"),
               ("pressure", "air_pressure_at_sea_level"), ("rain", "precipitation_amount"), ("cloud", "cloud_area_fraction"))
     fields = {key: fetch_hours(name, steps, rows, cols) for key, name in names}
     print(f"read in {time.time() - started:.0f} s", flush=True)
     weights = {key: placer.weight(*value) for key, value in placer.tiles.items()}
-    # ICON-D2 (wind): where it lies on each tile and how much it counts there (MET Nordic first).
-    icon_parts = {}
-    if icon_run is not None:
-        for key, (col, row, inside, lon, lat) in placer.tiles.items():
-            c, r, on = icond2.place(lon, lat)
-            w = np.where(on, icond2.sample(icon_weights, c, r), 0)
-            icon_parts[key] = (c, r, np.nan_to_num(w) * (1 - weights[key]))
+    # The other models on each tile: where they lie and how much they count there.
+    parts = {name: {key: model[0](lon, lat) for key, (col, row, inside, lon, lat) in placer.tiles.items()}
+             for name, model in others.items()}
     frames, total = [], 0
     def put(name, data):
         if local:
@@ -228,14 +255,26 @@ def main():
             def encode(e, n, g):
                 return np.stack([np.clip(np.rint(e * 4 + 128), 0, 255), np.clip(np.rint(n * 4 + 128), 0, 255),
                                  np.clip(np.rint(g * 5), 0, 255)], axis=-1)
+            # The others at this hour: averaged by their weights where they overlap, together
+            # counting what MET Nordic leaves (1 - its weight).
             extra = None
-            k = round((t - icon_time) / 3600) if icon_run is not None else -1
-            if icon_run is not None and 0 <= k <= icond2.LAST and k in icon["u"]:
+            present = [(name, others[name][1][t]) for name in others if t in others[name][1]]
+            if present:
                 extra = {}
-                for key, (c, r, w) in icon_parts.items():
-                    u, v, g = (icond2.sample(icon[name][k], c, r) for name in ("u", "v", "gust"))
-                    ok = np.isfinite(u) & np.isfinite(v)
-                    extra[key] = (encode(np.nan_to_num(u), np.nan_to_num(v), np.nan_to_num(g)).astype(np.float32), np.where(ok, w, 0))
+                for key in placer.tiles:
+                    rgb_sum, w_sum, miss = 0, 0, 1
+                    for name, (e, n, g) in present:
+                        c, r, w = parts[name][key]
+                        sample = others[name][2]
+                        u, v, gg = sample(e, c, r), sample(n, c, r), sample(g, c, r)
+                        w = np.where(np.isfinite(u) & np.isfinite(v), w, 0)
+                        rgb_sum = rgb_sum + encode(np.nan_to_num(u), np.nan_to_num(v), np.nan_to_num(gg)).astype(np.float32) * w[..., None]
+                        w_sum = w_sum + w
+                        miss = miss * (1 - w)
+                    if np.max(w_sum) <= 0:
+                        continue
+                    rgb = rgb_sum / np.maximum(w_sum, 1e-6)[..., None]
+                    extra[key] = (rgb, (1 - miss) * (1 - weights[key]))
             data = packed(lambda at: encode(at(east), at(north), at(gust)), extra)
             name = f"{run_name}/{t}.pack"
             put(name, data)
