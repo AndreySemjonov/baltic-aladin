@@ -191,6 +191,14 @@ def main():
     # names went unseen (12.10.2026: AROME's corner storms stayed after their fix).
     if published and published.split("-")[0] == run_name:
         run_name += "-" + format(int(time.time()) % 36 ** 6, "x")
+    # That run's own file from here on: "latest" moves to the next run within the hour, and a request
+    # made for the old one then fails (12.10.2026: HTTP 400 half an hour in) or mixes two runs.
+    own = mn.SOURCE.replace("_latest.nc", f"_{run_name}.nc")
+    try:
+        mn.get(own + ".das")
+        mn.SOURCE = own
+    except Exception:
+        print(f"MET Nordic {run_name}: its own file not found, reading the latest", flush=True)
     steps = hours_wanted(times, run)
     if limit:
         steps = steps[:limit]
