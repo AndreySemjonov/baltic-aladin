@@ -216,6 +216,10 @@ def upload(path, data):
                                              headers={"Authorization": "Bearer " + token, "User-Agent": maplib.USER_AGENT})
             with urllib.request.urlopen(request, timeout=300) as reply:
                 return reply.read().decode()
+        except urllib.error.HTTPError as error:
+            if error.code < 500 or attempt == 3:
+                raise
+            time.sleep(15 * (attempt + 1))
         except (urllib.error.URLError, OSError):
             if attempt == 3:
                 raise
@@ -277,19 +281,26 @@ def main():
         size += len(data)
         # ECMWF: the world's temperature and rain too (the precipitation since the run's start,
         # so each step's rain is its difference from the step before, per hour).
+        # (Optional: one that can't be uploaded is left out, the wind still goes.)
         if "2t" in fields:
             extra = temp_pack(sample, fields)
-            put(f"{run_name}/{t}-temp.pack", extra)
-            frame["temp"] = f"{run_name}/{t}-temp.pack"
-            size += len(extra)
+            try:
+                put(f"{run_name}/{t}-temp.pack", extra)
+                frame["temp"] = f"{run_name}/{t}-temp.pack"
+                size += len(extra)
+            except (urllib.error.URLError, OSError) as error:
+                print(f"{model} step {step}: temperature not uploaded ({error})")
         if "tp" in fields:
             hours = step - previous[0] if previous[1] is not None else 0
             rate = (fields["tp"] - previous[1]) * 1000 / hours if hours > 0 else np.zeros_like(fields["tp"])
-            extra = rain_pack(sample, fields, rate)
-            put(f"{run_name}/{t}-rain.pack", extra)
-            frame["rain"] = f"{run_name}/{t}-rain.pack"
-            size += len(extra)
             previous[0], previous[1] = step, fields["tp"]
+            extra = rain_pack(sample, fields, rate)
+            try:
+                put(f"{run_name}/{t}-rain.pack", extra)
+                frame["rain"] = f"{run_name}/{t}-rain.pack"
+                size += len(extra)
+            except (urllib.error.URLError, OSError) as error:
+                print(f"{model} step {step}: rain not uploaded ({error})")
         frames.append(frame)
     if not frames:
         raise SystemExit(f"{model}: no frames")
