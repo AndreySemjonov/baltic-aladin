@@ -1,6 +1,7 @@
 """The regional models over their whole area as map tiles (the owner, 12.10.2026: the detailed
-maps beyond the Baltic's box): for now MET Nordic (MET Norway, 1 km; here every second cell, 2 km)
-over the Nordic countries and the Baltic, wind only. The same packs as the world's tiles
+maps beyond the Baltic's box): MET Nordic (MET Norway, 1 km; here every second cell, 2 km) over the
+Nordic countries and the Baltic, and for the wind DWD's ICON-D2 (2.2 km) over Germany, Benelux,
+Denmark, the Alps and western Poland where MET Nordic isn't (each by its weight, MET Nordic first). The same packs as the world's tiles
 (world_tiles.py: "MGT1", a header, PNG tiles), zooms 4-6 on the web map's grid, one pack an hour
 (hourly for the first day, then every 3 hours), uploaded through station-history as
 tiles/metnordic/; the app draws them between our Baltic mix and ECMWF's world.
@@ -27,6 +28,7 @@ from pathlib import Path
 
 import numpy as np
 
+import icond2
 import metnordic_map as mn
 import temp_map
 import world_tiles
@@ -94,7 +96,8 @@ class Placer:
     """Where each tile's pixels fall on the strided grid (fractional column and row), worked out
     once per run for every tile the grid reaches."""
 
-    def __init__(self, rows, cols):
+    def __init__(self, rows, cols, extra=None):
+        """`extra`: another model's test of a tile's points (lon, lat), whose tiles count too."""
         self.rows, self.cols = rows, cols
         self.tiles = {}
         for z in ZOOMS:
@@ -110,10 +113,10 @@ class Placer:
                     col = (gx - mn.X0) / (mn.STEP * STRIDE)
                     row = (gy - mn.Y0) / (mn.STEP * STRIDE)
                     inside = (col >= 0) & (row >= 0) & (col <= cols - 1) & (row <= rows - 1)
-                    if inside.any():
-                        self.tiles[(z, x, y)] = (col, row, inside)
+                    if inside.any() or (extra is not None and extra(lon, lat)):
+                        self.tiles[(z, x, y)] = (col, row, inside, lon, lat)
 
-    def weight(self, col, row, inside):
+    def weight(self, col, row, inside, lon=None, lat=None):
         """1 inside, falling to 0 over the last FADE_KM to the grid's edge."""
         edge = np.minimum(np.minimum(col, self.cols - 1 - col), np.minimum(row, self.rows - 1 - row)) * STRIDE
         return np.where(inside, np.clip(edge / FADE_KM, 0, 1), 0)
@@ -147,8 +150,17 @@ def main():
     STRIDE = SETS[which]["stride"]
     model = SETS[which]["model"]
     started = time.time()
-    times = mn.ascii_values(mn.get(f"{mn.SOURCE}.ascii?time"), "time")
-    run = mn.ascii_values(mn.get(f"{mn.SOURCE}.ascii?forecast_reference_time"), "forecast_reference_time")[0]
+    def ask(query, name):
+        # MET Norway's server answers 500 now and then: three tries.
+        for attempt in range(3):
+            try:
+                return mn.ascii_values(mn.get(f"{mn.SOURCE}.ascii?{query}"), name)
+            except Exception:
+                if attempt == 2:
+                    raise
+                time.sleep(15)
+    times = ask("time", "time")
+    run = ask("forecast_reference_time", "forecast_reference_time")[0]
     run_name = datetime.fromtimestamp(run, timezone.utc).strftime("%Y%m%dT%HZ")
     if not local and "--force" not in args and published_run(model) == run_name:
         print(f"MET Nordic {run_name} already published")
@@ -158,13 +170,30 @@ def main():
         steps = steps[:limit]
     rows, cols = 2321, 1796
     srows, scols = (rows - 1) // STRIDE + 1, (cols - 1) // STRIDE + 1
-    placer = Placer(srows, scols)
+    # ICON-D2 with the wind: its newest complete run, the hours MET Nordic's frames need.
+    icon_run = icond2.newest_run() if which == "wind" else None
+    icon, icon_weights, icon_time = {}, None, 0
+    if icon_run is not None:
+        icon_time = int(icon_run.timestamp())
+        wanted = sorted({round((int(times[s]) - icon_time) / 3600) for s in steps} & set(range(icond2.LAST + 1)))
+        icon = {name: icond2.fields(icon_run, var, wanted)
+                for name, var in (("u", "u_10m"), ("v", "v_10m"), ("gust", "vmax_10m"))}
+        icon_weights = icond2.weight_grid(next(iter(icon["u"].values())))
+        print(f"ICON-D2 {icon_run:%Y%m%dT%HZ}: {len(wanted)} hours", flush=True)
+    placer = Placer(srows, scols, extra=(lambda lon, lat: icond2.place(lon, lat)[2].any()) if icon_run is not None else None)
     print(f"{len(placer.tiles)} tiles, {len(steps)} hours, run {run_name}", flush=True)
     names = (("speed", "wind_speed_10m"), ("direction", "wind_direction_10m"), ("gust", "wind_speed_of_gust")) if which == "wind"         else (("speed", "wind_speed_10m"), ("air", "air_temperature_2m"), ("humidity", "relative_humidity_2m"),
               ("pressure", "air_pressure_at_sea_level"), ("rain", "precipitation_amount"), ("cloud", "cloud_area_fraction"))
     fields = {key: fetch_hours(name, steps, rows, cols) for key, name in names}
     print(f"read in {time.time() - started:.0f} s", flush=True)
     weights = {key: placer.weight(*value) for key, value in placer.tiles.items()}
+    # ICON-D2 (wind): where it lies on each tile and how much it counts there (MET Nordic first).
+    icon_parts = {}
+    if icon_run is not None:
+        for key, (col, row, inside, lon, lat) in placer.tiles.items():
+            c, r, on = icond2.place(lon, lat)
+            w = np.where(on, icond2.sample(icon_weights, c, r), 0)
+            icon_parts[key] = (c, r, np.nan_to_num(w) * (1 - weights[key]))
     frames, total = [], 0
     def put(name, data):
         if local:
@@ -173,11 +202,19 @@ def main():
         else:
             world_tiles.upload(f"{model}/{name}", data)
 
-    def packed(make):
+    def packed(make, extra=None):
+        """Each tile's RGB from `make` (given how to sample a grid there) and its alpha; `extra`:
+        the ICON-D2 part (key -> its RGB and weight), blended in where MET Nordic is less."""
         tiles = {}
-        for key, (col, row, inside) in placer.tiles.items():
-            rgb = make(lambda grid: placer.sample(grid, col, row))
-            alpha = np.rint(weights[key] * 255)[..., None]
+        for key, (col, row, inside, lon, lat) in placer.tiles.items():
+            rgb = make(lambda grid: placer.sample(grid, col, row)).astype(np.float32)
+            weight = weights[key]
+            if extra is not None and key in extra:
+                other, w2 = extra[key]
+                total = weight + w2
+                rgb = np.where(total[..., None] > 0, (rgb * weight[..., None] + other * w2[..., None]) / np.maximum(total, 1e-6)[..., None], rgb)
+                weight = total
+            alpha = np.rint(np.clip(weight, 0, 1) * 255)[..., None]
             tiles[key] = world_tiles.png(np.concatenate([rgb, alpha], axis=-1).astype(np.uint8), "RGBA")
         return world_tiles.encode(tiles, {z: SIZE for z in ZOOMS})
 
@@ -187,9 +224,18 @@ def main():
             speed, direction, gust = fields["speed"][s], fields["direction"][s], fields["gust"][s]
             rad = np.radians(np.nan_to_num(direction))
             east, north = -np.nan_to_num(speed) * np.sin(rad), -np.nan_to_num(speed) * np.cos(rad)
-            data = packed(lambda at: np.stack([np.clip(np.rint(at(east) * 4 + 128), 0, 255),
-                                               np.clip(np.rint(at(north) * 4 + 128), 0, 255),
-                                               np.clip(np.rint(at(gust) * 5), 0, 255)], axis=-1))
+            def encode(e, n, g):
+                return np.stack([np.clip(np.rint(e * 4 + 128), 0, 255), np.clip(np.rint(n * 4 + 128), 0, 255),
+                                 np.clip(np.rint(g * 5), 0, 255)], axis=-1)
+            extra = None
+            k = round((t - icon_time) / 3600) if icon_run is not None else -1
+            if icon_run is not None and 0 <= k <= icond2.LAST and k in icon["u"]:
+                extra = {}
+                for key, (c, r, w) in icon_parts.items():
+                    u, v, g = (icond2.sample(icon[name][k], c, r) for name in ("u", "v", "gust"))
+                    ok = np.isfinite(u) & np.isfinite(v)
+                    extra[key] = (encode(np.nan_to_num(u), np.nan_to_num(v), np.nan_to_num(g)).astype(np.float32), np.where(ok, w, 0))
+            data = packed(lambda at: encode(at(east), at(north), at(gust)), extra)
             name = f"{run_name}/{t}.pack"
             put(name, data)
             frames.append({"time": t, "file": name})
