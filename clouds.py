@@ -8,9 +8,11 @@ dozens of tiles (slow, and the mask failed on 10-minute times: it has only quart
 
     python clouds.py            # the missing pictures of the last day, newest first (at most 16)
 
-Two sets: the rain map's box, fine (about 1.25 km a pixel), and Europe under it, coarser (about
-3.5 km at 50N; the owner, 12.10.2026: a grey rectangle round the Baltic and nothing elsewhere),
-each with its own index (clouds/index.json, clouds/eu/index.json).
+The rain map's box as one picture (clouds/index.json: the app's builds before 211), and Europe as
+map tiles (the owner, 12.10.2026: tiles for everything, fine wherever one looks): a mosaic at zoom
+6 (about 1.3 km a pixel here, the satellite's own detail at our latitudes), cut into tiles and
+averaged down to zoom 3, one pack per quarter hour (tiles/sat/<stamp>.pack, grey and alpha; tiles
+of clear sky left out), the last day listed in tiles/sat/index.json.
 
 Needs INGEST_TOKEN (the helper's report token) in the environment; without it nothing is sent.
 EUMETSAT's open data (EUMETView WMS); credit: "Meteosat, EUMETSAT".
@@ -28,6 +30,8 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 from PIL import Image, ImageFilter
 
+import world_tiles
+
 WMS = "https://view.eumetsat.int/geoserver/wms"
 INFRARED = "mtg_fd:ir105_hrfi"
 MASK = "msg_fes:clm"
@@ -37,8 +41,12 @@ MASK = "msg_fes:clm"
 # The rain map's box (rain/map.json), at twice its grid: about 1.25 km a pixel.
 SETS = [
     {"folder": "", "box": (53.8, 61.0, 16.5, 28.5), "size": (576, 644), "per_run": 16, "local": False, "quality": 82, "alpha": 100},
-    {"folder": "eu/", "box": (34.0, 71.5, -25.0, 45.0), "size": (1200, 1164), "per_run": 6, "local": True, "quality": 70, "alpha": 60},
 ]
+# Europe's tiles: zoom 6's columns 27-39 and rows 13-25 (32-72.4N, 28W-45E), zooms 3-6.
+TILE_Z, TILE_X, TILE_Y, TILE_ZOOMS = 6, (27, 39), (13, 25), range(3, 7)
+TILES_PER_RUN = 4
+TILES_UPLOAD = os.environ.get("TILES_UPLOAD", "https://data.meteogust.com/tiles/upload/sat/")
+TILES_INDEX = "https://files.meteogust.com/tiles/sat/index.json"
 UPLOAD = os.environ.get("CLOUDS_UPLOAD", "https://data.meteogust.com/clouds/upload/")
 FILES = "https://files.meteogust.com/clouds/"
 AGENT = "baltic-aladin clouds (+https://github.com/AndreySemjonov/baltic-aladin)"
@@ -90,6 +98,19 @@ def render(infrared, mask_rgb, local=False, quality=82, alpha_quality=100):
     """Style B: the Cloud Mask softened (its pixels are coarser) gives where it is cloudy, nearly
     solid; the infrared's brightness over the clear ground's (the colder, the brighter) the grey
     from 150 to 195 and, where the mask missed, a little cloud. RGBA, straight alpha."""
+    shade, alpha, ground = style_b(infrared, mask_rgb, local)
+    rgba = np.zeros(shade.shape + (4,), dtype=np.uint8)
+    rgba[..., 0] = shade.astype(np.uint8)
+    rgba[..., 1] = np.clip(shade + 2, 0, 255).astype(np.uint8)
+    rgba[..., 2] = np.clip(shade + 5, 0, 255).astype(np.uint8)
+    rgba[..., 3] = (np.clip(alpha, 0, 1) * 255).astype(np.uint8)
+    out = io.BytesIO()
+    Image.fromarray(rgba, "RGBA").save(out, "WEBP", quality=quality, alpha_quality=alpha_quality, method=4)
+    return out.getvalue(), ground
+
+
+def style_b(infrared, mask_rgb, local=False):
+    """The grey (150-195) and how much cloud (0-1) of style B, and the clear ground's grey."""
     grey = infrared.mean(axis=2)
     r, g, b = mask_rgb[..., 0], mask_rgb[..., 1], mask_rgb[..., 2]
     mask = ((r > 200) & (g > 200) & (b > 200) & (np.abs(r - g) < 30) & (np.abs(g - b) < 30)).astype(np.float32)
@@ -102,14 +123,86 @@ def render(infrared, mask_rgb, local=False, quality=82, alpha_quality=100):
     d = grey - ground
     alpha = np.maximum(soft * 0.86, np.clip((d + 2) / 24, 0, 1) * 0.9)
     shade = np.clip(150 + 0.6 * d, 150, 195)
-    rgba = np.zeros(grey.shape + (4,), dtype=np.uint8)
-    rgba[..., 0] = shade.astype(np.uint8)
-    rgba[..., 1] = np.clip(shade + 2, 0, 255).astype(np.uint8)
-    rgba[..., 2] = np.clip(shade + 5, 0, 255).astype(np.uint8)
-    rgba[..., 3] = (np.clip(alpha, 0, 1) * 255).astype(np.uint8)
-    out = io.BytesIO()
-    Image.fromarray(rgba, "RGBA").save(out, "WEBP", quality=quality, alpha_quality=alpha_quality, method=4)
-    return out.getvalue(), float(np.mean(ground))
+    return shade, np.clip(alpha, 0, 1), float(np.mean(ground))
+
+
+def tile_lat(y, n):
+    return math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n))))
+
+
+def sat_pack(when):
+    """One quarter hour's Europe tiles as a pack (MGT1, LA PNGs), or None without pictures."""
+    n = 2 ** TILE_Z
+    box = (tile_lat(TILE_Y[1] + 1, n), tile_lat(TILE_Y[0], n), TILE_X[0] / n * 360 - 180, (TILE_X[1] + 1) / n * 360 - 180)
+    width, height = (TILE_X[1] - TILE_X[0] + 1) * 256, (TILE_Y[1] - TILE_Y[0] + 1) * 256
+    infrared = picture(INFRARED, when - timedelta(minutes=when.minute % 10), box, (width, height))
+    # The mask is coarser than the infrared anyway: a quarter of the pixels, spread out.
+    mask = picture(MASK, when, box, (width // 4, height // 4))
+    if infrared is None or mask is None:
+        return None
+    mask = np.asarray(Image.fromarray(mask.astype(np.uint8)).resize((width, height), Image.NEAREST), dtype=np.float32)
+    shade, alpha, _ = style_b(infrared, mask, local=True)
+    tiles = {}
+    for z in TILE_ZOOMS:
+        f = 2 ** (TILE_Z - z)
+        for ty in range(TILE_Y[0] // f, TILE_Y[1] // f + 1):
+            for tx in range(TILE_X[0] // f, TILE_X[1] // f + 1):
+                # The tile's part of the mosaic (zoom 6 pixels), the rest clear sky.
+                x0, y0 = tx * f * 256 - TILE_X[0] * 256, ty * f * 256 - TILE_Y[0] * 256
+                size = 256 * f
+                a = np.zeros((size, size), dtype=np.float32)
+                g = np.zeros((size, size), dtype=np.float32)
+                cx0, cy0 = max(x0, 0), max(y0, 0)
+                cx1, cy1 = min(x0 + size, width), min(y0 + size, height)
+                if cx1 <= cx0 or cy1 <= cy0:
+                    continue
+                a[cy0 - y0:cy1 - y0, cx0 - x0:cx1 - x0] = alpha[cy0:cy1, cx0:cx1]
+                g[cy0 - y0:cy1 - y0, cx0 - x0:cx1 - x0] = shade[cy0:cy1, cx0:cx1] * alpha[cy0:cy1, cx0:cx1]
+                if f > 1:
+                    a = a.reshape(256, f, 256, f).mean(axis=(1, 3))
+                    g = g.reshape(256, f, 256, f).mean(axis=(1, 3))
+                if a.max() < 0.02:
+                    continue
+                grey = np.where(a > 0.001, g / np.maximum(a, 0.001), 170)
+                # The grey in steps of 3 and the cloud in steps of 8: the same to the eye, 40 % smaller.
+                grey = np.rint((grey - 150) / 3) * 3 + 150
+                cover = np.rint(a * 255 / 8) * 8
+                la = np.stack([np.clip(grey, 0, 255), np.clip(cover, 0, 255)], axis=-1).astype(np.uint8)
+                tiles[(z, tx, ty)] = world_tiles.png(la, "LA")
+    return world_tiles.encode(tiles, {z: 256 for z in TILE_ZOOMS})
+
+
+def sat_published():
+    """The quarter hours already in the tiles' index, as stamps."""
+    try:
+        request = urllib.request.Request(TILES_INDEX + f"?t={int(time.time())}", headers={"User-Agent": AGENT})
+        with urllib.request.urlopen(request, timeout=30) as reply:
+            return {f["stamp"] for f in json.load(reply).get("frames", [])}
+    except (urllib.error.URLError, OSError, ValueError, KeyError):
+        return set()
+
+
+def make_tiles(wanted, token):
+    """Europe's missing tile packs, newest first."""
+    have = sat_published()
+    missing = [t for t in wanted if t.strftime("%Y%m%d%H%M") not in have][:TILES_PER_RUN]
+    print(f"Satellite tiles: {len(have)} published, {len(missing)} to make")
+    for when in missing:
+        started = time.time()
+        pack = sat_pack(when)
+        if pack is None:
+            print(f"  {when:%H:%M}: no picture")
+            continue
+        stamp = when.strftime("%Y%m%d%H%M")
+        request = urllib.request.Request(TILES_UPLOAD + stamp + ".pack", data=pack, method="PUT",
+                                         headers={"Authorization": "Bearer " + token, "Content-Type": "application/octet-stream",
+                                                  "User-Agent": AGENT})
+        try:
+            with urllib.request.urlopen(request, timeout=120) as reply:
+                reply.read()
+            print(f"  {when:%Y-%m-%d %H:%M}: {len(pack) // 1024} KB, {time.time() - started:.0f} s")
+        except urllib.error.URLError as error:
+            print(f"  {when:%H:%M}: upload failed: {error}")
 
 
 def published(folder):
@@ -134,6 +227,7 @@ def main():
     wanted = [newest - timedelta(minutes=15 * k) for k in range(96)]
     for one in SETS:
         make(one, wanted, token)
+    make_tiles(wanted, token)
 
 
 def make(one, wanted, token):
