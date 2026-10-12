@@ -40,56 +40,56 @@ class Model:
         stamp = re.search(r"(\d{10})\.tar$", self.name).group(1)
         self.run = datetime.strptime(stamp, "%Y%m%d%H").replace(tzinfo=timezone.utc)
 
-    def winds(self, times):
-        """{unix time: (east, north, gust)} (rows from the south) for the asked times in the run."""
+    def _hour_files(self, hours):
+        """{hour: that hour's GRIB file} for the hours asked, read from the run's tar as it comes in
+        (not saved first; the tar's hours 0-60 come in order, about 14 MB each, so the download
+        stops after the last one asked: the regional tiles' 35 hours, about 60 % of it)."""
         import json
         url = json.loads(_get(f"{API}/{self.name}/url", self.key))["temporaryDownloadUrl"]
+        out = {}
+        if not hours:
+            return out
+        with urllib.request.urlopen(url, timeout=900) as reply, tarfile.open(fileobj=reply, mode="r|") as tar:
+            for member in tar:
+                m = re.search(r"_(\d{3})00_GB$", member.name)
+                if m and int(m.group(1)) in hours:
+                    out[int(m.group(1))] = tar.extractfile(member).read()
+                    if hours <= out.keys():
+                        break
+        return out
+
+    def winds(self, times):
+        """{unix time: (east, north, gust)} (rows from the south) for the asked times in the run."""
         start = int(self.run.timestamp())
         wanted = {round((t - start) / 3600): t for t in times if 0 <= t - start <= 60 * 3600}
         out = {}
+        files = self._hour_files(set(wanted))
         with tempfile.TemporaryDirectory() as folder:
-            path = os.path.join(folder, "run.tar")
-            with urllib.request.urlopen(url, timeout=900) as reply, open(path, "wb") as f:
-                while chunk := reply.read(1 << 22):
-                    f.write(chunk)
-            with tarfile.open(path) as tar:
-                for member in tar.getmembers():
-                    m = re.search(r"_(\d{3})00_GB$", member.name)
-                    if not m or int(m.group(1)) not in wanted:
-                        continue
-                    grib = os.path.join(folder, "hour.grb")
-                    with open(grib, "wb") as g:
-                        g.write(tar.extractfile(member).read())
-                    fields = self._fields(grib)
-                    if {"u", "v"} <= fields.keys():
-                        gust = np.hypot(fields["gu"], fields["gv"]) if {"gu", "gv"} <= fields.keys() else np.hypot(fields["u"], fields["v"])
-                        out[wanted[int(m.group(1))]] = (fields["u"], fields["v"], gust)
+            for hour, data in files.items():
+                grib = os.path.join(folder, "hour.grb")
+                with open(grib, "wb") as g:
+                    g.write(data)
+                fields = self._fields(grib)
+                if {"u", "v"} <= fields.keys():
+                    gust = np.hypot(fields["gu"], fields["gv"]) if {"gu", "gv"} <= fields.keys() else np.hypot(fields["u"], fields["v"])
+                    out[wanted[hour]] = (fields["u"], fields["v"], gust)
         return out
 
     def weather(self, times):
         """{unix time: {air, rh, wind, rain (mm/h), cloud}} for the asked times in the run (its
         precipitation summed from the start: each hour's from the hour before)."""
-        import json
-        url = json.loads(_get(f"{API}/{self.name}/url", self.key))["temporaryDownloadUrl"]
         start = int(self.run.timestamp())
         hours = {round((t - start) / 3600) for t in times if 3600 <= t - start <= 60 * 3600}
         need = hours | {h - 1 for h in hours}
         names = {(11, 2): "air", (52, 2): "rh", (33, 10): "u", (34, 10): "v", (61, 0): "total", (71, 0): "cloud"}
         per_hour = {}
+        files = self._hour_files(need)
         with tempfile.TemporaryDirectory() as folder:
-            path = os.path.join(folder, "run.tar")
-            with urllib.request.urlopen(url, timeout=900) as reply, open(path, "wb") as f:
-                while chunk := reply.read(1 << 22):
-                    f.write(chunk)
-            with tarfile.open(path) as tar:
-                for member in tar.getmembers():
-                    m = re.search(r"_(\d{3})00_GB$", member.name)
-                    if not m or int(m.group(1)) not in need:
-                        continue
-                    grib = os.path.join(folder, "hour.grb")
-                    with open(grib, "wb") as g:
-                        g.write(tar.extractfile(member).read())
-                    per_hour[int(m.group(1))] = self._pick(grib, names)
+            for hour, data in files.items():
+                grib = os.path.join(folder, "hour.grb")
+                with open(grib, "wb") as g:
+                    g.write(data)
+                per_hour[hour] = self._pick(grib, names)
         out = {}
         for h in sorted(hours):
             now, before = per_hour.get(h, {}), per_hour.get(h - 1, {})
