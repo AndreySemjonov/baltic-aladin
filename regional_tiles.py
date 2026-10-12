@@ -182,9 +182,15 @@ def main():
     times = ask("time", "time")
     run = ask("forecast_reference_time", "forecast_reference_time")[0]
     run_name = datetime.fromtimestamp(run, timezone.utc).strftime("%Y%m%dT%HZ")
-    if not local and "--force" not in args and published_run(model) == run_name:
+    published = None if local else published_run(model)
+    if not local and "--force" not in args and published == run_name:
         print(f"MET Nordic {run_name} already published")
         return
+    # The same run published again (--force, or two runs at once): a folder of its own, since the
+    # packs are kept a year in caches (Cloudflare's, the phones'), and a second copy under the same
+    # names went unseen (12.10.2026: AROME's corner storms stayed after their fix).
+    if published and published.split("-")[0] == run_name:
+        run_name += "-" + format(int(time.time()) % 36 ** 6, "x")
     steps = hours_wanted(times, run)
     if limit:
         steps = steps[:limit]
