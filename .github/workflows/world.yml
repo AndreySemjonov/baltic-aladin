@@ -26,7 +26,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        model: [gfs, ecmwf]
+        # ICON-EU over Europe (iconeu_tiles.py, docs/TILES_PLAN.md phase 2) beside the world's two.
+        model: [gfs, ecmwf, icon-eu]
     concurrency:
       group: world-${{ matrix.model }}
       cancel-in-progress: false
@@ -56,8 +57,10 @@ jobs:
           INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
           FORCE: ${{ inputs.force }}
         run: |
+          script="world_tiles.py ${{ matrix.model }}"
+          if [ "${{ matrix.model }}" = "icon-eu" ]; then script="iconeu_tiles.py"; fi
           if [ "$FORCE" = "true" ]; then
-            .venv/bin/python world_tiles.py ${{ matrix.model }} --force
+            .venv/bin/python $script --force
           else
-            .venv/bin/python world_tiles.py ${{ matrix.model }}
+            .venv/bin/python $script
           fi
