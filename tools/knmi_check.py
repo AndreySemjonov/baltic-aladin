@@ -31,23 +31,26 @@ try:
     with tarfile.open(fileobj=io.BytesIO(data)) as tar:
         members = tar.getmembers()
         print(len(members), "members; first", [m.name for m in members[:5]], "last", members[-1].name, members[0].size)
-        first = tar.extractfile(members[1] if len(members) > 1 else members[0]).read()
+        first = tar.extractfile(next(m for m in members if m.name.endswith('_00600_GB'))).read()
 except tarfile.ReadError:
     first = data
 print("GRIB edition", first[7] if first[:4] == b"GRIB" else "not GRIB", "bytes", len(first))
 import eccodes
-handle = eccodes.codes_new_from_message(first)
-count = 0
-while handle is not None and count < 200:
-    try:
-        print(eccodes.codes_get(handle, "indicatorOfParameter"), eccodes.codes_get(handle, "indicatorOfTypeOfLevel"),
-              eccodes.codes_get(handle, "level"), eccodes.codes_get(handle, "shortName"), eccodes.codes_get(handle, "Ni"),
-              eccodes.codes_get(handle, "Nj"), eccodes.codes_get(handle, "latitudeOfFirstGridPointInDegrees"),
-              eccodes.codes_get(handle, "longitudeOfFirstGridPointInDegrees"), eccodes.codes_get(handle, "iDirectionIncrementInDegrees"),
-              eccodes.codes_get(handle, "stepRange"))
-    except Exception as error:
-        print("?", error)
-    eccodes.codes_release(handle)
-    count += 1
-    offset = 0
-    break
+import tempfile
+with tempfile.NamedTemporaryFile(suffix=".grb", delete=False) as out:
+    out.write(first)
+    path = out.name
+with open(path, "rb") as f:
+    count = 0
+    while True:
+        handle = eccodes.codes_grib_new_from_file(f)
+        if handle is None:
+            break
+        get = lambda k: eccodes.codes_get(handle, k) if eccodes.codes_is_defined(handle, k) else None
+        print(count, "param", get("indicatorOfParameter"), "table", get("table2Version"), "levtype", get("indicatorOfTypeOfLevel"),
+              "level", get("level"), "short", get("shortName"), "step", get("stepRange"), "grid", get("Ni"), get("Nj"),
+              get("latitudeOfFirstGridPointInDegrees"), get("longitudeOfFirstGridPointInDegrees"),
+              get("latitudeOfLastGridPointInDegrees"), get("longitudeOfLastGridPointInDegrees"), get("jScansPositively"))
+        eccodes.codes_release(handle)
+        count += 1
+print(count, "messages")
