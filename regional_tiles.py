@@ -2,7 +2,8 @@
 maps beyond the Baltic's box): MET Nordic (MET Norway, 1 km; here every second cell, 2 km) over the
 Nordic countries and the Baltic, and for the wind DWD's ICON-D2 (2.2 km) over Germany, Benelux,
 Denmark, the Alps and western Poland, DMI's HARMONIE DINI (2 km) over the British Isles, the North
-Sea and the Channel, and KNMI's HARMONIE-AROME (2 km) over the Netherlands and Belgium, where MET
+Sea and the Channel, KNMI's HARMONIE-AROME (2 km) over the Netherlands and Belgium, and Météo-France's AROME (1.3 km)
+over France, the Channel and the Alps' west, where MET
 Nordic isn't (MET Nordic first; the others averaged by their weights where they overlap). The same packs as the world's tiles
 (world_tiles.py: "MGT1", a header, PNG tiles), zooms 4-6 on the web map's grid, one pack an hour
 (hourly for the first day, then every 3 hours), uploaded through station-history as
@@ -30,6 +31,7 @@ from pathlib import Path
 
 import numpy as np
 
+import arome
 import dini
 import icond2
 import knmi
@@ -106,12 +108,12 @@ class Placer:
         self.tiles = {}
         for z in ZOOMS:
             n = 1 << z
-            # The tiles between 42-76N and 15W-50E (the Nordics, and ICON-D2's area down to the Alps),
+            # The tiles between 36-76N and 15W-50E (the Nordics, and the others' areas down to the Alps and France),
             # those a model reaches.
             x0, x1 = int((-15 + 180) / 360 * n), int((50 + 180) / 360 * n)
             def ty(lat):
                 return int((1 - math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi) / 2 * n)
-            for y in range(ty(76), ty(42) + 1):
+            for y in range(ty(76), ty(36) + 1):
                 for x in range(x0, x1 + 1):
                     lon, lat = tile_lonlat(z, x, y)
                     gx, gy = mn.lcc(lat, lon)
@@ -211,6 +213,13 @@ def main():
             print(f"HARM-NL {dutch.run:%Y%m%dT%HZ}: {len(winds)} hours", flush=True)
         except Exception as error:
             print(f"HARM-NL left out: {error}", flush=True)
+        try:
+            french = arome.Model()
+            winds = french.winds(wanted_times)
+            others["AROME"] = (french.place, winds, french.sample)
+            print(f"AROME {french.run:%Y%m%dT%HZ}: {len(winds)} hours", flush=True)
+        except Exception as error:
+            print(f"AROME left out: {error}", flush=True)
     placer = Placer(srows, scols, extra=(lambda lon, lat: any(place(lon, lat)[2].any() for place, _, _ in others.values()))
                     if others else None)
     print(f"{len(placer.tiles)} tiles, {len(steps)} hours, run {run_name}", flush=True)
