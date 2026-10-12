@@ -102,11 +102,12 @@ class Placer:
         self.tiles = {}
         for z in ZOOMS:
             n = 1 << z
-            # The Nordic area: the tiles between 50-76N and 15W-50E, those the grid reaches.
+            # The tiles between 42-76N and 15W-50E (the Nordics, and ICON-D2's area down to the Alps),
+            # those a model reaches.
             x0, x1 = int((-15 + 180) / 360 * n), int((50 + 180) / 360 * n)
             def ty(lat):
                 return int((1 - math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi) / 2 * n)
-            for y in range(ty(76), ty(50) + 1):
+            for y in range(ty(76), ty(42) + 1):
                 for x in range(x0, x1 + 1):
                     lon, lat = tile_lonlat(z, x, y)
                     gx, gy = mn.lcc(lat, lon)
