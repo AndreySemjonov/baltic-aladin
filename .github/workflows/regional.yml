@@ -1,0 +1,58 @@
+name: Regional weather tiles
+run-name: Regional tiles (MET Nordic)
+
+# The regional models over their whole area as map tiles (regional_tiles.py; the owner,
+# 12.10.2026: the detailed maps beyond the Baltic's box): every 3 hours the newest MET Nordic run,
+# made into packs of tiles and uploaded through our service (station-history), as the world tiles.
+on:
+  schedule:
+    - cron: "25 */3 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Make the newest run again even if published"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: regional
+  cancel-in-progress: false
+
+jobs:
+  tiles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Python version (for the package cache)
+        id: python
+        run: echo "version=$(python3 -c 'import sys; print(sys.version.split()[0])')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the installed packages
+        id: venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: world-venv-${{ runner.os }}-py${{ steps.python.outputs.version }}-eccodes-numpy-pillow-v1
+
+      - name: Install ecCodes, NumPy and Pillow
+        if: steps.venv.outputs.cache-hit != 'true'
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow
+
+      - name: Make and upload the newest run's tiles
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          if [ "$FORCE" = "true" ]; then
+            .venv/bin/python regional_tiles.py --force
+          else
+            .venv/bin/python regional_tiles.py
+          fi
