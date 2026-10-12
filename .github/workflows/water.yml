@@ -1,0 +1,56 @@
+name: World rivers and lakes
+run-name: World rivers and lakes tiles${{ inputs.dry && ' (dry run)' || '' }}
+
+# The world's rivers and lakes as map tiles on our file store (water_tiles.py, the owner,
+# 12.10.2026): HydroSHEDS' HydroRIVERS and HydroLAKES through GDAL and tippecanoe. Made once, so
+# this runs only by hand; a dry run makes everything but uploads nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      dry:
+        description: "Make the tiles but don't upload them"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  water:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    concurrency:
+      group: water
+      cancel-in-progress: false
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install GDAL and build tippecanoe
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gdal-bin libsqlite3-dev zlib1g-dev build-essential
+          git clone --quiet --depth 1 --branch 2.79.0 https://github.com/felt/tippecanoe.git /tmp/tippecanoe
+          make -C /tmp/tippecanoe -j"$(nproc)" --quiet
+          sudo make -C /tmp/tippecanoe install --quiet
+          ogr2ogr --version
+          tippecanoe --version
+
+      - name: Install ecCodes, NumPy and Pillow
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow
+
+      - name: Make (and upload) the tiles
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          DRY: ${{ inputs.dry }}
+        run: |
+          df -h / | tail -1
+          if [ "$DRY" = "true" ]; then
+            .venv/bin/python water_tiles.py --local water-out
+            ls -S water-out | head -5
+          else
+            .venv/bin/python water_tiles.py
+          fi
+          df -h / | tail -1
