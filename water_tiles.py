@@ -202,6 +202,15 @@ def main():
             name = "low" if z <= 4 else f"5-{x >> (z - 5)}-{y >> (z - 5)}"
             groups[name][(z, x, y)] = bytes(data)
     print(f"{sum(len(g) for g in groups.values())} tiles in {len(groups)} packs", flush=True)
+    # How big the tiles are by zoom (what a phone loads for one tile).
+    sizes = defaultdict(list)
+    for group in groups.values():
+        for (z, _, _), data in group.items():
+            sizes[z].append(len(data))
+    for z in sorted(sizes):
+        values = np.asarray(sizes[z])
+        print(f"zoom {z}: {len(values)} tiles, median {np.median(values) / 1e3:.0f} KB, 99% {np.percentile(values, 99) / 1e3:.0f} KB, "
+              f"biggest {values.max() / 1e3:.0f} KB", flush=True)
 
     if not local:
         import world_tiles
