@@ -3,7 +3,8 @@ maps beyond the Baltic's box): MET Nordic (MET Norway, 1 km; here every second c
 Nordic countries and the Baltic, and for the wind DWD's ICON-D2 (2.2 km) over Germany, Benelux,
 Denmark, the Alps and western Poland, DMI's HARMONIE DINI (2 km) over the British Isles, the North
 Sea and the Channel, KNMI's HARMONIE-AROME (2 km) over the Netherlands and Belgium, and Météo-France's AROME (1.3 km)
-over France, the Channel and the Alps' west, where MET
+over France, the Channel and the Alps' west, and MeteoSwiss's ICON-CH1 (1 km) over the Alps and northern
+Italy's lakes, where MET
 Nordic isn't (MET Nordic first; the others averaged by their weights where they overlap). The same packs as the world's tiles
 (world_tiles.py: "MGT1", a header, PNG tiles), zooms 4-6 on the web map's grid, one pack an hour
 (hourly for the first day, then every 3 hours), uploaded through station-history as
@@ -33,6 +34,7 @@ import numpy as np
 
 import arome
 import dini
+import icon_ch1
 import icond2
 import knmi
 import metnordic_map as mn
@@ -220,6 +222,13 @@ def main():
             print(f"AROME {french.run:%Y%m%dT%HZ}: {len(winds)} hours", flush=True)
         except Exception as error:
             print(f"AROME left out: {error}", flush=True)
+        try:
+            swiss = icon_ch1.Model()
+            winds = swiss.winds(wanted_times)
+            others["ICON-CH1"] = (swiss.place, winds, swiss.sample)
+            print(f"ICON-CH1 {swiss.run:%Y%m%dT%HZ}: {len(winds)} hours", flush=True)
+        except Exception as error:
+            print(f"ICON-CH1 left out: {error}", flush=True)
     placer = Placer(srows, scols, extra=(lambda lon, lat: any(place(lon, lat)[2].any() for place, _, _ in others.values()))
                     if others else None)
     print(f"{len(placer.tiles)} tiles, {len(steps)} hours, run {run_name}", flush=True)
