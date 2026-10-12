@@ -1,5 +1,5 @@
 name: Regional weather tiles
-run-name: Regional tiles (MET Nordic)
+run-name: Regional tiles (MET Nordic wind, air and rain)
 
 # The regional models over their whole area as map tiles (regional_tiles.py; the owner,
 # 12.10.2026: the detailed maps beyond the Baltic's box): every 3 hours the newest MET Nordic run,
@@ -24,7 +24,7 @@ concurrency:
 jobs:
   tiles:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Check out
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -55,4 +55,22 @@ jobs:
             .venv/bin/python regional_tiles.py --force
           else
             .venv/bin/python regional_tiles.py
+          fi
+
+      # The air and the rain (3 km): every 6 hours (and on a run by hand), less load on MET Norway.
+      - name: Make and upload the air and rain tiles
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '25 */3 * * *'
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          hour=$(date -u +%H)
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ] && [ $(( 10#$hour % 6 )) -ge 3 ]; then
+            echo "Not this time (every 6 hours)"
+            exit 0
+          fi
+          if [ "$FORCE" = "true" ]; then
+            .venv/bin/python regional_tiles.py --set weather --force
+          else
+            .venv/bin/python regional_tiles.py --set weather
           fi

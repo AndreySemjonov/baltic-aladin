@@ -9,6 +9,10 @@ Each tile RGBA: red the east wind x 4 + 128, green the north wind x 4 + 128, blu
 (as the world tiles), alpha how much the model counts there: 255 inside, falling to 0 over the
 last 50 km to its area's edge (the app blends it into the world's there).
 
+Also (--set weather, every 6 hours, every third cell: 3 km) the air and the rain as the world's
+temperature and rain packs (world_tiles.temp_pack / rain_pack: <time>-temp.pack, <time>-rain.pack)
+with the same alpha, uploaded as tiles/metnordic-wx/ (its index's frames carry "temp" and "rain").
+
     python regional_tiles.py              make and upload the newest run when it's new
     python regional_tiles.py --force      even when published
     python regional_tiles.py --local DIR  write the packs to DIR (a test; --hours N for fewer)
@@ -24,14 +28,15 @@ from pathlib import Path
 import numpy as np
 
 import metnordic_map as mn
+import temp_map
 import world_tiles
 
-MODEL = "metnordic"
+SETS = {"wind": {"model": "metnordic", "stride": 2}, "weather": {"model": "metnordic-wx", "stride": 3}}
 ZOOMS = range(4, 7)
 SIZE = 256
 STRIDE = 2
 FADE_KM = 50
-PUBLISHED = "https://files.meteogust.com/tiles/metnordic/index.json"
+PUBLISHED = "https://files.meteogust.com/tiles/{model}/index.json"
 
 
 def hours_wanted(times, run):
@@ -125,9 +130,9 @@ class Placer:
         return top * (1 - fr) + bottom * fr
 
 
-def published_run():
+def published_run(model):
     try:
-        with urllib.request.urlopen(PUBLISHED + "?t=%d" % time.time(), timeout=30) as reply:
+        with urllib.request.urlopen(PUBLISHED.format(model=model) + "?t=%d" % time.time(), timeout=30) as reply:
             return json.load(reply).get("runName")
     except Exception:
         return None
@@ -137,11 +142,15 @@ def main():
     args = sys.argv[1:]
     local = Path(args[args.index("--local") + 1]) if "--local" in args else None
     limit = int(args[args.index("--hours") + 1]) if "--hours" in args else None
+    which = args[args.index("--set") + 1] if "--set" in args else "wind"
+    global STRIDE
+    STRIDE = SETS[which]["stride"]
+    model = SETS[which]["model"]
     started = time.time()
     times = mn.ascii_values(mn.get(f"{mn.SOURCE}.ascii?time"), "time")
     run = mn.ascii_values(mn.get(f"{mn.SOURCE}.ascii?forecast_reference_time"), "forecast_reference_time")[0]
     run_name = datetime.fromtimestamp(run, timezone.utc).strftime("%Y%m%dT%HZ")
-    if not local and "--force" not in args and published_run() == run_name:
+    if not local and "--force" not in args and published_run(model) == run_name:
         print(f"MET Nordic {run_name} already published")
         return
     steps = hours_wanted(times, run)
@@ -151,32 +160,59 @@ def main():
     srows, scols = (rows - 1) // STRIDE + 1, (cols - 1) // STRIDE + 1
     placer = Placer(srows, scols)
     print(f"{len(placer.tiles)} tiles, {len(steps)} hours, run {run_name}", flush=True)
-    fields = {key: fetch_hours(name, steps, rows, cols)
-              for key, name in (("speed", "wind_speed_10m"), ("direction", "wind_direction_10m"), ("gust", "wind_speed_of_gust"))}
+    names = (("speed", "wind_speed_10m"), ("direction", "wind_direction_10m"), ("gust", "wind_speed_of_gust")) if which == "wind"         else (("speed", "wind_speed_10m"), ("air", "air_temperature_2m"), ("humidity", "relative_humidity_2m"),
+              ("pressure", "air_pressure_at_sea_level"), ("rain", "precipitation_amount"), ("cloud", "cloud_area_fraction"))
+    fields = {key: fetch_hours(name, steps, rows, cols) for key, name in names}
     print(f"read in {time.time() - started:.0f} s", flush=True)
     weights = {key: placer.weight(*value) for key, value in placer.tiles.items()}
     frames, total = [], 0
-    for s in steps:
-        speed, direction, gust = fields["speed"][s], fields["direction"][s], fields["gust"][s]
-        rad = np.radians(np.nan_to_num(direction))
-        east, north = -np.nan_to_num(speed) * np.sin(rad), -np.nan_to_num(speed) * np.cos(rad)
-        tiles = {}
-        for key, (col, row, inside) in placer.tiles.items():
-            e, nn, g = placer.sample(east, col, row), placer.sample(north, col, row), placer.sample(gust, col, row)
-            rgba = np.stack([np.clip(np.rint(e * 4 + 128), 0, 255), np.clip(np.rint(nn * 4 + 128), 0, 255),
-                             np.clip(np.rint(g * 5), 0, 255), np.rint(weights[key] * 255)], axis=-1).astype(np.uint8)
-            tiles[key] = world_tiles.png(rgba, "RGBA")
-        data = world_tiles.encode(tiles, {z: SIZE for z in ZOOMS})
-        t = int(times[s])
-        name = f"{run_name}/{t}.pack"
+    def put(name, data):
         if local:
             (local / run_name).mkdir(parents=True, exist_ok=True)
             (local / name).write_bytes(data)
         else:
-            world_tiles.upload(f"{MODEL}/{name}", data)
-        frames.append({"time": t, "file": name})
-        total += len(data)
-    index = {"model": "MET Nordic 1 km", "credit": "MET Norway, MET Nordic (CC BY 4.0)",
+            world_tiles.upload(f"{model}/{name}", data)
+
+    def packed(make):
+        tiles = {}
+        for key, (col, row, inside) in placer.tiles.items():
+            rgb = make(lambda grid: placer.sample(grid, col, row))
+            alpha = np.rint(weights[key] * 255)[..., None]
+            tiles[key] = world_tiles.png(np.concatenate([rgb, alpha], axis=-1).astype(np.uint8), "RGBA")
+        return world_tiles.encode(tiles, {z: SIZE for z in ZOOMS})
+
+    for s in steps:
+        t = int(times[s])
+        if which == "wind":
+            speed, direction, gust = fields["speed"][s], fields["direction"][s], fields["gust"][s]
+            rad = np.radians(np.nan_to_num(direction))
+            east, north = -np.nan_to_num(speed) * np.sin(rad), -np.nan_to_num(speed) * np.cos(rad)
+            data = packed(lambda at: np.stack([np.clip(np.rint(at(east) * 4 + 128), 0, 255),
+                                               np.clip(np.rint(at(north) * 4 + 128), 0, 255),
+                                               np.clip(np.rint(at(gust) * 5), 0, 255)], axis=-1))
+            name = f"{run_name}/{t}.pack"
+            put(name, data)
+            frames.append({"time": t, "file": name})
+            total += len(data)
+            continue
+        # The air (as the world's temperature packs: air, feels like, sea-level pressure) and the
+        # rain (sqrt of the hour's mm x 50, the cloud cover x 255).
+        celsius = fields["air"][s] - 273.15
+        humidity = np.clip(np.nan_to_num(fields["humidity"][s], nan=0.6), 0, 1)
+        feels = temp_map.feels_like(celsius, np.nan_to_num(fields["speed"][s]), humidity)
+        hpa = fields["pressure"][s] / 100
+        temp = packed(lambda at: np.stack([temp_map.encode(at(celsius)), temp_map.encode(at(feels)),
+                                           np.clip(np.rint((at(hpa) - 940) * 2), 1, 255)], axis=-1))
+        mm = np.maximum(np.nan_to_num(fields["rain"][s]), 0)
+        cloud = np.clip(np.nan_to_num(fields["cloud"][s]), 0, 1)
+        rain = packed(lambda at: np.stack([np.clip(np.rint(np.sqrt(np.maximum(at(mm), 0)) * 50), 0, 255),
+                                           np.clip(np.rint(at(cloud) * 255), 0, 255), np.zeros((SIZE, SIZE))], axis=-1))
+        put(f"{run_name}/{t}-temp.pack", temp)
+        put(f"{run_name}/{t}-rain.pack", rain)
+        frames.append({"time": t, "file": f"{run_name}/{t}-temp.pack", "temp": f"{run_name}/{t}-temp.pack",
+                       "rain": f"{run_name}/{t}-rain.pack"})
+        total += len(temp) + len(rain)
+    index = {"model": "MET Nordic 1 km" if which == "wind" else "MET Nordic 1 km (air and rain)", "credit": "MET Norway, MET Nordic (CC BY 4.0)",
              "run": datetime.fromtimestamp(run, timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "runName": run_name,
              "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "zooms": [ZOOMS.start, ZOOMS.stop - 1],
              "land": None, "frames": frames}
@@ -184,7 +220,7 @@ def main():
     if local:
         (local / "index.json").write_bytes(body)
     else:
-        print(world_tiles.upload(f"{MODEL}/index.json", body).strip())
+        print(world_tiles.upload(f"{model}/index.json", body).strip())
     print(f"MET Nordic {run_name}: {len(frames)} hours, {total / 1e6:.0f} MB, {time.time() - started:.0f} s")
 
 
