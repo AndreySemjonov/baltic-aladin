@@ -201,6 +201,10 @@ def main():
     except Exception:
         print(f"MET Nordic {run_name}: its own file not found, reading the latest", flush=True)
     steps = hours_wanted(times, run)
+    # The air and rain without the run's own hour: its rain is the hour before the run, not a
+    # forecast (it read as 255 everywhere: R3's check, 13.10.2026).
+    if which != "wind":
+        steps = [s for s in steps if times[s] > run]
     if limit:
         steps = steps[:limit]
     rows, cols = 2321, 1796
@@ -314,6 +318,12 @@ def main():
             speed, direction, gust = fields["speed"][s], fields["direction"][s], fields["gust"][s]
             rad = np.radians(np.nan_to_num(direction))
             east, north = -np.nan_to_num(speed) * np.sin(rad), -np.nan_to_num(speed) * np.cos(rad)
+            # MET Nordic's own hour checked too (R3): a wrong one is left out.
+            report.count()
+            reason = quality.wind(east, north, gust)
+            if reason:
+                report.fail("MET Nordic", t, reason)
+                continue
             def encode(e, n, g):
                 return np.stack([np.clip(np.rint(e * 4 + 128), 0, 255), np.clip(np.rint(n * 4 + 128), 0, 255),
                                  np.clip(np.rint(g * 5), 0, 255)], axis=-1)
@@ -351,6 +361,11 @@ def main():
         hpa = fields["pressure"][s] / 100
         mm = np.maximum(np.nan_to_num(fields["rain"][s]), 0)
         cloud = np.clip(np.nan_to_num(fields["cloud"][s]), 0, 1)
+        report.count()
+        reason = quality.weather(celsius, mm)
+        if reason:
+            report.fail("MET Nordic", t, reason)
+            continue
 
         def temp_rgb(air, feel, pressure):
             return np.stack([temp_map.encode(air), temp_map.encode(feel), np.clip(np.rint((pressure - 940) * 2), 1, 255)], axis=-1)

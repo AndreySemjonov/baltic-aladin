@@ -3,10 +3,14 @@ repository, phase 2; the owner, 12.10.2026: every model at its full area, no det
 Norway's hourly run (the Nordic countries and the Baltic), read from the run's own file every grid
 cell (the regional blend reads every second), hourly for the first day then every 3 hours, through
 the shared tiler into tiles/metnordic-1km at zooms 4-7 (zoom 7: about 0.7 km a pixel here), its
-weight fading over the last 50 km to its grid's edge. The three fields are read side by side, 8
-hours at a time, and each 8 made into tiles before the next.
+weight fading over the last 50 km to its grid's edge. The fields are read side by side, 8 hours at
+a time, and each 8 made into tiles before the next.
 
-    python metnordic_tiles.py [--force] [--local DIR] [--hours N]
+With --set weather (docs/RAIN_MAP_FIX.md R2: the rain and temperature maps from tiles only), the air
+(air, feels like, sea-level pressure) and the rain (the hour's) with the cloud cover, in
+tiles/metnordic-1km-wx: the same 1 km and zooms.
+
+    python metnordic_tiles.py [--set weather] [--force] [--local DIR] [--hours N]
 """
 import sys
 import time
@@ -18,6 +22,7 @@ import numpy as np
 import metnordic_map as mn
 import quality
 import regional_tiles
+import temp_map
 import tiler
 
 ZOOMS = range(4, 8)
@@ -25,6 +30,8 @@ FADE_KM = 50
 ROWS, COLS = 2321, 1796
 BOX = (49.0, 74.0, -6.0, 42.0)
 NAMES = (("speed", "wind_speed_10m"), ("direction", "wind_direction_10m"), ("gust", "wind_speed_of_gust"))
+WEATHER = (("speed", "wind_speed_10m"), ("air", "air_temperature_2m"), ("humidity", "relative_humidity_2m"),
+           ("pressure", "air_pressure_at_sea_level"), ("rain", "precipitation_amount"), ("cloud", "cloud_area_fraction"))
 CREDIT = "MET Nordic, MET Norway (CC BY 4.0)"
 
 
@@ -50,6 +57,7 @@ def main():
     args = sys.argv[1:]
     local = args[args.index("--local") + 1] if "--local" in args else None
     limit = int(args[args.index("--hours") + 1]) if "--hours" in args else None
+    weather = "--set" in args and args[args.index("--set") + 1] == "weather"
     def ask(name):
         # MET Norway's server answers late or with 500 now and then: three tries.
         for attempt in range(3):
@@ -62,7 +70,8 @@ def main():
     times = ask("time")
     run = ask("forecast_reference_time")[0]
     run_time = datetime.fromtimestamp(run, timezone.utc)
-    out = tiler.Run("metnordic-1km", run_time, ZOOMS, "MET Nordic 1 km", CREDIT, "--force" in args, local)
+    out = tiler.Run("metnordic-1km-wx" if weather else "metnordic-1km", run_time, ZOOMS,
+                    "MET Nordic 1 km (air and rain)" if weather else "MET Nordic 1 km", CREDIT, "--force" in args, local)
     if not out.wanted:
         print(f"MET Nordic {run_time:%Y%m%dT%HZ} already published")
         return
@@ -74,6 +83,10 @@ def main():
     except Exception:
         print("its own file not found, reading the latest", flush=True)
     steps = regional_tiles.hours_wanted(times, run)
+    # The air and rain without the run's own hour (its rain is the hour before the run: 255
+    # everywhere, caught by R3's check 13.10.2026).
+    if weather:
+        steps = [s for s in steps if times[s] > run]
     if limit:
         steps = steps[:limit]
     regional_tiles.STRIDE = 1
@@ -83,9 +96,27 @@ def main():
     # Eight hours at a time (each field about 130 MB for 8 hours at every cell).
     for k in range(0, len(steps), 8):
         chunk = steps[k:k + 8]
-        with ThreadPoolExecutor(3) as pool:
-            fields = dict(zip([key for key, _ in NAMES],
-                              pool.map(lambda pair: regional_tiles.fetch_hours(pair[1], chunk, ROWS, COLS), NAMES)))
+        names = WEATHER if weather else NAMES
+        with ThreadPoolExecutor(len(names)) as pool:
+            fields = dict(zip([key for key, _ in names],
+                              pool.map(lambda pair: regional_tiles.fetch_hours(pair[1], chunk, ROWS, COLS), names)))
+        if weather:
+            for s in chunk:
+                t = int(times[s])
+                raw = fields["air"][s]
+                air = raw - 273.15
+                humidity = np.clip(np.nan_to_num(fields["humidity"][s], nan=0.6), 0, 1)
+                feels = temp_map.feels_like(np.nan_to_num(air), np.nan_to_num(fields["speed"][s]), humidity)
+                hpa = fields["pressure"][s] / 100
+                rain = np.maximum(np.nan_to_num(fields["rain"][s]), 0)
+                cloud = np.clip(np.nan_to_num(fields["cloud"][s]), 0, 1)
+                if not out.checked("MET Nordic", t, quality.weather(air, rain)):
+                    continue
+                valid = lambda at: np.isfinite(at(raw))  # noqa: E731
+                out.put(t, tiler.pack(placement, sample, lambda at: tiler.temp_rgb(at(np.nan_to_num(air)), at(feels), at(hpa)), valid), "temp")
+                out.put(t, tiler.pack(placement, sample, lambda at: tiler.rain_rgb(at(rain), at(cloud)), valid), "rain")
+            print(f"  {len(out.frames)} hours, {out.bytes / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
+            continue
         for s in chunk:
             speed, degrees = np.nan_to_num(fields["speed"][s]), np.radians(np.nan_to_num(fields["direction"][s]))
             east, north = -speed * np.sin(degrees), -speed * np.cos(degrees)

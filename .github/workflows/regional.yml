@@ -31,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        set: [wind, weather, metnordic-1km, harm-fi, aladin]
+        set: [wind, weather, metnordic-1km, metnordic-1km-wx, harm-fi, aladin]
     steps:
       - name: Check out
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -62,6 +62,7 @@ jobs:
         run: |
           case "${{ matrix.set }}" in
             metnordic-1km) script="metnordic_tiles.py" ;;
+            metnordic-1km-wx) script="metnordic_tiles.py --set weather" ;;
             harm-fi) script="harmfi_tiles.py" ;;
             aladin) script="aladin_tiles.py" ;;
             *) script="regional_tiles.py --set ${{ matrix.set }}" ;;
