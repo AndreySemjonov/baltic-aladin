@@ -1,0 +1,32 @@
+name: World coastline
+run-name: World coastline tiles
+
+# The world's shore as distance tiles on our file store (coast_tiles.py, the owner, 12.10.2026):
+# the app splits the weather's colours between land and sea along it away from the Baltic. The
+# coast doesn't change, so this runs only by hand.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    concurrency:
+      group: coast
+      cancel-in-progress: false
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install ecCodes, NumPy, Pillow and SciPy
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy
+
+      - name: Make and upload the coastline tiles
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+        run: .venv/bin/python coast_tiles.py

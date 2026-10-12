@@ -130,15 +130,17 @@ class Sampler:
         return self.tiles[key](wrapped)
 
 
-def encode(tiles):
-    """Packed: "MGT1", the header's length, the header, the PNGs ({key: PNG bytes})."""
+def encode(tiles, sizes=None):
+    """Packed: "MGT1", the header's length, the header, the PNGs ({key: PNG bytes}); `sizes`:
+    each zoom's tile side (the weather tiles' by default)."""
+    sizes = sizes or SIZES
     header, offset, body = {}, 0, []
     for key, data in tiles.items():
         header["%d/%d/%d" % key] = [offset, len(data)]
         body.append(data)
         offset += len(data)
     # The tiles' offsets count from the end of the header (8 + its length).
-    head = json.dumps({"sizes": {str(z): SIZES[z] for z in ZOOMS}, "zooms": [ZOOMS.start, ZOOMS.stop - 1], "tiles": header},
+    head = json.dumps({"sizes": {str(z): sizes[z] for z in sorted(sizes)}, "zooms": [min(sizes), max(sizes)], "tiles": header},
                       separators=(",", ":")).encode()
     return b"MGT1" + struct.pack("<I", len(head)) + head + b"".join(body)
 
