@@ -245,7 +245,10 @@ def main():
 
     add("ICON-D2", icon_d2)
     add("HARMONIE DINI", module(dini.Model))
-    add("HARM-NL", module(knmi.Model))
+    # HARM-NL's air and rain left out until its precipitation field is checked (12.10.2026: a block of
+    # even rain over the Netherlands); its wind goes in.
+    if wind_set:
+        add("HARM-NL", module(knmi.Model))
     add("AROME", module(arome.Model))
     add("ICON-CH1", module(icon_ch1.Model))
     add("ICON-2I", module(icon2i.Model))
