@@ -130,6 +130,41 @@ class Model:
                 out[t] = (fields[("u", hour)], fields[("v", hour)], fields[("gust", hour)])
         return out
 
+    def _fields(self, variables, hours):
+        """{(name, hour): cells} for the control run's variables at the hours."""
+        run = self.run.strftime("%Y-%m-%dT%H:%M:%SZ")
+        hrefs = {}
+        for name, variable in variables:
+            body = {"collections": [COLLECTION], "forecast:variable": variable, "forecast:perturbed": False,
+                    "forecast:reference_datetime": run, "limit": 100}
+            for item in _search(body):
+                hour = _hours(item["properties"]["forecast:horizon"])
+                if hour in hours:
+                    hrefs[(name, hour)] = next(iter(item["assets"].values()))["href"]
+        with ThreadPoolExecutor(8) as pool:
+            raw = dict(zip(hrefs, pool.map(lambda key: _get(hrefs[key], timeout=180), hrefs)))
+        return {key: next(iter(_values(data).values())) for key, data in raw.items()}
+
+    def weather(self, times):
+        """{unix time: {air, rh, wind, rain (mm/h), cloud}} (cells) for the asked times in the run (the
+        humidity from the dew point: the open data has no RELHUM_2M)."""
+        start = int(self.run.timestamp())
+        hours = {round((t - start) / 3600) for t in times if 0 < t - start <= LAST * 3600}
+        need = hours | {h - 1 for h in hours}
+        f = self._fields((("air", "T_2M"), ("dew", "TD_2M"), ("u", "U_10M"), ("v", "V_10M"), ("cloud", "CLCT")), hours)
+        f.update(self._fields((("total", "TOT_PREC"),), need))
+        out = {}
+        for h in sorted(hours):
+            keys = [("air", h), ("dew", h), ("u", h), ("v", h), ("cloud", h), ("total", h), ("total", h - 1)]
+            if all(k in f for k in keys):
+                c, d = f[("air", h)] - 273.15, f[("dew", h)] - 273.15
+                rh = np.clip(np.exp(17.625 * d / (243.04 + d)) / np.exp(17.625 * c / (243.04 + c)), 0, 1)
+                out[start + h * 3600] = {"air": c, "rh": rh,
+                                         "wind": np.hypot(f[("u", h)], f[("v", h)]),
+                                         "rain": np.maximum(f[("total", h)] - f[("total", h - 1)], 0),
+                                         "cloud": np.clip(f[("cloud", h)] / 100, 0, 1)}
+        return out
+
     def place(self, lon, lat):
         """A place's nearest cell (as `col`; `row` unused), and how much ICON-CH1 counts there:
         none farther than 2 km from a cell, else by the area's edge."""

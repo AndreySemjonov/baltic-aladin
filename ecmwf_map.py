@@ -10,6 +10,7 @@ Same box and pixels as the GFS map, land mask from ICON-EU; format in maplib.py.
 """
 import json
 import sys
+import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -37,12 +38,19 @@ def get(url, start=None, end=None):
     headers = {"User-Agent": maplib.USER_AGENT}
     if start is not None:
         headers["Range"] = f"bytes={start}-{end}"
-    for attempt in range(3):
+    # ECMWF's server limits how fast one asks (429, the world tiles' run of 12.10.2026 08:00):
+    # then waits as it says, or longer each time.
+    for attempt in range(6):
         try:
             with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=180) as reply:
                 return reply.read()
+        except urllib.error.HTTPError as error:
+            if attempt == 5 or (error.code != 429 and error.code < 500):
+                raise
+            wait = error.headers.get("Retry-After", "") if error.headers else ""
+            time.sleep(int(wait) if wait.isdigit() else 20 * (attempt + 1))
         except OSError:
-            if attempt == 2:
+            if attempt >= 2:
                 raise
 
 

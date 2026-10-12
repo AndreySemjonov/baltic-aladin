@@ -1,8 +1,8 @@
 """ItaliaMeteo's ICON-2I (2.2 km; open data on MeteoHub, no key: https://meteohub.agenziaitaliameteo.it/)
 for the regional tiles (regional_tiles.py): Italy, Sardinia, Sicily, the Adriatic, Corsica and
 the Alps' south (33.7-48.9N, 3-22E), runs at 00 and 12 UTC to 72 hours. Each field is one GRIB2
-file of all its hours; its messages are the same size (simple packing), so only the hours wanted
-are read, by range. How much it counts: 1 inside, falling to 0 over the last 50 km to its area's
+file of all its hours; its messages after the first are the same size (simple packing), so only
+the hours wanted are read, by range. How much it counts: 1 inside, falling to 0 over the last 50 km to its area's
 edge.
 """
 import re
@@ -36,6 +36,17 @@ def _get(url, start=None, end=None, timeout=120):
                 raise
 
 
+def _span(url, hour):
+    """The byte range of an hour's message: the hours after the first are the same size (the
+    first can be shorter: a constant field, as the precipitation's and the gust's at hour 0)."""
+    first = struct.unpack(">Q", _get(url, 0, 15, timeout=60)[8:16])[0]
+    if hour == 0:
+        return 0, first - 1
+    length = struct.unpack(">Q", _get(url, first, first + 15, timeout=60)[8:16])[0]
+    start = first + (hour - 1) * length
+    return start, start + length - 1
+
+
 class Model:
     def __init__(self):
         runs = sorted(set(re.findall(r'href="(\d{10})/"', _get(BASE).decode())))
@@ -54,9 +65,7 @@ class Model:
     def _hour(self, var, hour):
         """One hour's field (rows from the south), read by its message's range."""
         url = BASE + FILE.format(run=self.run.strftime("%Y%m%d%H"), var=var)
-        head = _get(url, 0, 15, timeout=60)
-        length = struct.unpack(">Q", head[8:16])[0]
-        data = _get(url, hour * length, (hour + 1) * length - 1)
+        data = _get(url, *_span(url, hour))
         if data[:4] != b"GRIB":
             raise RuntimeError(f"{var} hour {hour}: not a message at its place")
         handle = eccodes.codes_new_from_message(data)
@@ -79,9 +88,7 @@ class Model:
             var, hour = key
             url = BASE + FILE.format(run=self.run.strftime("%Y%m%d%H"), var=var)
             try:
-                head = _get(url, 0, 15, timeout=60)
-                length = struct.unpack(">Q", head[8:16])[0]
-                return _get(url, hour * length, (hour + 1) * length - 1)
+                return _get(url, *_span(url, hour))
             except Exception as error:
                 print(f"ICON-2I {var} {hour}: {error}", flush=True)
                 return None
@@ -102,6 +109,53 @@ class Model:
         for hour, t in wanted.items():
             if all((var, hour) in fields for var in ("U_10M", "V_10M", "VMAX_10M")):
                 out[t] = (fields[("U_10M", hour)], fields[("V_10M", hour)], fields[("VMAX_10M", hour)])
+        return out
+
+    def _hours(self, var, level, hours):
+        """{hour: field} of one field's file (its messages the same size) at the hours."""
+        name = self.run.strftime("%Y%m%d%H")
+        url = f"{BASE}{name}/{var}/ICON_2I_SURFACE_PRESSURE_LEVELS_{name}_{level}.grib"
+        first = struct.unpack(">Q", _get(url, 0, 15, timeout=60)[8:16])[0]
+        length = struct.unpack(">Q", _get(url, first, first + 15, timeout=60)[8:16])[0]
+
+        def span(h):
+            return (0, first - 1) if h == 0 else (first + (h - 1) * length, first + h * length - 1)
+        with ThreadPoolExecutor(8) as pool:
+            raw = dict(zip(hours, pool.map(lambda h: _get(url, *span(h)), hours)))
+        out = {}
+        for h, data in raw.items():
+            if data[:4] != b"GRIB":
+                continue
+            handle = eccodes.codes_new_from_message(data)
+            try:
+                if eccodes.codes_get(handle, "endStep") == h:
+                    out[h] = eccodes.codes_get_values(handle).astype(np.float32).reshape(NJ, NI)
+            finally:
+                eccodes.codes_release(handle)
+        return out
+
+    def weather(self, times):
+        """{unix time: {air, rh, wind, rain (mm/h), cloud}} for the asked times in the run (the
+        humidity from the dew point; the precipitation summed from the start)."""
+        start = int(self.run.timestamp())
+        hours = sorted({round((t - start) / 3600) for t in times if 3600 <= t - start <= LAST * 3600})
+        if not hours:
+            return {}
+        need = sorted(set(hours) | {h - 1 for h in hours})
+        air = self._hours("T_2M", "heightAboveGround-2", hours)
+        dew = self._hours("TD_2M", "heightAboveGround-2", hours)
+        u = self._hours("U_10M", "heightAboveGround-10", hours)
+        v = self._hours("V_10M", "heightAboveGround-10", hours)
+        cloud = self._hours("CLCT", "surface-0", hours)
+        total = self._hours("TOT_PREC", "surface-0", need)
+        out = {}
+        for h in hours:
+            if not all(h in f for f in (air, dew, u, v, cloud)) or h not in total or h - 1 not in total:
+                continue
+            c, d = air[h] - 273.15, dew[h] - 273.15
+            rh = np.clip(np.exp(17.625 * d / (243.04 + d)) / np.exp(17.625 * c / (243.04 + c)), 0, 1)
+            out[start + h * 3600] = {"air": c, "rh": rh, "wind": np.hypot(u[h], v[h]),
+                                     "rain": np.maximum(total[h] - total[h - 1], 0), "cloud": np.clip(cloud[h] / 100, 0, 1)}
         return out
 
     def place(self, lon, lat):

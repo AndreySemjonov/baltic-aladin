@@ -63,6 +63,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch' || github.event.schedule == '25 */3 * * *'
         env:
           INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          KNMI_API_KEY: ${{ secrets.KNMI_API_KEY }}
           FORCE: ${{ inputs.force }}
         run: |
           hour=$(date -u +%H)

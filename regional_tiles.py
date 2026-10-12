@@ -180,63 +180,59 @@ def main():
         steps = steps[:limit]
     rows, cols = 2321, 1796
     srows, scols = (rows - 1) // STRIDE + 1, (cols - 1) // STRIDE + 1
-    # The other regional models with the wind (each may be missing: the rest go on): {name:
-    # (place(lon, lat) -> col, row, weight; {unix time: (east, north, gust)}; sample(grid, col, row))}.
+    # The other regional models (each may be missing: the rest go on): {name: (place(lon, lat) ->
+    # col, row, weight; {unix time: data}; sample(grid, col, row))}, the data the wind's (east,
+    # north, gust) or the weather's ({air, rh, wind, rain, cloud}).
     others = {}
+    # What went in (for the index, the admin page): each model's run and hours, or why not.
+    models = [{"name": "MET Nordic", "run": datetime.fromtimestamp(run, timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
+               "hours": len(steps)}]
     wanted_times = [int(times[s]) for s in steps]
-    if which == "wind":
-        try:
-            icon_run = icond2.newest_run()
-            if icon_run is not None:
-                icon_time = int(icon_run.timestamp())
-                hours = sorted({round((t - icon_time) / 3600) for t in wanted_times} & set(range(icond2.LAST + 1)))
-                icon = {name: icond2.fields(icon_run, var, hours)
-                        for name, var in (("u", "u_10m"), ("v", "v_10m"), ("gust", "vmax_10m"))}
-                icon_weights = icond2.weight_grid(next(iter(icon["u"].values())))
+    wind_set = which == "wind"
 
-                def icon_place(lon, lat):
-                    c, r, on = icond2.place(lon, lat)
-                    return c, r, np.where(on, np.nan_to_num(icond2.sample(icon_weights, c, r)), 0)
-                winds = {icon_time + k * 3600: (icon["u"][k], icon["v"][k], icon["gust"][k]) for k in hours}
-                others["ICON-D2"] = (icon_place, winds, icond2.sample)
-                print(f"ICON-D2 {icon_run:%Y%m%dT%HZ}: {len(hours)} hours", flush=True)
-        except Exception as error:
-            print(f"ICON-D2 left out: {error}", flush=True)
+    def add(name, make):
         try:
-            harmonie = dini.Model()
-            winds = harmonie.winds(wanted_times)
-            others["DINI"] = (harmonie.place, winds, harmonie.sample)
-            print(f"HARMONIE DINI {harmonie.run:%Y%m%dT%HZ}: {len(winds)} hours, rows {harmonie.height} x {harmonie.width}", flush=True)
+            place, data, sample, run_time = make()
+            others[name] = (place, data, sample)
+            models.append({"name": name, "run": f"{run_time:%Y-%m-%dT%H:%MZ}", "hours": len(data)})
+            print(f"{name} {run_time:%Y%m%dT%HZ}: {len(data)} hours", flush=True)
         except Exception as error:
-            print(f"HARMONIE DINI left out: {error}", flush=True)
-        try:
-            dutch = knmi.Model()
-            winds = dutch.winds(wanted_times)
-            others["HARM-NL"] = (dutch.place, winds, dutch.sample)
-            print(f"HARM-NL {dutch.run:%Y%m%dT%HZ}: {len(winds)} hours", flush=True)
-        except Exception as error:
-            print(f"HARM-NL left out: {error}", flush=True)
-        try:
-            french = arome.Model()
-            winds = french.winds(wanted_times)
-            others["AROME"] = (french.place, winds, french.sample)
-            print(f"AROME {french.run:%Y%m%dT%HZ}: {len(winds)} hours", flush=True)
-        except Exception as error:
-            print(f"AROME left out: {error}", flush=True)
-        try:
-            swiss = icon_ch1.Model()
-            winds = swiss.winds(wanted_times)
-            others["ICON-CH1"] = (swiss.place, winds, swiss.sample)
-            print(f"ICON-CH1 {swiss.run:%Y%m%dT%HZ}: {len(winds)} hours", flush=True)
-        except Exception as error:
-            print(f"ICON-CH1 left out: {error}", flush=True)
-        try:
-            italian = icon2i.Model()
-            winds = italian.winds(wanted_times)
-            others["ICON-2I"] = (italian.place, winds, italian.sample)
-            print(f"ICON-2I {italian.run:%Y%m%dT%HZ}: {len(winds)} hours", flush=True)
-        except Exception as error:
-            print(f"ICON-2I left out: {error}", flush=True)
+            models.append({"name": name, "error": str(error)[:200]})
+            print(f"{name} left out: {error}", flush=True)
+
+    def icon_d2():
+        run_time = icond2.newest_run()
+        if run_time is None:
+            raise RuntimeError("no complete run")
+        icon_time = int(run_time.timestamp())
+        if wind_set:
+            hours = sorted({round((t - icon_time) / 3600) for t in wanted_times} & set(range(icond2.LAST + 1)))
+            icon = {name: icond2.fields(run_time, var, hours)
+                    for name, var in (("u", "u_10m"), ("v", "v_10m"), ("gust", "vmax_10m"))}
+            data = {icon_time + k * 3600: (icon["u"][k], icon["v"][k], icon["gust"][k]) for k in hours}
+            weights = icond2.weight_grid(next(iter(icon["u"].values())))
+        else:
+            data = icond2.weather(run_time, wanted_times)
+            weights = icond2.weight_grid(next(iter(data.values()))["air"])
+
+        def place(lon, lat):
+            c, r, on = icond2.place(lon, lat)
+            return c, r, np.where(on, np.nan_to_num(icond2.sample(weights, c, r)), 0)
+        return place, data, icond2.sample, run_time
+
+    def module(model):
+        def make():
+            instance = model()
+            data = instance.winds(wanted_times) if wind_set else instance.weather(wanted_times)
+            return instance.place, data, instance.sample, instance.run
+        return make
+
+    add("ICON-D2", icon_d2)
+    add("HARMONIE DINI", module(dini.Model))
+    add("HARM-NL", module(knmi.Model))
+    add("AROME", module(arome.Model))
+    add("ICON-CH1", module(icon_ch1.Model))
+    add("ICON-2I", module(icon2i.Model))
     placer = Placer(srows, scols, extra=(lambda lon, lat: any(place(lon, lat)[2].any() for place, _, _ in others.values()))
                     if others else None)
     print(f"{len(placer.tiles)} tiles, {len(steps)} hours, run {run_name}", flush=True)
@@ -313,12 +309,47 @@ def main():
         humidity = np.clip(np.nan_to_num(fields["humidity"][s], nan=0.6), 0, 1)
         feels = temp_map.feels_like(celsius, np.nan_to_num(fields["speed"][s]), humidity)
         hpa = fields["pressure"][s] / 100
-        temp = packed(lambda at: np.stack([temp_map.encode(at(celsius)), temp_map.encode(at(feels)),
-                                           np.clip(np.rint((at(hpa) - 940) * 2), 1, 255)], axis=-1))
         mm = np.maximum(np.nan_to_num(fields["rain"][s]), 0)
         cloud = np.clip(np.nan_to_num(fields["cloud"][s]), 0, 1)
-        rain = packed(lambda at: np.stack([np.clip(np.rint(np.sqrt(np.maximum(at(mm), 0)) * 50), 0, 255),
-                                           np.clip(np.rint(at(cloud) * 255), 0, 255), np.zeros((SIZE, SIZE))], axis=-1))
+
+        def temp_rgb(air, feel, pressure):
+            return np.stack([temp_map.encode(air), temp_map.encode(feel), np.clip(np.rint((pressure - 940) * 2), 1, 255)], axis=-1)
+
+        def rain_rgb(amount, cover):
+            return np.stack([np.clip(np.rint(np.sqrt(np.maximum(amount, 0)) * 50), 0, 255),
+                             np.clip(np.rint(cover * 255), 0, 255), np.zeros(amount.shape)], axis=-1)
+
+        # The others at this hour: their air (the pressure left as MET Nordic's or ECMWF's: the
+        # isobars come from ECMWF's anyway) and rain, averaged by their weights where they overlap,
+        # together counting what MET Nordic leaves.
+        extra_temp, extra_rain = None, None
+        present = [(name, others[name][1][t]) for name in others if t in others[name][1]]
+        if present:
+            extra_temp, extra_rain = {}, {}
+            for key in placer.tiles:
+                sums_t, sums_r, w_sum, miss = 0, 0, 0, 1
+                for name, data in present:
+                    c, r, w = parts[name][key]
+                    sample = others[name][2]
+                    air = sample(data["air"], c, r)
+                    w = np.where(np.isfinite(air), w, 0)
+                    if not np.any(w > 0):
+                        continue
+                    rh, speed = sample(data["rh"], c, r), sample(data["wind"], c, r)
+                    feel = temp_map.feels_like(np.nan_to_num(air), np.nan_to_num(speed), np.nan_to_num(rh, nan=0.6))
+                    rgb_t = temp_rgb(np.nan_to_num(air), feel, np.full(air.shape, 1013.0)).astype(np.float32)
+                    rgb_r = rain_rgb(np.nan_to_num(sample(data["rain"], c, r)), np.nan_to_num(sample(data["cloud"], c, r))).astype(np.float32)
+                    sums_t = sums_t + rgb_t * w[..., None]
+                    sums_r = sums_r + rgb_r * w[..., None]
+                    w_sum = w_sum + w
+                    miss = miss * (1 - w)
+                if np.max(w_sum) <= 0:
+                    continue
+                share = (1 - miss) * (1 - weights[key])
+                extra_temp[key] = (sums_t / np.maximum(w_sum, 1e-6)[..., None], share)
+                extra_rain[key] = (sums_r / np.maximum(w_sum, 1e-6)[..., None], share)
+        temp = packed(lambda at: temp_rgb(at(celsius), at(feels), at(hpa)), extra_temp)
+        rain = packed(lambda at: rain_rgb(at(mm), at(cloud)), extra_rain)
         put(f"{run_name}/{t}-temp.pack", temp)
         put(f"{run_name}/{t}-rain.pack", rain)
         frames.append({"time": t, "file": f"{run_name}/{t}-temp.pack", "temp": f"{run_name}/{t}-temp.pack",
@@ -327,7 +358,7 @@ def main():
     index = {"model": "MET Nordic 1 km" if which == "wind" else "MET Nordic 1 km (air and rain)", "credit": "MET Norway, MET Nordic (CC BY 4.0)",
              "run": datetime.fromtimestamp(run, timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "runName": run_name,
              "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "zooms": [ZOOMS.start, ZOOMS.stop - 1],
-             "land": None, "frames": frames}
+             "land": None, "models": models, "frames": frames}
     body = json.dumps(index, separators=(",", ":")).encode()
     if local:
         (local / "index.json").write_bytes(body)

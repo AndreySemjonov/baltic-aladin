@@ -66,6 +66,59 @@ class Model:
                         out[wanted[int(m.group(1))]] = (fields["u"], fields["v"], gust)
         return out
 
+    def weather(self, times):
+        """{unix time: {air, rh, wind, rain (mm/h), cloud}} for the asked times in the run (its
+        precipitation summed from the start: each hour's from the hour before)."""
+        import json
+        url = json.loads(_get(f"{API}/{self.name}/url", self.key))["temporaryDownloadUrl"]
+        start = int(self.run.timestamp())
+        hours = {round((t - start) / 3600) for t in times if 3600 <= t - start <= 60 * 3600}
+        need = hours | {h - 1 for h in hours}
+        names = {(11, 2): "air", (52, 2): "rh", (33, 10): "u", (34, 10): "v", (61, 0): "total", (71, 0): "cloud"}
+        per_hour = {}
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "run.tar")
+            with urllib.request.urlopen(url, timeout=900) as reply, open(path, "wb") as f:
+                while chunk := reply.read(1 << 22):
+                    f.write(chunk)
+            with tarfile.open(path) as tar:
+                for member in tar.getmembers():
+                    m = re.search(r"_(\d{3})00_GB$", member.name)
+                    if not m or int(m.group(1)) not in need:
+                        continue
+                    grib = os.path.join(folder, "hour.grb")
+                    with open(grib, "wb") as g:
+                        g.write(tar.extractfile(member).read())
+                    per_hour[int(m.group(1))] = self._pick(grib, names)
+        out = {}
+        for h in sorted(hours):
+            now, before = per_hour.get(h, {}), per_hour.get(h - 1, {})
+            if not {"air", "rh", "u", "v", "cloud", "total"} <= now.keys() or "total" not in before:
+                continue
+            air = now["air"] - 273.15 if np.nanmean(now["air"]) > 150 else now["air"]
+            rh = now["rh"] / 100 if np.nanmax(now["rh"]) > 1.5 else now["rh"]
+            cloud = now["cloud"] / 100 if np.nanmax(now["cloud"]) > 1.5 else now["cloud"]
+            out[start + h * 3600] = {"air": air, "rh": np.clip(rh, 0, 1), "wind": np.hypot(now["u"], now["v"]),
+                                     "rain": np.maximum(now["total"] - before["total"], 0), "cloud": np.clip(cloud, 0, 1)}
+        return out
+
+    @staticmethod
+    def _pick(path, names):
+        """The (parameter, level) fields of one hour's file, by name (the first of each)."""
+        found = {}
+        with open(path, "rb") as f:
+            while True:
+                handle = eccodes.codes_grib_new_from_file(f)
+                if handle is None:
+                    break
+                try:
+                    key = (eccodes.codes_get(handle, "indicatorOfParameter"), eccodes.codes_get(handle, "level"))
+                    if key in names and names[key] not in found:
+                        found[names[key]] = eccodes.codes_get_values(handle).astype(np.float32).reshape(NJ, NI)
+                finally:
+                    eccodes.codes_release(handle)
+        return found
+
     @staticmethod
     def _fields(path):
         """The 10 m wind and gust parts of one hour's file."""

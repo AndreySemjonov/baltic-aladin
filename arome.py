@@ -111,6 +111,74 @@ class Model:
                     print(f"AROME hour {hour}: {error}", flush=True)
         return out
 
+    def _package(self, package, hour, first=None):
+        """An hour's file of a package (its first `first` messages only, by range)."""
+        url = BASE + FILE.replace("/SP1/", f"/{package}/").replace("__SP1__", f"__{package}__").format(
+            run=self.run.strftime("%Y-%m-%dT%H"), hour=hour)
+        if first is None:
+            return get(url)
+        end = 0
+        for _ in range(first):
+            head = get(url, end, end + 15, timeout=60)
+            end += struct.unpack(">Q", head[8:16])[0]
+        return get(url, 0, end - 1)
+
+    @staticmethod
+    def _split(data):
+        fields, at = {}, 0
+        while at + 16 <= len(data) and data[at:at + 4] == b"GRIB":
+            length = struct.unpack(">Q", data[at + 8:at + 16])[0]
+            handle = eccodes.codes_new_from_message(data[at:at + length])
+            try:
+                name = eccodes.codes_get(handle, "shortName")
+                if name not in fields:
+                    fields[name] = eccodes.codes_get_values(handle).astype(np.float32).reshape(NJ, NI)[::-1]
+            finally:
+                eccodes.codes_release(handle)
+            at += length
+        return fields
+
+    def weather(self, times):
+        """{unix time: {air, rh, wind, rain (mm/h), cloud}} for the asked times in the run: the
+        rain from the sums at this frame and the one before (an hour or three)."""
+        start = int(self.run.timestamp())
+        hours = sorted({round((t - start) / 3600) for t in times if 3600 <= t - start <= LAST * 3600})
+        if not hours:
+            return {}
+        previous = {h: (hours[i - 1] if i > 0 else h - 1) for i, h in enumerate(hours)}
+        sp2_hours = sorted(set(hours) | set(previous.values()))
+
+        def one(job):
+            package, hour, first = job
+            try:
+                return job, self._package(package, hour, first)
+            except Exception as error:
+                print(f"AROME {package} {hour}: {error}", flush=True)
+                return job, None
+
+        jobs = [("SP1", h, 4) for h in hours] + [("SP2", h, None) for h in sp2_hours]
+        with ThreadPoolExecutor(4) as pool:
+            raw = dict(pool.map(one, jobs))
+        sp1 = {h: self._split(raw[("SP1", h, 4)]) for h in hours if raw.get(("SP1", h, 4))}
+        sp2 = {h: self._split(raw[("SP2", h, None)]) for h in sp2_hours if raw.get(("SP2", h, None))}
+
+        def total(fields):
+            return sum(fields[name] for name in ("tirf", "tsnowp", "tgrp") if name in fields)
+
+        out = {}
+        for h in hours:
+            a, now, before = sp1.get(h, {}), sp2.get(h, {}), sp2.get(previous[h], {})
+            if not {"2t", "2r", "10u", "10v"} <= a.keys() or "tirf" not in now or "tirf" not in before:
+                continue
+            clouds = [now[name] for name in ("lcc", "mcc", "hcc") if name in now]
+            cloud = np.maximum.reduce(clouds) if clouds else np.zeros_like(a["2t"])
+            cloud = cloud / 100 if np.nanmax(cloud) > 1.5 else cloud
+            span = max(h - previous[h], 1)
+            out[start + h * 3600] = {"air": a["2t"] - 273.15, "rh": np.clip(a["2r"] / 100, 0, 1),
+                                     "wind": np.hypot(a["10u"], a["10v"]),
+                                     "rain": np.maximum(total(now) - total(before), 0) / span, "cloud": np.clip(cloud, 0, 1)}
+        return out
+
     def place(self, lon, lat):
         """Fractional column and row (rows from the south), the weight by the distance to the
         area's edge, as the other models."""

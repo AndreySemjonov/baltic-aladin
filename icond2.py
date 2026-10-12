@@ -114,3 +114,25 @@ def sample(grid, col, row):
     top = grid[r0, c0] * (1 - fc) + grid[r0, c0 + 1] * fc
     bottom = grid[r0 + 1, c0] * (1 - fc) + grid[r0 + 1, c0 + 1] * fc
     return top * (1 - fr) + bottom * fr
+
+
+def weather(run, times):
+    """{unix time: {air (C), rh (0-1), wind (m/s), rain (mm/h), cloud (0-1)}} for the asked times
+    within the run (its total precipitation summed from the start: each hour's from the hour
+    before)."""
+    start = int(run.timestamp())
+    hours = sorted({round((t - start) / 3600) for t in times} & set(range(1, LAST + 1)))
+    if not hours:
+        return {}
+    need = sorted(set(hours) | {h - 1 for h in hours})
+    t2 = fields(run, "t_2m", hours)
+    rh = fields(run, "relhum_2m", hours)
+    u = fields(run, "u_10m", hours)
+    v = fields(run, "v_10m", hours)
+    cloud = fields(run, "clct", hours)
+    total = fields(run, "tot_prec", need)
+    out = {}
+    for h in hours:
+        out[start + h * 3600] = {"air": t2[h] - 273.15, "rh": np.clip(rh[h] / 100, 0, 1), "wind": np.hypot(u[h], v[h]),
+                                 "rain": np.maximum(total[h] - total[h - 1], 0), "cloud": np.clip(cloud[h] / 100, 0, 1)}
+    return out

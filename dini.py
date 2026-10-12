@@ -49,6 +49,54 @@ class Model:
         with ThreadPoolExecutor(8) as pool:
             return {int(valid.timestamp()): fields for valid, fields in pool.map(fetch, wanted) if fields is not None}
 
+    WEATHER = {"air": (0, 0, 0, 103, 2), "rh": (0, 1, 1, 103, 2), "wind": (0, 2, 1, 103, 10),
+               "rate": (0, 1, 52, 1, 4294967295), "cloud": (0, 6, 32, 103, 0)}
+
+    def _locate(self, url):
+        """The weather fields' headers in one file: the first message of each (the later 2 m
+        temperatures are the period's highest and lowest)."""
+        found, offset, wanted = {}, 0, {v: k for k, v in self.WEATHER.items()}
+        while len(found) < len(self.WEATHER):
+            try:
+                info = dmi_map.header(url, offset)
+            except Exception:
+                break
+            name = wanted.get(dmi_map.key(info))
+            if name and name not in found:
+                found[name] = dict(info, offset=offset)
+            offset += info["total"]
+        return found
+
+    def weather(self, times):
+        """{unix time: {air, rh, wind, rain (mm/h), cloud}} for the asked times (the precipitation
+        rate at the hour)."""
+        wanted = [t for t in self.files if int(t.timestamp()) in set(times)]
+        if not wanted:
+            return {}
+        layout = self._locate(self.files[wanted[0]])
+
+        def fetch(valid):
+            url = self.files[valid]
+            found = dict(layout)
+            # The first file's layout serves the others (checked; walked again if it moved).
+            try:
+                for name, info in found.items():
+                    if dmi_map.key(dmi_map.header(url, info["offset"])) != self.WEATHER[name]:
+                        raise ValueError(name)
+            except Exception:
+                found = self._locate(url)
+            if not {"air", "rh", "wind", "rate", "cloud"} <= found.keys():
+                return valid, None
+            part = {name: dmi_map.rows(url, info, self.r0, self.r1)[:, self.c0:self.c1 + 1] for name, info in found.items()}
+            air = part["air"] - 273.15 if np.nanmean(part["air"]) > 150 else part["air"]
+            rh = part["rh"] / 100 if np.nanmax(part["rh"]) > 1.5 else part["rh"]
+            cloud = part["cloud"] / 100 if np.nanmax(part["cloud"]) > 1.5 else part["cloud"]
+            return valid, {"air": air, "rh": np.clip(rh, 0, 1), "wind": part["wind"],
+                           "rain": np.maximum(part["rate"] * 3600, 0), "cloud": np.clip(cloud, 0, 1)}
+
+        with ThreadPoolExecutor(8) as pool:
+            return {int(valid.timestamp()): data for valid, data in pool.map(fetch, wanted) if data is not None}
+
     def place(self, lon, lat):
         """Fractional column and row on the band's grid, how much DINI counts there (by the
         distance to the band's edge), and whether the point lies on it."""
