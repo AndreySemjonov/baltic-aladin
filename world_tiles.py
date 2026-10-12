@@ -33,6 +33,7 @@ from PIL import Image
 import ecmwf_map
 import gfs_map
 import maplib
+import temp_map
 
 ZOOMS = range(0, 4)
 # Pixels a tile side at each zoom: 256, except zoom 3 at the models' own detail (1440 columns
@@ -75,7 +76,9 @@ def gfs_steps(run, steps):
 def ecmwf_steps(run, steps):
     """The same from ECMWF's open data: 10 m wind, the gust and (at step 0) the land-sea mask."""
     def fetch(step):
-        wanted = ("10u", "10v", "10fg", "lsm") if step == 0 else ("10u", "10v", "10fg")
+        # The wind, and for the world's temperature and rain maps the air (2 m, its dew point),
+        # the sea-level pressure, the precipitation so far and the cloud cover.
+        wanted = ("10u", "10v", "10fg", "2t", "2d", "msl", "tp", "tcc") + (("lsm",) if step == 0 else ())
         index = [json.loads(line) for line in ecmwf_map.get(ecmwf_map.file_url(run, step, "index")).decode().splitlines()
                  if line.strip()]
         messages = {}
@@ -160,6 +163,41 @@ def pack(sample, fields):
     return encode(tiles)
 
 
+def temp_pack(sample, fields):
+    """The air as the Baltic temperature map: red (air °C + 40) x 3 + 1, green how it feels the
+    same way (temp_map.feels_like: the wind chill to 10 °C, the apparent temperature from 20),
+    blue (sea-level pressure hPa - 940) x 2; 0 = unknown."""
+    tiles = {}
+    for key in sample.tiles:
+        celsius = sample(key, fields["2t"]) - 273.15
+        u, v = sample(key, fields["10u"]), sample(key, fields["10v"])
+        if "2d" in fields:
+            dew = sample(key, fields["2d"]) - 273.15
+            humidity = np.clip(np.exp(17.625 * dew / (243.04 + dew)) / np.exp(17.625 * celsius / (243.04 + celsius)), 0, 1)
+        else:
+            humidity = np.full_like(celsius, 0.6)
+        feels = temp_map.feels_like(celsius, np.hypot(u, v), humidity)
+        hpa = sample(key, fields["msl"]) / 100 if "msl" in fields else np.full_like(celsius, np.nan)
+        rgb = np.stack([temp_map.encode(celsius), temp_map.encode(feels),
+                        np.where(np.isfinite(hpa), np.clip(np.rint((hpa - 940) * 2), 1, 255), 0)], axis=-1).astype(np.uint8)
+        tiles[key] = png(rgb, "RGB")
+    return encode(tiles)
+
+
+def rain_pack(sample, fields, rate):
+    """The rain as the Baltic rain map: red sqrt(mm an hour) x 50, green the cloud cover x 255."""
+    tiles = {}
+    for key in sample.tiles:
+        mm = np.maximum(np.nan_to_num(sample(key, rate)), 0)
+        cloud = np.nan_to_num(sample(key, fields["tcc"])) if "tcc" in fields else np.zeros_like(mm)
+        if cloud.max() > 1.5:
+            cloud = cloud / 100
+        rgb = np.stack([np.clip(np.rint(np.sqrt(mm) * 50), 0, 255), np.clip(np.rint(cloud * 255), 0, 255),
+                        np.zeros_like(mm)], axis=-1).astype(np.uint8)
+        tiles[key] = png(rgb, "RGB")
+    return encode(tiles)
+
+
 def land_pack(sample, mask):
     """The run's land (0 sea - 255 land) as grey tiles, once (it doesn't change with the hours)."""
     return encode({key: png(np.clip(np.rint(np.nan_to_num(sample(key, mask)) * 255), 0, 255).astype(np.uint8), "L")
@@ -212,6 +250,8 @@ def main():
         steps = [int(s) for s in args[args.index("--steps") + 1].split(",")]
     source = gfs_steps(run, steps) if model == "gfs" else ecmwf_steps(run, steps)
     sample, land, frames, size, started = None, False, [], 0, time.time()
+    # The step and precipitation before (ECMWF's is the total since the run's start).
+    previous = [0, None]
 
     def put(name, data):
         if local:
@@ -233,8 +273,24 @@ def main():
         t = int((run + timedelta(hours=step)).timestamp())
         name = f"{run_name}/{t}.pack"
         put(name, data)
-        frames.append({"time": t, "file": name})
+        frame = {"time": t, "file": name}
         size += len(data)
+        # ECMWF: the world's temperature and rain too (the precipitation since the run's start,
+        # so each step's rain is its difference from the step before, per hour).
+        if "2t" in fields:
+            extra = temp_pack(sample, fields)
+            put(f"{run_name}/{t}-temp.pack", extra)
+            frame["temp"] = f"{run_name}/{t}-temp.pack"
+            size += len(extra)
+        if "tp" in fields:
+            hours = step - previous[0] if previous[1] is not None else 0
+            rate = (fields["tp"] - previous[1]) * 1000 / hours if hours > 0 else np.zeros_like(fields["tp"])
+            extra = rain_pack(sample, fields, rate)
+            put(f"{run_name}/{t}-rain.pack", extra)
+            frame["rain"] = f"{run_name}/{t}-rain.pack"
+            size += len(extra)
+            previous[0], previous[1] = step, fields["tp"]
+        frames.append(frame)
     if not frames:
         raise SystemExit(f"{model}: no frames")
     index = {
