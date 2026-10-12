@@ -96,19 +96,19 @@ def river_zoom(upland):
     if upland >= 100_000:
         return 0, 0
     if upland >= 20_000:
-        return 2, 0
-    if upland >= 2_000:
         return 3, 0
+    if upland >= 2_000:
+        return 4, 0
     if upland >= 300:
         return 5, 1
     return 7, 2
 
 
 def lake_zoom(area):
-    for limit, zoom in ((1000, 0), (100, 2), (10, 3), (1, 5), (0.3, 6)):
+    for limit, zoom in ((1000, 0), (100, 3), (10, 4), (1, 6), (0.3, 7)):
         if area >= limit:
             return zoom
-    return 7
+    return 8
 
 
 def prepare(raw, target, kind):
@@ -157,6 +157,8 @@ def tiles(rivers, lakes, target):
     started = time.time()
     subprocess.run(["tippecanoe", "-o", str(target), "-Z0", f"-z{TOP}", "--force", "--quiet", "-P",
                     "--no-tile-compression", "--no-tile-size-limit", "--no-feature-limit",
+                    # Zoomed out a coarser grid (1024 a tile, still under a screen pixel): far smaller tiles.
+                    "--low-detail=10",
                     "-L", f"rivers:{rivers}", "-L", f"lakes:{lakes}"], check=True)
     print(f"{target.name}: {target.stat().st_size / 1e6:.0f} MB in {time.time() - started:.0f} s", flush=True)
 
