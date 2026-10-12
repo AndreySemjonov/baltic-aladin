@@ -58,7 +58,8 @@ jobs:
             .venv/bin/python regional_tiles.py
           fi
 
-      # The air and the rain (3 km): every 6 hours (and on a run by hand), less load on MET Norway.
+      # The air and the rain (3 km): on every run (every 3 hours: the runs come through the API
+      # since 12.10.2026, so the 6-hour skip below only holds for GitHub's own schedule).
       - name: Make and upload the air and rain tiles
         if: github.event_name == 'workflow_dispatch' || github.event.schedule == '25 */3 * * *'
         env:

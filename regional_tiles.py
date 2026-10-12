@@ -48,6 +48,16 @@ SIZE = 256
 STRIDE = 2
 FADE_KM = 50
 PUBLISHED = "https://files.meteogust.com/tiles/{model}/index.json"
+# Each regional model alone too (the app's Wind model menu, the owner, 12.10.2026): its folder
+# (tiles/<folder>/), name and credit.
+MODEL_SETS = {
+    "ICON-D2": ("icon-d2", "ICON-D2 2.2 km", "ICON-D2, DWD (CC BY 4.0)"),
+    "HARMONIE DINI": ("dini", "DINI 2 km", "HARMONIE DINI, DMI (CC BY 4.0)"),
+    "HARM-NL": ("harm-nl", "HARM-NL 2 km", "HARMONIE-AROME, KNMI (CC BY 4.0)"),
+    "AROME": ("arome", "AROME 1.3 km", "AROME, Météo-France (Etalab 2.0)"),
+    "ICON-CH1": ("icon-ch1", "ICON-CH1 1 km", "ICON-CH1, MeteoSwiss"),
+    "ICON-2I": ("icon-2i", "ICON-2I 2.2 km", "ICON-2I, ItaliaMeteo (CC BY 4.0)"),
+}
 
 
 def hours_wanted(times, run):
@@ -365,6 +375,58 @@ def main():
     else:
         print(world_tiles.upload(f"{model}/index.json", body).strip())
     print(f"MET Nordic {run_name}: {len(frames)} hours, {total / 1e6:.0f} MB, {time.time() - started:.0f} s")
+    if which != "wind":
+        return
+    # Each model alone: its tiles where it counts (its weight as the alpha: the app draws the
+    # world's model under it), at this run's hours it has. One failing leaves the others.
+    for name, (place, data, sample) in others.items():
+        if name not in MODEL_SETS or not data:
+            continue
+        try:
+            model_set(name, data, sample, parts[name], [m for m in models if m["name"] == name][0], run_name, local)
+        except Exception as error:
+            print(f"{name} alone left out: {error}", flush=True)
+
+
+def model_set(name, data, sample, parts, info, run_name, local):
+    """One regional model's own tiles (tiles/<folder>/<run_name>/<time>.pack) and index."""
+    folder, label, credit = MODEL_SETS[name]
+    started = time.time()
+    keys = [key for key, (c, r, w) in parts.items() if np.any(w > 0)]
+
+    def rgb(e, n, g):
+        return np.stack([np.clip(np.rint(e * 4 + 128), 0, 255), np.clip(np.rint(n * 4 + 128), 0, 255),
+                         np.clip(np.rint(g * 5), 0, 255)], axis=-1)
+
+    frames, total = [], 0
+    for t in sorted(data):
+        e, n, g = data[t]
+        tiles = {}
+        for key in keys:
+            c, r, w = parts[key]
+            u, v, gg = sample(e, c, r), sample(n, c, r), sample(g, c, r)
+            w = np.where(np.isfinite(u) & np.isfinite(v), w, 0)
+            alpha = np.rint(np.clip(w, 0, 1) * 255)[..., None]
+            colour = rgb(np.nan_to_num(u), np.nan_to_num(v), np.nan_to_num(gg))
+            tiles[key] = world_tiles.png(np.concatenate([colour, alpha], axis=-1).astype(np.uint8), "RGBA")
+        pack = world_tiles.encode(tiles, {z: SIZE for z in ZOOMS})
+        file = f"{run_name}/{t}.pack"
+        if local:
+            (local / folder / run_name).mkdir(parents=True, exist_ok=True)
+            (local / folder / file).write_bytes(pack)
+        else:
+            world_tiles.upload(f"{folder}/{file}", pack)
+        frames.append({"time": int(t), "file": file})
+        total += len(pack)
+    index = {"model": label, "credit": credit, "run": info.get("run"), "runName": run_name,
+             "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "zooms": [ZOOMS.start, ZOOMS.stop - 1],
+             "land": None, "frames": frames}
+    body = json.dumps(index, separators=(",", ":")).encode()
+    if local:
+        (local / folder / "index.json").write_bytes(body)
+    else:
+        world_tiles.upload(f"{folder}/index.json", body)
+    print(f"{label} alone: {len(keys)} tiles, {len(frames)} hours, {total / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
 
 
 if __name__ == "__main__":
