@@ -20,4 +20,4 @@ jobs:
           .venv/bin/pip install --quiet eccodes numpy
       - env:
           KNMI_API_KEY: ${{ secrets.KNMI_API_KEY }}
-        run: .venv/bin/python tools/knmi_rain_check.py
+        run: .venv/bin/python tools/knmi_check.py
