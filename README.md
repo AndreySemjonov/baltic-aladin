@@ -1,21 +1,45 @@
 # Baltic ALADIN
 
-Open weather-model wind for Baltic kite spots, prepared for a phone app:
+Open weather, sea and map data for kite spots, prepared for a phone app (MeteoGust). It
+started with ALADIN at the Baltic spots and now covers:
 
 - **ALADIN 2.3 km** (ČHMÚ) read at each kite spot, as one small JSON file.
-- **A wind map** of Lithuania, Latvia and Estonia from
-  **MET Nordic 1 km** (MET Norway): one small image per hour for the next ~58 hours.
-- **More maps of the same area:** **HARM-DK 2 km** (DMI, 60 hours), **HARMONIE
-  2.5 km** (FMI, ~66 hours) and **ALADIN 2.3 km** (ČHMÚ, 72 hours, up to about 57.0°N).
+- **Wind maps** of Lithuania, Latvia and Estonia from **MET Nordic 1 km** (MET Norway),
+  **HARM-DK 2 km** (DMI), **HARMONIE 2.5 km** (FMI) and **ALADIN 2.3 km** (ČHMÚ), plus
+  **air temperature**, **rain** and **chance of rain** maps of the same area.
 - **Wind maps of the whole Baltic** from **ICON-EU 7 km** (DWD, 5 days), **ECMWF 0.25°**
-  (15 days) and **GFS 0.25°** (NOAA, 16 days).
-- **A blend** of all of them for Lithuania, Latvia and Estonia, 10 days.
-- **Water level and water temperature** at the spots from **NEMO-EST** (Estonian
-  Environment Agency and TalTech, about 1 km, 5 days, twice a day).
+  (15 days) and **GFS 0.25°** (NOAA, 16 days), and **a blend** of all of them, 10 days.
+- **Water level, water temperature, currents, sea ice and waves** from **NEMO-EST**, the
+  **Copernicus Marine** Baltic models and DWD's **EWAM**, and the Estonian and Latvian
+  **coastal gauges**.
+- **World weather tiles** from **GFS** and **ECMWF** (wind everywhere; ECMWF also air,
+  pressure, rain and cloud), every new run.
+- **Regional weather tiles**: MET Nordic over its whole area with **ICON-D2**, **HARMONIE
+  DINI**, **HARMONIE-AROME Netherlands**, **AROME**, **ICON-CH1** and **ICON-2I** blended in
+  beyond it (wind, air and rain), and each of those models alone as its own wind set.
+- **World coastline** and **rivers and lakes** tiles for the app's map.
+- **Satellite clouds** (Meteosat) for the rain map, every 15 minutes of the last day.
+
+## What is published where
+
+| What | Where | Made by |
+|---|---|---|
+| Spot JSON, Baltic map frames (PNG + `map.json`) | GitHub Pages: `https://andreysemjonov.github.io/baltic-aladin/…` | `update.yml` |
+| Satellite clouds | `https://files.meteogust.com/clouds/index.json` | `update.yml` (`clouds.py`) |
+| World weather tiles | `https://files.meteogust.com/tiles/gfs/index.json`, `…/tiles/ecmwf/index.json` | `world.yml` |
+| Regional weather tiles | `…/tiles/metnordic/` (wind), `…/tiles/metnordic-wx/` (air and rain), `…/tiles/{icon-d2,dini,harm-nl,arome,icon-ch1,icon-2i}/` (each model alone) | `regional.yml` |
+| Coastline tiles | `…/tiles/coast/` | `coast.yml` (by hand) |
+| Rivers and lakes tiles | `…/tiles/water/` | `water.yml` (by hand) |
+
+Everything on `files.meteogust.com` is uploaded through the project's upload service (the
+station-history Worker, `data.meteogust.com/…/upload/`, with the `ADMIN_INGEST_TOKEN`
+secret); each set's `index.json` is written last, so a reader never sees a half-made run.
+
+## ALADIN at the spots
 
 The Czech Hydrometeorological Institute (ČHMÚ) publishes ALADIN as open data,
 but only as whole-domain GRIB files of 70–80 MB per variable and run. A GitHub
-Actions job checks every hour for a new run (four a day), downloads 10 m wind
+Actions job checks for a new run (four a day), downloads 10 m wind
 speed, direction and gusts, reads each spot in [`spots.json`](spots.json) and
 publishes the result:
 
@@ -88,6 +112,10 @@ here), land mask from ICON-EU.
 - **https://andreysemjonov.github.io/baltic-aladin/gfs/map.json**: NOAA GFS, every 3 hours
   to 384 hours, cut to the box by NOAA's server (about 20 KB per step).
   `python gfs_map.py site/gfs`.
+- **https://andreysemjonov.github.io/baltic-aladin/world/map.json**: the quick world layer,
+  GFS 0.25° between 78°S and 78°N, every 3 hours for 4 days, about 40 km per pixel, in the
+  same format (GFS's own land mask). `python gfs_world.py site/world`. The finer world
+  tiles below replace it over time.
 
 ## Blend
 
@@ -113,46 +141,119 @@ DWD publishes each variable and hour as a whole-Europe file, so a run means abou
 `python iconeu_map.py site/icon-eu` (newest complete run) or
 `python iconeu_map.py site/icon-eu 2026093012`.
 
+## Air temperature map
+
+[`temp_map.py`](temp_map.py) makes frames of the air temperature at 2 m and how it feels with
+the wind (wind chill up to 10 °C, apparent temperature from 20 °C, blended between) from MET
+Nordic 1 km, each forecast hour (about 58 hours), on the rain map's box at 2.5 km pixels:
+
+**https://andreysemjonov.github.io/baltic-aladin/temp/map.json** (`"kind": "temperature"`)
+
+- red: (air °C + 40) x 3 + 1, green: (feels like °C + 40) x 3 + 1, blue: (sea-level pressure
+  hPa - 940) x 2 for the app's isobars; 0 = no data.
+
+## World weather tiles
+
+[`world_tiles.py`](world_tiles.py) (workflow `world.yml`, hourly; one job per model) turns each
+new run of **GFS 0.25°** (4 runs a day, every 3 hours to 384 hours) and **ECMWF 0.25° open data**
+(00 and 12 UTC, every 3 hours to 144 hours, then every 6 to 360) into tile packs on the web
+map's grid (Web Mercator, z/x/y with y from the north, zooms 0-3; 256-pixel tiles, 180 at
+zoom 3, the models' own detail). The tiles hold values, not colours; the app colours them.
+
+- **Pack format "MGT1"**: the bytes `MGT1`, the header's length (4 bytes, little-endian), the
+  header (JSON: `{"sizes", "zooms", "tiles": {"z/x/y": [offset from the header's end, length]}}`)
+  and the PNG tiles, so the app reads the header and then only the tiles it shows.
+- **Wind** (`<run>/<unix time>.pack`, both models): red = wind towards the east m/s x 4 + 128,
+  green = towards the north m/s x 4 + 128, blue = gust m/s x 5.
+- **Air** (`<time>-temp.pack`, ECMWF): as the temperature map (air, feels like, sea-level
+  pressure). **Rain** (`<time>-rain.pack`, ECMWF): red = sqrt(mm an hour) x 50, green = cloud
+  cover x 255.
+- **Land** (`<run>/land.pack`, once per run): the model's land-sea mask, 0 sea - 255 land.
+- **`tiles/<model>/index.json`**: model, credit, run, encoding, land pack and the frames.
+
+```
+python world_tiles.py gfs|ecmwf              build and upload the newest run, if new
+python world_tiles.py gfs|ecmwf --force      even if it is the published one
+python world_tiles.py gfs|ecmwf --local DIR  write to DIR, no upload (--steps 0,24 for a test)
+```
+
+## Regional weather tiles
+
+[`regional_tiles.py`](regional_tiles.py) (workflow `regional.yml`, every 3 hours) makes the same
+packs at zooms 4-6 for the newest **MET Nordic** run over its whole area (the Nordic countries
+and the Baltic; read at every second cell, 2 km), hourly for the first day and every 3 hours
+after. Beyond MET Nordic the other regional models are blended in (MET Nordic first; the others
+averaged by their weights where they overlap), each fading out over the last 50 km to its
+area's edge:
+
+| Model | Provider | Area | Module |
+|---|---|---|---|
+| ICON-D2 2.2 km | DWD | Germany, Benelux, Denmark, the Alps, western Poland and Czechia | [`icond2.py`](icond2.py) |
+| HARMONIE DINI 2 km | DMI | British Isles, North Sea, Denmark, the Channel | [`dini.py`](dini.py) |
+| HARMONIE-AROME Netherlands (HARM-NL) 2 km | KNMI (free API key) | Netherlands, Belgium, southern North Sea | [`knmi.py`](knmi.py) |
+| AROME 0.01° (about 1.3 km) | Météo-France (public OVH bucket) | France, the Channel, Benelux, western Germany, Switzerland, northern Italy | [`arome.py`](arome.py) |
+| ICON-CH1 1 km | MeteoSwiss (STAC API) | Switzerland, the Alps, northern Italy's lakes | [`icon_ch1.py`](icon_ch1.py) |
+| ICON-2I 2.2 km | ItaliaMeteo (MeteoHub) | Italy, its islands, the Adriatic, Corsica | [`icon2i.py`](icon2i.py) |
+
+- **Wind** (`tiles/metnordic/`): RGBA, red/green/blue as the world tiles, alpha = how much the
+  models count there (255 inside, 0 outside), so the app draws them over ECMWF's world.
+- **Air and rain** (`tiles/metnordic-wx/`, `--set weather`, every third cell, 3 km):
+  `<time>-temp.pack` and `<time>-rain.pack` as the world's, with the same alpha.
+- **Each model alone** (`tiles/icon-d2/`, `dini/`, `harm-nl/`, `arome/`, `icon-ch1/`,
+  `icon-2i/`): after the wind set, each regional model's own wind tiles and index, for the
+  app's model menu.
+- The index's `models` lists each model used in that run (its run and hours) or why it was
+  left out; a model that can't be read is skipped and the rest go on.
+
+```
+python regional_tiles.py                  make and upload the newest run when it is new
+python regional_tiles.py --set weather    the air and rain set
+python regional_tiles.py --force          even when published
+python regional_tiles.py --local DIR      write the packs to DIR (--hours N for fewer)
+```
+
+## World coastline and rivers
+
+- [`coast_tiles.py`](coast_tiles.py) (`coast.yml`, by hand): how far each point is from the
+  shore, from Natural Earth's 1:10 million land and lakes, so the app can split the weather's
+  colours between land and sea outside the Baltic. Zooms 5-8, 256-pixel grey tiles (127.5 on
+  the shore), one pack per zoom-5 tile with a coast; `tiles/coast/`.
+- [`water_tiles.py`](water_tiles.py) (`water.yml`, by hand, with a dry-run option): the world's
+  rivers (HydroRIVERS, from 50 km² of catchment) and lakes (HydroLAKES, from 10 ha) as vector
+  tiles, zooms 0-10, made with GDAL and tippecanoe and packed as above; `tiles/water/`. The
+  Baltic box is left out (the app's own OpenStreetMap lines are finer there).
+
 ## Credits and licence
 
-Map data: **MET Norway, MET Nordic forecast, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**,
-from https://thredds.met.no/. The map frames are derived from it and carry the same
-licence and credit.
+Code: MIT licence, see [LICENSE](LICENSE). Data products are derived from the sources below
+(cropped, interpolated, reprojected or read at points) and carry their licences and credits.
+Not affiliated with any of the data providers.
 
-Map data: **Deutscher Wetterdienst (DWD), ICON-EU, open data,
-[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**, from
-https://opendata.dwd.de/weather/nwp/icon-eu/. The frames are derived from it
-(cropped, interpolated and reprojected) and carry the same licence and credit.
+| Data | Provider | Licence | Used for |
+|---|---|---|---|
+| ALADIN 2.3 km | ČHMÚ – Czech Hydrometeorological Institute ([open data](https://opendata.chmi.cz/meteorology/weather/nwp_aladin/)) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | spots, ALADIN map |
+| MET Nordic 1 km, MEPS ensemble | MET Norway ([thredds.met.no](https://thredds.met.no/)) | CC BY 4.0 | wind, air, rain, chance-of-rain maps; regional tiles |
+| ICON-EU, ICON-D2, EWAM | Deutscher Wetterdienst (DWD) ([opendata.dwd.de](https://opendata.dwd.de/)) | CC BY 4.0 | ICON-EU and rain maps, regional tiles, waves |
+| HARMONIE 2.5 km | Finnish Meteorological Institute (FMI) ([open data](https://en.ilmatieteenlaitos.fi/open-data)) | CC BY 4.0 | HARMONIE map, rain map's clouds |
+| HARMONIE DINI 2 km | Danish Meteorological Institute (DMI) ([open data](https://opendatadocs.dmi.govcloud.dk/)) | CC BY 4.0 | HARM-DK map, regional tiles |
+| HARMONIE-AROME Netherlands | KNMI ([Data Platform](https://dataplatform.knmi.nl/)) | CC BY 4.0 | regional tiles |
+| AROME | Météo-France ([meteo.data.gouv.fr](https://meteo.data.gouv.fr/)) | Etalab Open Licence 2.0 | regional tiles |
+| ICON-CH1 | MeteoSwiss ([open data](https://opendatadocs.meteoswiss.ch/)) | open use, with the source named | regional tiles |
+| ICON-2I | ItaliaMeteo ([MeteoHub](https://meteohub.agenziaitaliameteo.it/)) | CC BY 4.0 | regional tiles |
+| IFS open data 0.25° | ECMWF ([open data](https://www.ecmwf.int/en/forecasts/datasets/open-data)) | CC BY 4.0 | ECMWF map, world tiles |
+| GFS 0.25° | NOAA/NCEP ([NOMADS](https://nomads.ncep.noaa.gov/)) | public domain | GFS and world maps, world tiles |
+| NEMO-EST | Keskkonnaagentuur (Estonian Environment Agency) and TalTech ([KAIA](https://avaandmed.keskkonnaportaal.ee/)) | CC BY 4.0 | water level and temperature |
+| Estonian coastal gauges | Keskkonnaagentuur, ilmateenistus.ee | as published by the agency | gauges |
+| Latvian coastal gauges | LVĢMC (data.gov.lv) | CC0 | gauges |
+| Baltic Sea physics and waves | E.U. Copernicus Marine Service Information ([marine.copernicus.eu](https://marine.copernicus.eu/)) | Copernicus Marine licence (free account) | water, sea ice and wave maps |
+| Meteosat infrared and Cloud Mask | EUMETSAT (EUMETView) | open data; credit "Meteosat, EUMETSAT" | satellite clouds |
+| Land polygons, coastline, lakes, rivers, borders | © OpenStreetMap contributors | [ODbL](https://www.openstreetmap.org/copyright) | `coast.png`, `map-lines.bin` |
+| 1:10m land and lakes | Natural Earth | public domain | coastline tiles |
+| HydroRIVERS (Lehner & Grill 2013), HydroLAKES (Messager et al. 2016) | HydroSHEDS (WWF) | HydroSHEDS licence; HydroLAKES CC BY 4.0 | rivers and lakes tiles |
 
-Map data: **Finnish Meteorological Institute (FMI), HARMONIE forecast, open data,
-[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**, from
-https://en.ilmatieteenlaitos.fi/open-data. The frames are derived from it (interpolated
-and reprojected) and carry the same licence and credit.
-
-Map data: **Danish Meteorological Institute (DMI), HARMONIE DINI forecast, open data,
-[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**, from
-https://opendatadocs.dmi.govcloud.dk/. The frames are derived from it (cropped,
-interpolated and reprojected).
-
-Map data: **ECMWF, IFS open data, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**,
-from https://www.ecmwf.int/en/forecasts/datasets/open-data. The frames are derived from it.
-
-Map data: **NOAA/NCEP, GFS** (public domain), from https://nomads.ncep.noaa.gov/.
-
-Wave data: **Deutscher Wetterdienst (DWD), EWAM European wave model, open data,
-[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**, from
-https://opendata.dwd.de/weather/maritime/wave_models/ewam/. The wave frames are derived from
-it (cropped, interpolated and reprojected) and carry the same licence and credit.
-
-The blend is derived from all of the map data above and carries their credits.
-
-Data: **ČHMÚ – Czech Hydrometeorological Institute, ALADIN model, open data,
-[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**, from
-https://opendata.chmi.cz/meteorology/weather/nwp_aladin/. The published JSON and the
-ALADIN map are derived from it (values read at points; cropped, interpolated and
-reprojected) and carry the same licence and credit.
-
-Code: MIT licence, see [LICENSE](LICENSE). Not affiliated with ČHMÚ, MET Norway, DWD, FMI, DMI, ECMWF or NOAA.
+The app shows the EUMETNET OPERA radar composite (open data, CC BY 4.0) before now; it reads
+it directly, not through this repo. The blend is derived from all of the map data above and
+carries their credits.
 
 ## NEMO-EST water level and temperature
 
@@ -181,8 +282,6 @@ service's API, reads each spot's nearest sea cell (within 5 km) and publishes:
 - The model covers Estonia and the Gulf of Riga, from about 56.94°N and 21.55°E;
   Liepāja, Pāvilosta and Užava are outside.
 
-Source: Keskkonnaagentuur, NEMO-EST model data, CC BY 4.0.
-
 ## Estonian coastal gauges
 
 The Estonian Environment Agency publishes only the current reading of its coastal gauges
@@ -202,8 +301,6 @@ and publishes the last 48 hours:
 - Gauges are named as in the agency's observations file. `level`: cm in EH2000;
   `temperature`: water °C; hourly from `start` (Unix seconds, UTC).
 - `failed`: gauges not read this time; they keep their last hours.
-
-Source: Keskkonnaagentuur (Estonian Environment Agency), ilmateenistus.ee.
 
 ## The coast
 
@@ -233,13 +330,12 @@ hourly for the NEMO-EST run's 5 days):
 - red: level + 128 (0 = outside the models; land holds its nearest sea value), green: water
   temperature × 8, blue: current m/s × 100, alpha: current direction (towards) × 256/360.
   Each frame and the manifest carry `levelRange` and `temperatureRange`.
+- **Sea ice** from the same Copernicus model goes beside it, **`ice/map.json`** (`"kind": "ice"`):
+  red = 1 + ice cover x 200, green = ice thickness cm; `iceMax` is the run's largest cover.
 
 **https://andreysemjonov.github.io/baltic-aladin/gauges.json**: the Estonian and Latvian coastal
-gauges' last 48 hours on one height system ([`gauges.py`](gauges.py); the Latvian gauges,
+gauges' last days on one height system ([`gauges.py`](gauges.py); the Latvian gauges,
 LVĢMC open data CC0, corrected from each gauge's own zero to LAS-2000,5).
-
-Sources: Keskkonnaagentuur (Estonian Environment Agency) and TalTech, NEMO-EST, CC BY 4.0;
-E.U. Copernicus Marine Service Information; LVĢMC (data.gov.lv, CC0).
 
 ## Rain map
 
@@ -249,8 +345,7 @@ box at 2.5 km pixels:
 
 **https://andreysemjonov.github.io/baltic-aladin/rain/map.json** (`"kind": "rain"`)
 
-- red: sqrt(precipitation mm in the hour) × 50 (0 = none). The app shows the EUMETNET OPERA
-  radar composite (open data, CC BY 4.0) before now, read directly from OPERA's 24-hour cache,
+- red: sqrt(precipitation mm in the hour) × 50 (0 = none). The app shows the radar before now
   and its own 2-hour nowcast from the radar's motion.
 - green: how cloudy it looks × 255, from HARM-FI's low, middle and high cloud (FMI, CC BY 4.0;
   low counts in full, middle 0.6, high 0.3), else MET Nordic's total cover × 0.6.
@@ -264,6 +359,10 @@ box at 2.5 km pixels:
   on the same box and pixels: **`rain-chance/map.json`** (`"kind": "rain-chance"`), red =
   chance × 255. A new set comes every hour (`docs/runs.json`: `rain-chance`), about 210 MB read
   and under a minute.
+- Satellite clouds: [`clouds.py`](clouds.py) makes one grey picture with transparency per
+  15 minutes of the last day from Meteosat's infrared (MTG FCI 10.5 µm) and Cloud Mask (MSG),
+  read from EUMETSAT's EUMETView WMS for the rain map's box, and uploads it to
+  `files.meteogust.com/clouds/`.
 
 ## Map lines
 
@@ -277,8 +376,10 @@ available under the Open Database License (ODbL): https://www.openstreetmap.org/
 
 ## Wave map
 
-[`wave_map.py`](wave_map.py) makes map frames of the waves from DWD's European wave model EWAM
-(00 and 12 UTC runs, 78 hours, hourly, about 5.5 km) on the water map's box at 2.5 km pixels:
+[`wave_map.py`](wave_map.py) makes map frames of the waves on the water map's box at 2.5 km
+pixels from the **Copernicus Baltic wave forecast** (WAM at 1 nautical mile, up to 10 days:
+hourly for 3 days, then every 3 hours); when it can't be read (no login, late), from DWD's
+European wave model **EWAM** (00 and 12 UTC runs, 78 hours, hourly, about 5.5 km):
 
 **https://andreysemjonov.github.io/baltic-aladin/waves/map.json** (`"kind": "waves"`)
 
@@ -286,3 +387,44 @@ available under the Open Database License (ODbL): https://www.openstreetmap.org/
   green: mean wave period s × 10, blue: mean wave direction (from) × 256/360.
 - Each frame and the manifest carry `heightMax` (m). A new run is built when one is online,
   like ICON-EU (`docs/runs.json`: `waves`).
+
+## Workflows
+
+| Workflow | Schedule | What it does |
+|---|---|---|
+| `update.yml` | every 15 min (`7,22,37,52 * * * *`) | ALADIN spots, NEMO-EST, gauges, satellite clouds; rebuilds each Baltic map whose model has a new run (others are copied from the live site by [`carry.py`](carry.py)), the blend, and deploys GitHub Pages; sends a short run report to the admin panel |
+| `world.yml` | hourly (`41 * * * *`) | world tiles, one job each for GFS and ECMWF, only when the run is new |
+| `regional.yml` | every 3 hours (`25 */3 * * *`) | regional wind tiles and each model alone; the air and rain set every 6 hours on the schedule and on every dispatched run |
+| `coast.yml` | by hand | world coastline tiles |
+| `water.yml` | by hand (`dry` input: build without upload) | world rivers and lakes tiles |
+| `knmi-check.yml` | by hand | a look at KNMI's HARMONIE-AROME files with the API key (`tools/knmi_check.py`) |
+
+GitHub often skips or delays scheduled runs, so a small external trigger (a Cloudflare Worker)
+also starts the workflows through the GitHub API (`workflow_dispatch`): `update.yml` every 5
+minutes when no run is going, `world.yml` hourly and `regional.yml` every 3 hours. Their own
+cron schedules stay as a backup. A run with nothing new stops after its check.
+
+## Running locally
+
+Python 3 (the workflows use the runner's system `python3` in a venv):
+
+```
+pip install eccodes numpy pillow scipy
+pip install h5py copernicusmarine   # only for the sea models (NEMO-EST, Copernicus)
+```
+
+Each script prints its usage; most take an output folder (`python metnordic_map.py site/map`)
+or `--check` to print the newest run. The tile scripts upload by default and take
+`--local DIR` to write the packs to a folder instead. `water_tiles.py` also needs GDAL
+(`ogr2ogr`) and [tippecanoe](https://github.com/felt/tippecanoe) (the workflow builds 2.79.0).
+
+## Secrets
+
+Set as GitHub Actions secrets (names only; the scripts read them from the environment):
+
+- `ADMIN_INGEST_TOKEN` (as `INGEST_TOKEN`): uploads to the file store (tiles, clouds) and the
+  run report. Without it nothing is uploaded or reported.
+- `KNMI_API_KEY`: KNMI Data Platform key for HARM-NL (free). Without it HARM-NL is left out.
+- `COPERNICUSMARINE_SERVICE_USERNAME`, `COPERNICUSMARINE_SERVICE_PASSWORD`: a free Copernicus
+  Marine account for the water, sea ice and wave maps. Without them the water map is NEMO-EST
+  only and the waves come from EWAM.
