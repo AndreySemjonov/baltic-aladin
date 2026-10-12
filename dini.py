@@ -5,6 +5,7 @@ range requests, as dmi_map.py does for the Baltic). The newest complete run, its
 hour, and how much it counts at a place: 1 inside the band, falling to 0 over its last 50 km.
 """
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 
 import numpy as np
 
@@ -68,12 +69,27 @@ class Model:
         return found
 
     def weather(self, times):
-        """{unix time: {air, rh, wind, rain (mm/h), cloud}} for the asked times (the precipitation
-        rate at the hour)."""
+        """{unix time: {air, rh, wind, rain (mm/h), cloud}} for the asked times. The precipitation
+        field (0, 1, 52: "rate" by its code) holds the run's total so far in mm (it only grows: 59 mm
+        at +24 h, 90 at +40 h; read as a rate x 3600 it drew a block of rain over Germany and
+        Poland, 12.10.2026): each hour's from the hour before's."""
         wanted = [t for t in self.files if int(t.timestamp()) in set(times)]
         if not wanted:
             return {}
         layout = self._locate(self.files[wanted[0]])
+        hour = timedelta(hours=1)
+        # The hours before (their totals only).
+        before = sorted({t - hour for t in wanted if t - hour in self.files} - set(wanted))
+
+        def total(valid):
+            url = self.files[valid]
+            info = layout.get("rate")
+            try:
+                if info is None or dmi_map.key(dmi_map.header(url, info["offset"])) != self.WEATHER["rate"]:
+                    info = self._locate(url).get("rate")
+                return valid, None if info is None else dmi_map.rows(url, info, self.r0, self.r1)[:, self.c0:self.c1 + 1]
+            except Exception:
+                return valid, None
 
         def fetch(valid):
             url = self.files[valid]
@@ -92,10 +108,22 @@ class Model:
             rh = part["rh"] / 100 if np.nanmax(part["rh"]) > 1.5 else part["rh"]
             cloud = part["cloud"] / 100 if np.nanmax(part["cloud"]) > 1.5 else part["cloud"]
             return valid, {"air": air, "rh": np.clip(rh, 0, 1), "wind": part["wind"],
-                           "rain": np.maximum(part["rate"] * 3600, 0), "cloud": np.clip(cloud, 0, 1)}
+                           "total": part["rate"], "cloud": np.clip(cloud, 0, 1)}
 
         with ThreadPoolExecutor(8) as pool:
-            return {int(valid.timestamp()): data for valid, data in pool.map(fetch, wanted) if data is not None}
+            fields = {valid: data for valid, data in pool.map(fetch, wanted) if data is not None}
+            totals = {valid: data for valid, data in pool.map(total, before) if data is not None}
+        totals.update({valid: data["total"] for valid, data in fields.items()})
+        out = {}
+        for valid, data in fields.items():
+            previous = totals.get(valid - hour)
+            # The run's first hour: its total is the hour's.
+            amount = data.pop("total") - previous if previous is not None else (data.pop("total") if valid - hour == self.run else None)
+            if amount is None:
+                continue
+            data["rain"] = np.maximum(amount, 0)
+            out[int(valid.timestamp())] = data
+        return out
 
     def place(self, lon, lat):
         """Fractional column and row on the band's grid, how much DINI counts there (by the
