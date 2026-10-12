@@ -44,7 +44,8 @@ SETS = [
 ]
 # Europe's tiles: zoom 6's columns 27-39 and rows 13-25 (32-72.4N, 28W-45E), zooms 3-6.
 TILE_Z, TILE_X, TILE_Y, TILE_ZOOMS = 6, (27, 39), (13, 25), range(3, 7)
-TILES_PER_RUN = 4
+# 4 a run with the helper; more for a one-off backfill (sat-backfill.yml: the last day at once).
+TILES_PER_RUN = int(os.environ.get("TILES_PER_RUN", "4"))
 TILES_UPLOAD = os.environ.get("TILES_UPLOAD", "https://data.meteogust.com/tiles/upload/sat/")
 TILES_INDEX = "https://files.meteogust.com/tiles/sat/index.json"
 UPLOAD = os.environ.get("CLOUDS_UPLOAD", "https://data.meteogust.com/clouds/upload/")

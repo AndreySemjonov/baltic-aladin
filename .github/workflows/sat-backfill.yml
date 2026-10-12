@@ -1,0 +1,30 @@
+name: Satellite tiles backfill
+run-name: Satellite tiles (the last day at once)
+
+# The satellite's Europe tiles for every quarter hour of the last day that has none yet (clouds.py
+# with TILES_PER_RUN raised; the helper makes 4 a run). Run by hand when past hours have gaps
+# (docs/RAIN_MAP_FIX.md, step 1: past radar hours fell back to the Baltic picture).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install ecCodes, NumPy and Pillow
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow
+
+      - name: Make and upload the missing quarter hours
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          TILES_PER_RUN: "110"
+        run: .venv/bin/python clouds.py
