@@ -16,6 +16,7 @@ import numpy as np
 
 import aladin_map
 import extract
+import quality
 import tiler
 
 ZOOMS = range(4, 7)
@@ -71,7 +72,8 @@ def main():
         # Through its parts, so 350 and 10 degrees don't average to 180.
         east, north = -speed * np.sin(degrees), -speed * np.cos(degrees)
         gust = np.hypot(fields["gust_u"][t], fields["gust_v"][t])
-        out.put(t, tiler.pack(placement, sample, lambda at: tiler.wind_rgb(at(east), at(north), at(gust))))
+        if out.checked("ALADIN", t, quality.wind(east, north, gust)):
+            out.put(t, tiler.pack(placement, sample, lambda at: tiler.wind_rgb(at(east), at(north), at(gust))))
     out.finish()
     print(f"ALADIN {run}: done in {time.time() - started:.0f} s")
 

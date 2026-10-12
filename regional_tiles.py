@@ -40,6 +40,7 @@ import icond2
 import knmi
 import metnordic_map as mn
 import temp_map
+import quality
 import world_tiles
 
 SETS = {"wind": {"model": "metnordic", "stride": 2}, "weather": {"model": "metnordic-wx", "stride": 3}}
@@ -214,9 +215,24 @@ def main():
     wanted_times = [int(times[s]) for s in steps]
     wind_set = which == "wind"
 
+    report = quality.Report(model)
+
     def add(name, make):
         try:
             place, data, sample, run_time = make()
+            # Each hour checked; a model with over a fifth of them wrong is left out (DINI's rain
+            # read as a rate, AROME's missing corners: 12.10.2026).
+            bad = 0
+            for t in list(data):
+                d = data[t]
+                reason = quality.wind(*d) if wind_set else quality.weather(d.get("air"), d.get("rain"))
+                report.count()
+                if reason:
+                    report.fail(name, t, reason)
+                    del data[t]
+                    bad += 1
+            if bad > 0.2 * (len(data) + bad):
+                raise RuntimeError(f"check: {bad} hours failed ({report.failures[-1]['reason']})")
             others[name] = (place, data, sample)
             models.append({"name": name, "run": f"{run_time:%Y-%m-%dT%H:%MZ}", "hours": len(data)})
             print(f"{name} {run_time:%Y%m%dT%HZ}: {len(data)} hours", flush=True)
@@ -388,6 +404,10 @@ def main():
         (local / "index.json").write_bytes(body)
     else:
         print(world_tiles.upload(f"{model}/index.json", body).strip())
+        try:
+            world_tiles.upload(f"{model}/check.json", report.body(index["run"], True))
+        except Exception as error:
+            print(f"{model}: check.json not sent ({error})", flush=True)
     print(f"MET Nordic {run_name}: {len(frames)} hours, {total / 1e6:.0f} MB, {time.time() - started:.0f} s")
     if which != "wind":
         return

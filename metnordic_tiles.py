@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 import numpy as np
 
 import metnordic_map as mn
+import quality
 import regional_tiles
 import tiler
 
@@ -90,6 +91,8 @@ def main():
             east, north = -speed * np.sin(degrees), -speed * np.cos(degrees)
             gust = np.nan_to_num(fields["gust"][s])
             raw = fields["speed"][s]
+            if not out.checked("MET Nordic", int(times[s]), quality.wind(east, north, gust)):
+                continue
             out.put(int(times[s]), tiler.pack(placement, sample, lambda at: tiler.wind_rgb(at(east), at(north), at(gust)),
                                               valid=lambda at: np.isfinite(at(raw))))
         print(f"  {len(out.frames)} hours, {out.bytes / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)

@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 import numpy as np
 
 import iconeu_map
+import quality
 import temp_map
 import tiler
 
@@ -104,7 +105,8 @@ def main():
             u, v = fields.get("U_10M"), fields.get("V_10M")
             if wind.wanted and u is not None and v is not None:
                 gust = fields.get("VMAX_10M", np.hypot(u, v))
-                wind.put(t, tiler.pack(placement, sample, lambda at: tiler.wind_rgb(at(u), at(v), at(gust))))
+                if wind.checked("ICON-EU", t, quality.wind(u, v, gust)):
+                    wind.put(t, tiler.pack(placement, sample, lambda at: tiler.wind_rgb(at(u), at(v), at(gust))))
             if not weather.wanted:
                 continue
             if "TOT_PREC" in fields:
@@ -120,6 +122,8 @@ def main():
             hpa = fields["PMSL"] / 100 if "PMSL" in fields else np.full(air.shape, np.nan, dtype=np.float32)
             rain = np.maximum(totals[step] - totals[before], 0) / (step - before)
             cloud = fields["CLCT"] / 100
+            if not weather.checked("ICON-EU", t, quality.weather(air, rain)):
+                continue
             weather.put(t, tiler.pack(placement, sample, lambda at: tiler.temp_rgb(at(air), at(feels), at(hpa))), "temp")
             weather.put(t, tiler.pack(placement, sample, lambda at: tiler.rain_rgb(at(rain), at(cloud))), "rain")
             # The totals before the one before aren't needed any more.

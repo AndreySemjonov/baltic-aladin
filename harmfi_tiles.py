@@ -20,6 +20,7 @@ import numpy as np
 
 import harmonie_map
 import maplib
+import quality
 import tiler
 
 ZOOMS = range(4, 7)
@@ -79,7 +80,8 @@ def main():
                     pending.pop(t)
                     if t >= run_time.timestamp():
                         u, v, g = step["10u"], step["10v"], step["10fg"]
-                        out.put(t, tiler.pack(placement, sample, lambda at: tiler.wind_rgb(at(u), at(v), at(g)),
+                        if out.checked("HARM-FI", t, quality.wind(u, v, g)):
+                            out.put(t, tiler.pack(placement, sample, lambda at: tiler.wind_rgb(at(u), at(v), at(g)),
                                               valid=lambda at: np.isfinite(at(u)) & np.isfinite(at(v))))
     out.finish()
     print(f"HARM-FI {run_time:%Y%m%d%H}: done in {time.time() - started:.0f} s")

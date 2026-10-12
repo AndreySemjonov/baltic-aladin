@@ -23,6 +23,7 @@ from pathlib import Path
 
 import numpy as np
 
+import quality
 import temp_map
 import world_tiles
 
@@ -137,6 +138,27 @@ class Run:
             self.folder += "-" + format(int(time.time()) % 36 ** 6, "x")
         self.frames = {}
         self.bytes = 0
+        self.report = quality.Report(name)
+
+    def checked(self, model, unix_time, reason):
+        """An hour's check (`reason` from quality, None: fine): False leaves the hour out."""
+        self.report.count()
+        if reason:
+            self.report.fail(model, unix_time, reason)
+            return False
+        return True
+
+    def publish_check(self, published):
+        """The checks' results (tiles/<set>/check.json, for the admin panel; refused before
+        station-history knows the file: the run goes on)."""
+        body = self.report.body(self.run_time.strftime("%Y-%m-%dT%H:%MZ"), published)
+        try:
+            if self.local:
+                (self.local / "check.json").write_bytes(body)
+            else:
+                world_tiles.upload(f"{self.name}/check.json", body)
+        except Exception as error:
+            print(f"{self.name}: check.json not sent ({error})", flush=True)
 
     def put(self, unix_time, data, kind=None):
         """One hour's pack (kind: None the wind, "temp" or "rain")."""
@@ -156,7 +178,12 @@ class Run:
         return file
 
     def finish(self, **extra):
-        """The index, after the packs (station-history records the run for the admin panel)."""
+        """The index, after the packs (station-history records the run for the admin panel); not
+        when over a fifth of the hours failed their checks (the run before stays)."""
+        failed = len(self.report.failures)
+        if self.report.checked and failed > 0.2 * self.report.checked:
+            self.publish_check(False)
+            raise SystemExit(f"{self.name}: {failed} of {self.report.checked} hours failed their checks; not published")
         index = {"model": self.model, "credit": self.credit, "run": self.run_time.strftime("%Y-%m-%dT%H:%MZ"),
                  "runName": self.folder, "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
                  "zooms": [min(self.zooms), max(self.zooms)], "land": None,
@@ -166,4 +193,5 @@ class Run:
             (self.local / "index.json").write_bytes(body)
         else:
             world_tiles.upload(f"{self.name}/index.json", body)
+        self.publish_check(True)
         print(f"{self.name} {self.folder}: {len(self.frames)} hours, {self.bytes / 1e6:.0f} MB", flush=True)
