@@ -41,7 +41,11 @@ STEPS = list(range(0, 79)) + list(range(81, 121, 3))
 VARIABLES = ("U_10M", "V_10M", "VMAX_10M")
 
 
-def url(run, step, variable):
+def url(run, step, variable, level=None):
+    """A single-level field's file, or with `level` (hPa) a pressure level's ("U", "V")."""
+    if level:
+        return (f"{BASE}/{run[8:]}/{variable.lower()}/"
+                f"icon-eu_europe_regular-lat-lon_pressure-level_{run}_{step:03d}_{level}_{variable}.grib2.bz2")
     return (f"{BASE}/{run[8:]}/{variable.lower()}/"
             f"icon-eu_europe_regular-lat-lon_single-level_{run}_{step:03d}_{variable}.grib2.bz2")
 
@@ -98,11 +102,11 @@ def output_grid():
     return np.meshgrid(lat, lon, indexing="ij"), width, height
 
 
-def download(run, step, variable):
+def download(run, step, variable, level=None):
     """One GRIB2 message (downloads run in threads)."""
     for attempt in range(3):
         try:
-            with urllib.request.urlopen(request(url(run, step, variable)), timeout=120) as reply:
+            with urllib.request.urlopen(request(url(run, step, variable, level)), timeout=120) as reply:
                 return bz2.decompress(reply.read())
         except (urllib.error.URLError, OSError, EOFError):
             if attempt == 2:

@@ -88,6 +88,13 @@ def wind_rgb(east, north, gust):
                      np.clip(np.rint(gust * 5), 0, 255)], axis=-1)
 
 
+def steer_rgb(east, north):
+    """The wind aloft that carries the showers (700 hPa): east and north m/s x 2 + 128 (to 64 m/s)."""
+    east, north = np.nan_to_num(east), np.nan_to_num(north)
+    return np.stack([np.clip(np.rint(east * 2 + 128), 0, 255), np.clip(np.rint(north * 2 + 128), 0, 255),
+                     np.zeros(east.shape)], axis=-1)
+
+
 def temp_rgb(air, feels, hpa):
     """Air and feels-like (temp_map.encode: (C + 40) x 3 + 1), sea-level pressure (hPa - 940) x 2;
     0 = unknown."""

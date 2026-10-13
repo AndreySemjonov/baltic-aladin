@@ -27,6 +27,7 @@ started with ALADIN at the Baltic spots and now covers:
 | Spot JSON, Baltic map frames (PNG + `map.json`) | GitHub Pages: `https://andreysemjonov.github.io/baltic-aladin/…` | `update.yml` |
 | Satellite clouds | `https://files.meteogust.com/clouds/index.json` | `update.yml` (`clouds.py`) |
 | World weather tiles | `https://files.meteogust.com/tiles/gfs/index.json`, `…/tiles/ecmwf/index.json` | `world.yml` |
+| ICON-EU tiles | `…/tiles/icon-eu/` (wind), `…/tiles/icon-eu-wx/` (air and rain), `…/tiles/icon-eu-steer/` (the wind at 700 hPa that carries the showers, zoom 3, east and north m/s × 2 + 128) | `world.yml` |
 | Regional weather tiles | `…/tiles/metnordic/` (wind), `…/tiles/metnordic-wx/` (air and rain), `…/tiles/{icon-d2,dini,harm-nl,arome,icon-ch1,icon-2i}/` (each model alone) | `regional.yml` |
 | Coastline tiles | `…/tiles/coast/` | `coast.yml` (by hand) |
 | Rivers and lakes tiles | `…/tiles/water/` | `water.yml` (by hand) |

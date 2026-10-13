@@ -7,6 +7,10 @@ hour: 57 hours a run, about 0.5 GB). Two sets through the shared tiler:
 - tiles/icon-eu: the wind (east, north, the hour's strongest gust);
 - tiles/icon-eu-wx: the air (air, feels like, sea-level pressure) and the rain (the hour's, from
   the run's total so far; every 3 hours its average) with the cloud cover.
+- tiles/icon-eu-steer: the wind at 700 hPa (about 3 km up), which carries the showers, at zoom 3
+  only (about 12 km a pixel; a few hundred KB a run): the app moves the forecast's rain along it
+  between the hours (the owner, 13.10.2026: matched hour to hour, the showers went down, sideways,
+  down again).
 Its weight fades over the last 150 km to its area's edge.
 
     python iconeu_tiles.py [--force] [--local DIR] [--hours N]
@@ -28,18 +32,25 @@ STEPS = list(range(0, 25)) + list(range(27, 121, 3))
 FADE_KM = 150
 WIND = ("U_10M", "V_10M", "VMAX_10M")
 WEATHER = ("U_10M", "V_10M", "T_2M", "TD_2M", "PMSL", "TOT_PREC", "CLCT")
+# The wind aloft: (name in the fields, variable, level in hPa).
+STEER = (("U_700", "U", 700), ("V_700", "V", 700))
+STEER_ZOOMS = range(3, 4)
 CREDIT = "ICON-EU, DWD (CC BY 4.0)"
 
 
 def fetch(run, step, variable):
+    name, level = variable, None
+    for key, var, hpa in STEER:
+        if key == variable:
+            name, level = var, hpa
     try:
-        return iconeu_map.download(run, step, variable)
+        return iconeu_map.download(run, step, name, level)
     except Exception as error:
         print(f"ICON-EU {variable} +{step} h: {error}", flush=True)
         return None
 
 
-def grid_tools(grid, shape):
+def grid_tools(grid, shape, zooms=ZOOMS):
     """The model grid's placement on the tiles (its area, fading at the edge) and its sampler."""
     nj, ni = shape
     lat0, lon0 = grid["latitudeOfFirstGridPointInDegrees"], grid["longitudeOfFirstGridPointInDegrees"]
@@ -64,7 +75,7 @@ def grid_tools(grid, shape):
         bottom = values[r0 + 1, c0] * (1 - fc) + values[r0 + 1, c0 + 1] * fc
         return top * (1 - fr) + bottom * fr
 
-    return tiler.Placement(tiler.tiles_in_box(box, ZOOMS), place), sample, box
+    return tiler.Placement(tiler.tiles_in_box(box, zooms), place), sample, box
 
 
 def main():
@@ -76,13 +87,16 @@ def main():
     run_time = datetime.strptime(run, "%Y%m%d%H").replace(tzinfo=timezone.utc)
     wind = tiler.Run("icon-eu", run_time, ZOOMS, "ICON-EU 7 km", CREDIT, force, local and local + "/icon-eu")
     weather = tiler.Run("icon-eu-wx", run_time, ZOOMS, "ICON-EU 7 km (air and rain)", CREDIT, force, local and local + "/icon-eu-wx")
-    if not wind.wanted and not weather.wanted:
+    steer = tiler.Run("icon-eu-steer", run_time, STEER_ZOOMS, "ICON-EU 7 km (wind at 700 hPa)", CREDIT, force,
+                      local and local + "/icon-eu-steer")
+    if not wind.wanted and not weather.wanted and not steer.wanted:
         print(f"ICON-EU {run} already published")
         return
     steps = STEPS[:limit] if limit else STEPS
-    variables = sorted(set(WIND if wind.wanted else ()) | set(WEATHER if weather.wanted else ()))
+    variables = sorted(set(WIND if wind.wanted else ()) | set(WEATHER if weather.wanted else ())
+                       | set(key for key, _, _ in STEER if steer.wanted))
     start, started = int(run_time.timestamp()), time.time()
-    placement = sample = box = None
+    placement = sample = box = steer_placement = None
     totals = {}
     for k in range(0, len(steps), 6):
         chunk = steps[k:k + 6]
@@ -100,8 +114,13 @@ def main():
                 continue
             if placement is None:
                 placement, sample, box = grid_tools(grid, next(iter(fields.values())).shape)
+                steer_placement = grid_tools(grid, next(iter(fields.values())).shape, STEER_ZOOMS)[0]
                 print(f"ICON-EU {run}: {len(placement.parts)} tiles over {box}", flush=True)
             t = start + step * 3600
+            east, north = fields.get("U_700"), fields.get("V_700")
+            if steer.wanted and east is not None and north is not None:
+                if steer.checked("ICON-EU", t, quality.steering(east, north)):
+                    steer.put(t, tiler.pack(steer_placement, sample, lambda at: tiler.steer_rgb(at(east), at(north))))
             u, v = fields.get("U_10M"), fields.get("V_10M")
             if wind.wanted and u is not None and v is not None:
                 gust = fields.get("VMAX_10M", np.hypot(u, v))
@@ -137,6 +156,8 @@ def main():
         wind.finish(area=area)
     if weather.wanted and weather.frames:
         weather.finish(area=area)
+    if steer.wanted and steer.frames:
+        steer.finish(area=area)
     print(f"ICON-EU {run}: done in {time.time() - started:.0f} s")
 
 

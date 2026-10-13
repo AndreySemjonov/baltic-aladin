@@ -48,6 +48,16 @@ def wind(east, north, gust=None):
     return None
 
 
+def steering(east, north):
+    """The wind aloft: over 100 m/s on more than 0.1 % of the points, or the same nearly everywhere."""
+    speed = np.hypot(np.asarray(east, dtype=np.float32), np.asarray(north, dtype=np.float32))
+    if _over(speed, 100):
+        return f"wind aloft over 100 m/s on {float(np.mean(_finite(speed) > 100)) * 100:.1f} %"
+    if _constant(speed):
+        return "wind aloft the same nearly everywhere"
+    return None
+
+
 def weather(air=None, rain=None):
     if rain is not None:
         r = _finite(rain)
