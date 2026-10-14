@@ -2,10 +2,9 @@
 wind map, the Baltic box's blend (blend_map.py), made over Europe from the wind tiles already
 published, keeping what makes it the best at the spots:
 
-- the models' weights of the point forecast's backtests (HARM-DK 0.226, MET Nordic 0.181, HARM-FI
-  0.181, ICON-EU 0.068, ECMWF 0.034, GFS 0.023); the regional models beyond the Baltic (AROME,
-  ICON-D2, ICON-CH1, HARM-NL, ICON-2I) with HARM-DK's until a backtest says otherwise, ALADIN with
-  half of it (its edge fades on the tiles);
+- the models' weights by place, one set for the spots, the map and new spots: near the app's catalog
+  spots their own (Windguru's for each spot), blended smoothly between them, far from all of them by
+  the model's kind (fine regional models 1, ICON-EU 0.3, ECMWF 0.2, GFS 0.1);
 - each model's land pulled back to the coastline (as maplib.coast_fill: the sea near the shore
   takes the model's own sea wind from beyond its land's reach), the land from our coastline tiles
   (tiles/coast, Natural Earth's shore);
@@ -41,21 +40,27 @@ FILES = "https://files.meteogust.com/tiles/"
 AGENT = "baltic-aladin mix_tiles (+https://github.com/AndreySemjonov/baltic-aladin)"
 # Set, name, weight, how far the model's land reaches over the sea (km, about 1.5 of its cells).
 MODELS = [
-    ("metnordic-1km", "MET Nordic", 0.181, 1.5),
-    ("dini", "HARM-DK", 0.226, 3.0),
-    ("harm-fi", "HARM-FI", 0.181, 3.75),
-    ("arome", "AROME", 0.226, 2.0),
-    ("icon-d2", "ICON-D2", 0.226, 3.3),
-    ("icon-ch1", "ICON-CH1", 0.226, 1.5),
-    ("harm-nl", "HARM-NL", 0.226, 3.0),
-    ("icon-2i", "ICON-2I", 0.226, 3.3),
-    # Out of the Baltic box's Mix for its edge; the tiles fade it out: half the class's weight
-    # until a backtest says otherwise (the owner, 14.10.2026).
-    ("aladin", "ALADIN", 0.113, 3.5),
-    ("icon-eu", "ICON-EU", 0.068, 10.0),
-    ("ecmwf", "ECMWF", 0.034, 25.0),
-    ("gfs", "GFS", 0.023, 25.0),
+    # The default weights by the model's kind (far from every weight point: the app's SpotWeights,
+    # close to Windguru's own mixes at Pāvilosta and Texel): fine regional models 1, ICON-EU 0.3,
+    # ECMWF 0.2, GFS 0.1. Near the catalog's spots, their own weights (weight_points).
+    ("metnordic-1km", "MET Nordic", 1.0, 1.5),
+    ("dini", "HARM-DK", 1.0, 3.0),
+    ("harm-fi", "HARM-FI", 1.0, 3.75),
+    ("arome", "AROME", 1.0, 2.0),
+    ("icon-d2", "ICON-D2", 1.0, 3.3),
+    ("icon-ch1", "ICON-CH1", 1.0, 1.5),
+    ("harm-nl", "HARM-NL", 1.0, 3.0),
+    ("icon-2i", "ICON-2I", 1.0, 3.3),
+    ("aladin", "ALADIN", 1.0, 3.5),
+    ("icon-eu", "ICON-EU", 0.3, 10.0),
+    ("ecmwf", "ECMWF", 0.2, 25.0),
+    ("gfs", "GFS", 0.1, 25.0),
 ]
+# The defaults on the app's scale: its kinds over all its 20 forecast models sum to 15.05 (14 fine
+# models 1, HARMONIE 5 km and ICON-EU 0.3, ECMWF 0.2, GFS and ICON 13 km 0.1, GDPS 0.05), normalized
+# to 1 as a spot's weights are, so a model a spot doesn't name counts beside them as in the app.
+KIND_TOTAL = 15.05
+MODELS = [(name, label, weight / KIND_TOTAL, km) for name, label, weight, km in MODELS]
 GLOBAL = {"ecmwf", "gfs"}
 REGIONAL = {m[0] for m in MODELS} - GLOBAL - {"icon-eu"}
 BOX = (29.5, 74.0, -23.5, 62.5)
@@ -301,7 +306,7 @@ KEYS = {"dmi_harmonie_arome_europe": "HARM-DK", "metno_nordic": "MET Nordic", "f
         "meteoswiss_icon_ch1": "ICON-CH1", "meteoswiss_icon_ch2": "ICON-CH1", "italia_meteo_arpae_icon_2i": "ICON-2I",
         "knmi_harmonie_arome_netherlands": "HARM-NL", "icon_eu": "ICON-EU", "ecmwf_ifs": "ECMWF", "gfs_global": "GFS"}
 # Copied weights (a rider's spot took its nearest spot's) aren't a place's own: left out.
-COPIED = ("nearest built-in spot", "default")
+COPIED = ("nearest built-in spot", "default", "map's weights")
 
 
 def catalog_points(radius):
