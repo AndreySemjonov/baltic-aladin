@@ -122,9 +122,10 @@ class Placer:
         self.tiles = {}
         for z in ZOOMS:
             n = 1 << z
-            # The tiles between 33-76N and 15W-50E (the Nordics, and the others' areas down to France and Italy),
-            # those a model reaches.
-            x0, x1 = int((-15 + 180) / 360 * n), int((50 + 180) / 360 * n)
+            # The tiles between 33-76N and 45W-50E (the Nordics, and the others' areas down to France and Italy;
+            # west to DINI's whole domain, Greenland's coast and Iceland: the owner's screenshot, 14.10.2026, a
+            # straight line at 22.5W where the tiles stopped), those a model reaches.
+            x0, x1 = int((-45 + 180) / 360 * n), int((50 + 180) / 360 * n)
             def ty(lat):
                 return int((1 - math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi) / 2 * n)
             for y in range(ty(76), ty(33) + 1):
