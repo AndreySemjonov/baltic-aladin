@@ -151,7 +151,7 @@ def make_block(job):
         if not wanted:
             continue
         try:
-            ds = copernicusmarine.open_dataset(dataset_id=dataset, variables=list(VARIABLES), disable_progress_bar=True)
+            ds = copernicusmarine.open_dataset(dataset_id=dataset, variables=list(VARIABLES))
             stamps = ds["time"].values.astype("datetime64[s]").astype(np.int64)
             index = [int(np.nonzero(stamps == t)[0][0]) for t in wanted]
             loaded[name] = (ds.isel(time=index).load(), wanted)
@@ -192,7 +192,7 @@ def sea_tiles(have, first):
     for name, dataset in MODELS:
         if name not in have:
             continue
-        ds = copernicusmarine.open_dataset(dataset_id=dataset, variables=list(VARIABLES), disable_progress_bar=True)
+        ds = copernicusmarine.open_dataset(dataset_id=dataset, variables=list(VARIABLES))
         stamps = ds["time"].values.astype("datetime64[s]").astype(np.int64)
         t = min(have[name])
         grids.append(cmems_grid(name, ds.isel(time=[int(np.nonzero(stamps == t)[0][0])]).load(), 0)[0])
@@ -221,7 +221,7 @@ def main():
     have = {}
     for name, dataset in MODELS:
         try:
-            ds = copernicusmarine.open_dataset(dataset_id=dataset, variables=["VHM0"], disable_progress_bar=True)
+            ds = copernicusmarine.open_dataset(dataset_id=dataset, variables=["VHM0"])
             stamps = set(int(s) for s in ds["time"].values.astype("datetime64[s]").astype(np.int64))
             have[name] = [t for t in targets if t in stamps]
             print(f"{name}: {len(have[name])} of {len(targets)} hours", flush=True)
