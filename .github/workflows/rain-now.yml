@@ -5,9 +5,8 @@ run-name: Rain from the radar into the forecast
 # the newest whole radar hour (tiles/rain-now/skill.json), and the next 7 hours from the radar's
 # nowcast blended into the forecast shifted onto the radar and trimmed to its wet area
 # (tiles/rain-now), for the app's rain map after its nowcast.
+# Started every hour at minute 10 by the app's helper-trigger Worker (GitHub's own schedule runs late).
 on:
-  schedule:
-    - cron: "14 * * * *"
   workflow_dispatch:
 
 permissions:
