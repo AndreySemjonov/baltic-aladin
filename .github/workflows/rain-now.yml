@@ -1,0 +1,35 @@
+name: Rain now
+run-name: Rain from the radar into the forecast
+
+# Every hour (rain_now.py; the owner, 14.10.2026): each forecast set's rain against the radar at
+# the newest whole radar hour (tiles/rain-now/skill.json), and the next 7 hours from the radar's
+# nowcast blended into the forecast shifted onto the radar and trimmed to its wet area
+# (tiles/rain-now), for the app's rain map after its nowcast.
+on:
+  schedule:
+    - cron: "14 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rain-now:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: rain-now
+      cancel-in-progress: false
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install ecCodes, h5py, NumPy, Pillow and SciPy
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes h5py numpy pillow scipy
+
+      - name: Measure and blend
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+        run: .venv/bin/python -W ignore rain_now.py
