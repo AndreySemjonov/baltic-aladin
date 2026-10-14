@@ -14,6 +14,13 @@ map tiles (the owner, 12.10.2026: tiles for everything, fine wherever one looks)
 averaged down to zoom 3, one pack per quarter hour (tiles/sat/<stamp>.pack, grey and alpha; tiles
 of clear sky left out), the last day listed in tiles/sat/index.json.
 
+Europe's tiles are shaded by the clouds' height (the owner, 14.10.2026: under a low deck Latvia
+was one flat grey; the infrared barely tells a low cloud from the ground): EUMETSAT's cloud top
+height (MSG, about 3 km) sets the grey, low cloud darker, high cloud brighter, thin high cloud a
+little see-through; the texture inside comes by day from the visible channel (MTG FCI 0.6 um,
+500 m: the low deck's rolls and cells), at night from the infrared, blended by the sun's height.
+Without the height or the visible, the infrared alone as before (style B).
+
 Needs INGEST_TOKEN (the helper's report token) in the environment; without it nothing is sent.
 EUMETSAT's open data (EUMETView WMS); credit: "Meteosat, EUMETSAT".
 """
@@ -25,6 +32,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -35,6 +43,12 @@ import world_tiles
 WMS = "https://view.eumetsat.int/geoserver/wms"
 INFRARED = "mtg_fd:ir105_hrfi"
 MASK = "msg_fes:clm"
+VISIBLE = "mtg_fd:vis06_hrfi"
+HEIGHT = "msg_fes:cth"
+LEGEND = "https://view.eumetsat.int/geoserver/wms?service=WMS&version=1.3.0&request=GetLegendGraphic&layer=msg_fes:cth&format=image/png"
+# The grey by the cloud top's height (km): low darker, high brighter.
+HEIGHT_KM = [0, 2, 6, 10, 12]
+HEIGHT_GREY = [128, 144, 198, 224, 229]
 # The sets: the folder (after clouds/), the box (south, north, west, east), the picture's size, how
 # many a run makes, and whether the clear ground's grey is reckoned region by region (Europe's
 # ground goes from the Arctic's to the Sahara's: one grey for all made the cold north a cloud).
@@ -44,8 +58,8 @@ SETS = [
 ]
 # Europe's tiles: zoom 6's columns 27-39 and rows 13-25 (32-72.4N, 28W-45E), zooms 3-6.
 TILE_Z, TILE_X, TILE_Y, TILE_ZOOMS = 6, (27, 39), (13, 25), range(3, 7)
-# 4 a run with the helper; more for a one-off backfill (sat-backfill.yml: the last day at once).
-TILES_PER_RUN = int(os.environ.get("TILES_PER_RUN", "4"))
+# 2 a run with the helper (one is due every quarter hour; a daytime one takes a minute or two); more for a one-off backfill (sat-backfill.yml: the last day at once).
+TILES_PER_RUN = int(os.environ.get("TILES_PER_RUN", "2"))
 TILES_UPLOAD = os.environ.get("TILES_UPLOAD", "https://data.meteogust.com/tiles/upload/sat/")
 TILES_INDEX = "https://files.meteogust.com/tiles/sat/index.json"
 UPLOAD = os.environ.get("CLOUDS_UPLOAD", "https://data.meteogust.com/clouds/upload/")
@@ -127,6 +141,78 @@ def style_b(infrared, mask_rgb, local=False):
     return shade, np.clip(alpha, 0, 1), float(np.mean(ground))
 
 
+_legend = None
+
+
+def height_legend():
+    """The cloud top height picture's colours and their metres (its legend's bar: 320 m at x 148
+    to 16,000 m at x 630)."""
+    global _legend
+    if _legend is None:
+        request = urllib.request.Request(LEGEND, headers={"User-Agent": AGENT})
+        with urllib.request.urlopen(request, timeout=60) as reply:
+            bar = np.asarray(Image.open(io.BytesIO(reply.read())).convert("RGB"), dtype=np.float32)[30]
+        xs = np.arange(150, 628)
+        _legend = (bar[xs], 320 + (xs - 148) / (630 - 148) * (16000 - 320))
+    return _legend
+
+
+def cloud_heights(rgb):
+    """The cloud top height (m) of each pixel of its picture; NaN where there's none."""
+    colours, metres = height_legend()
+    packed = (rgb[..., 0].astype(np.int64) << 16) | (rgb[..., 1].astype(np.int64) << 8) | rgb[..., 2].astype(np.int64)
+    unique, inverse = np.unique(packed, return_inverse=True)
+    u = np.stack([(unique >> 16) & 255, (unique >> 8) & 255, unique & 255], axis=-1).astype(np.float32)
+    d = ((u[:, None, :] - colours[None, :, :]) ** 2).sum(axis=2)
+    value = metres[d.argmin(axis=1)].astype(np.float32)
+    # No cloud: black or far from every colour of the legend.
+    value[(d.min(axis=1) > 900) | (u.sum(axis=1) < 30)] = np.nan
+    return value[inverse.reshape(packed.shape)]
+
+
+def sun_height(lat, lon, when):
+    """The sun's height above the horizon (degrees)."""
+    day = when.timetuple().tm_yday
+    hours = when.hour + when.minute / 60
+    decl = math.radians(-23.44) * math.cos(2 * math.pi / 365 * (day + 10))
+    angle = np.radians((hours - 12) * 15 + lon)
+    phi = np.radians(lat)
+    return np.degrees(np.arcsin(np.sin(phi) * math.sin(decl) + np.cos(phi) * math.cos(decl) * np.cos(angle)))
+
+
+def blur(a, r):
+    from scipy import ndimage
+    return ndimage.gaussian_filter(np.asarray(a, dtype=np.float32), r)
+
+
+def smooth_heights(heights, radius):
+    """The heights (m, NaN: none) smoothed on their own grid, the gaps filled from round them
+    (1.5 km where there's nothing near)."""
+    known = np.isfinite(heights)
+    weight = blur(known, radius)
+    return np.where(weight > 0.05, blur(np.where(known, heights, 0), radius) / np.maximum(weight, 1e-3), 1500).astype(np.float32)
+
+
+def style_height(infrared, mask_rgb, visible, heights, daylight):
+    """The grey and how much cloud, by the cloud top's height (`heights` in m, smooth, every pixel)
+    with the texture of the visible (by day, `daylight` 0-1) or the infrared (by night)."""
+    _, alpha, _ = style_b(infrared, mask_rgb, local=True)
+    km = np.clip(heights / 1000, 0, 12)
+    base = np.interp(km, HEIGHT_KM, HEIGHT_GREY)
+    ir = infrared.mean(axis=2)
+    texture = (ir - blur(ir, 10)) * 2.4
+    if visible is not None:
+        v = visible.mean(axis=2) / 255
+        texture = texture * (1 - daylight) + (v - blur(v, 10)) * 185 * daylight
+        # By day the visible's brightness says how thick: dim cloud a little see-through.
+        alpha = alpha * (1 - daylight + daylight * np.clip(0.55 + blur(v, 2) * 0.9, 0.55, 1))
+    shade = np.clip(base + np.clip(texture, -26, 26), 120, 240)
+    # Thin high cloud (a high top, but the infrared hardly colder than the ground): see-through.
+    ground = local_ground(ir, (alpha > 0.5).astype(np.float32), float(np.percentile(ir, 15)))
+    alpha = np.where((km > 6) & (ir - ground < 18), alpha * 0.6, alpha)
+    return shade, np.clip(alpha, 0, 1)
+
+
 def tile_lat(y, n):
     return math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n))))
 
@@ -136,13 +222,36 @@ def sat_pack(when):
     n = 2 ** TILE_Z
     box = (tile_lat(TILE_Y[1] + 1, n), tile_lat(TILE_Y[0], n), TILE_X[0] / n * 360 - 180, (TILE_X[1] + 1) / n * 360 - 180)
     width, height = (TILE_X[1] - TILE_X[0] + 1) * 256, (TILE_Y[1] - TILE_Y[0] + 1) * 256
-    infrared = picture(INFRARED, when - timedelta(minutes=when.minute % 10), box, (width, height))
-    # The mask is coarser than the infrared anyway: a quarter of the pixels, spread out.
-    mask = picture(MASK, when, box, (width // 4, height // 4))
+    # The four pictures side by side (the visible, 500 m, is slow to come): the infrared and the
+    # visible every 10 minutes (the step at or before the quarter hour), the mask and the cloud
+    # top height at it; the mask and the height are coarse anyway: a quarter of the pixels.
+    lats = np.array([tile_lat(TILE_Y[0] + (j + 0.5) / 16, n) for j in range(16 * (TILE_Y[1] - TILE_Y[0] + 1))])
+    lons = np.array([(TILE_X[0] + (i + 0.5) / 16) / n * 360 - 180 for i in range(16 * (TILE_X[1] - TILE_X[0] + 1))])
+    daylight = np.clip((sun_height(lats[:, None], lons[None, :], when) - 3) / 10, 0, 1).astype(np.float32)
+    ten = when - timedelta(minutes=when.minute % 10)
+    jobs = {"infrared": (INFRARED, ten, (width, height)), "mask": (MASK, when, (width // 4, height // 4)),
+            "height": (HEIGHT, when, (width // 4, height // 4))}
+    if daylight.max() > 0:
+        jobs["visible"] = (VISIBLE, ten, (width, height))
+    with ThreadPoolExecutor(len(jobs)) as pool:
+        got = dict(zip(jobs, pool.map(lambda job: picture(job[0], job[1], box, job[2]), jobs.values())))
+    infrared, mask, cth, visible = got["infrared"], got["mask"], got["height"], got.get("visible")
     if infrared is None or mask is None:
         return None
     mask = np.asarray(Image.fromarray(mask.astype(np.uint8)).resize((width, height), Image.NEAREST), dtype=np.float32)
-    shade, alpha, _ = style_b(infrared, mask, local=True)
+    try:
+        heights = None if cth is None else cloud_heights(cth)
+    except (urllib.error.URLError, OSError, ValueError):
+        heights = None
+    if heights is None:
+        shade, alpha, _ = style_b(infrared, mask, local=True)
+    else:
+        # Smoothed on its own 3 km grid, then spread out smoothly (no blocks, no blobs).
+        heights = smooth_heights(heights, 1.5)
+        heights = np.asarray(Image.fromarray(heights).resize((width, height), Image.BILINEAR), dtype=np.float32)
+        heights = blur(heights, 3)
+        daylight = np.asarray(Image.fromarray(daylight).resize((width, height), Image.BILINEAR), dtype=np.float32)
+        shade, alpha = style_height(infrared, mask, visible, heights, daylight)
     tiles = {}
     for z in TILE_ZOOMS:
         f = 2 ** (TILE_Z - z)

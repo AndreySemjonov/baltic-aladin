@@ -21,7 +21,7 @@ jobs:
       - name: Install ecCodes, NumPy and Pillow
         run: |
           python3 -m venv .venv
-          .venv/bin/pip install --quiet eccodes numpy pillow
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy
 
       - name: Make and upload the missing quarter hours
         env:
