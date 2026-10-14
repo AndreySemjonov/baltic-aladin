@@ -1,0 +1,59 @@
+name: Mix tiles
+run-name: Mix tiles (the Baltic Mix over Europe)
+
+# The app's default wind map as tiles (mix_tiles.py; the app's docs/MIX_TILES_PLAN.md, M1): the
+# Mix's weights and coast handling on the published wind tiles, after each regional run (every 3
+# hours), and by hand.
+on:
+  workflow_run:
+    workflows: ["Regional weather tiles"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Make it again even if this hour's is published"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mix
+  cancel-in-progress: false
+
+jobs:
+  mix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Python version (for the package cache)
+        id: python
+        run: echo "version=$(python3 -c 'import sys; print(sys.version.split()[0])')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the installed packages
+        id: venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: regional-venv-${{ runner.os }}-py${{ steps.python.outputs.version }}-eccodes-numpy-pillow-scipy-v1
+
+      - name: Install ecCodes, NumPy, Pillow and SciPy
+        if: steps.venv.outputs.cache-hit != 'true'
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy
+
+      - name: Make and upload the Mix
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          if [ "$FORCE" = "true" ]; then
+            .venv/bin/python mix_tiles.py --force
+          else
+            .venv/bin/python mix_tiles.py
+          fi

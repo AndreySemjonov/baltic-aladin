@@ -1,6 +1,6 @@
 """DMI's HARMONIE DINI (2 km, open data, CC BY 4.0: https://opendatadocs.dmi.govcloud.dk/) for the
-regional tiles (regional_tiles.py): over the British Isles, the North Sea, Denmark and the Channel
-(its whole domain runs from Greenland to Russia; only the rows crossing that band are read, with
+regional tiles (regional_tiles.py): over the British Isles, the North Sea, Denmark, the Channel and
+the Baltic (its whole domain runs from Greenland to Russia; only the rows crossing that band are read, with
 range requests, as dmi_map.py does for the Baltic). The newest complete run, its 10 m wind hour by
 hour, and how much it counts at a place: 1 inside the band, falling to 0 over its last 50 km.
 """
@@ -12,8 +12,11 @@ import numpy as np
 import aladin_map
 import dmi_map
 
-# The band read (degrees): the British Isles to Denmark, the Channel to southern Norway.
-SOUTH, NORTH, WEST, EAST = 46.0, 64.0, -14.0, 20.0
+# The band read (degrees): the British Isles to Denmark, the Channel to southern Norway, and on
+# east over the Baltic to Narva (the owner, 14.10.2026: the Mix's tiles need HARM-DK, its largest
+# weight, where the Baltic box's Mix has it; the regional composite takes it only where MET Nordic
+# leaves room, so there it doesn't change).
+SOUTH, NORTH, WEST, EAST = 46.0, 64.0, -14.0, 31.0
 FADE_KM = 50
 
 
