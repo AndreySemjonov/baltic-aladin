@@ -31,10 +31,14 @@ SOURCE = ("https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble
           "GoogleMapsCompatible_Level8/{z}/{y}/{x}.png")
 SIZE = 256
 LOW, BASE, TOP = 5, 5, 8
+# The packs' folder (made again: a new one, as they're kept a month in caches; the index names it).
+FOLDER = "v2"
 # Europe's fine lights (zooms 6-8): the zoom-5 tiles over 25 W to 45 E, 34 to 72 N.
 EUROPE_X, EUROPE_Y = range(13, 21), range(6, 13)
-# The picture's land is a dim moonlit grey (about 0.06); the lights start a little above it.
-FLOOR, SPAN, GLOW = 0.09, 0.40, 1.6
+# The picture's land is a dim moonlit grey (about 0.06); the lights start a little above it and
+# reach the top only in the brightest centres (the owner, 15.10.2026: zoomed in, the Benelux was one
+# cream sheet).
+FLOOR, SPAN, GLOW = 0.12, 0.75, 1.0
 
 
 def fetch(z, x, y):
@@ -67,10 +71,14 @@ def mosaic(z, x0, y0, columns, rows, pool):
 
 
 def lights(brightness):
-    """The lights over the dim land, with a soft glow round them, as 0-255."""
-    core = np.clip((brightness - FLOOR) / SPAN, 0, 1) ** 0.9
-    glow = ndimage.gaussian_filter(core, GLOW)
-    return np.clip(np.rint((core * 0.85 + glow * 0.6) * 255), 0, 255).astype(np.uint8)
+    """Two looks of the lights, 0-255: far (grey: the lights with a soft glow, Europe from space) and
+    near (alpha: each place against its surroundings, 3 km round at zoom 8, so towns and their centres
+    show apart and the lit spread between them fades; the app blends from far to near as it zooms in)."""
+    core = np.clip((brightness - FLOOR) / SPAN, 0, 1)
+    far = np.clip(core ** 0.8 * 0.9 + ndimage.gaussian_filter(core ** 0.8, GLOW) * 0.3, 0, 1)
+    local = np.clip((core - 0.8 * ndimage.gaussian_filter(core, 4)) * 2.2, 0, 1)
+    near = np.clip(local * 0.85 + core * 0.18, 0, 1)
+    return np.rint(np.stack([far, near], -1) * 255).astype(np.uint8)
 
 
 def cut(picture, z, x0, y0, out):
@@ -81,7 +89,7 @@ def cut(picture, z, x0, y0, out):
             tile = picture[j * SIZE:(j + 1) * SIZE, i * SIZE:(i + 1) * SIZE]
             if tile.max() < 8:
                 continue
-            out[(z, x0 + i, y0 + j)] = world_tiles.png(np.ascontiguousarray(tile), "L")
+            out[(z, x0 + i, y0 + j)] = world_tiles.png(np.ascontiguousarray(tile), "LA")
 
 
 def main():
@@ -95,7 +103,7 @@ def main():
             local.mkdir(parents=True, exist_ok=True)
             (local / name).write_bytes(data)
         else:
-            world_tiles.upload(f"lights/{name}", data)
+            world_tiles.upload(f"lights/{name}" if name == "index.json" else f"lights/{FOLDER}/{name}", data)
 
     with ThreadPoolExecutor(16) as pool:
         # The world, zooms 0-5, each from GIBS's own zoom (its averaging keeps the far-out lights).
@@ -124,8 +132,8 @@ def main():
                 size += len(data)
             print(f"row {ty}: {len(packs)} packs, {size / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
     index = {"source": "NASA Black Marble (VIIRS, 2016; NASA GIBS), public domain", "low": [0, LOW], "zooms": [BASE + 1, TOP],
-             "tileSize": SIZE, "encoding": "grey: 0 dark, 255 a city's core (with a soft glow)",
-             "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "packs": packs}
+             "tileSize": SIZE, "encoding": "grey: far (0 dark, 255 a city's core, a soft glow); alpha: near (each place against its 3 km round)",
+             "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "folder": FOLDER, "packs": packs}
     if not only:
         put("index.json", json.dumps(index, separators=(",", ":")).encode())
     print(f"lights: low {len(low)} tiles, {len(packs)} packs, {size / 1e6:.0f} MB, {time.time() - started:.0f} s")
