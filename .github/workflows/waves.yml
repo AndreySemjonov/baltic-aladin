@@ -1,0 +1,43 @@
+name: Europe's waves
+run-name: Europe's waves (Copernicus seas, EWAM)
+
+# Europe's fine waves as one tile set (waves_composite.py, the app's docs/WAVES_PLAN.md W2; the
+# owner, 14.10.2026): the Copernicus Marine regional wave models (Baltic, North-West Shelf,
+# Iberia-Biscay-Ireland, Black Sea, Mediterranean) and EWAM under them, blended into tiles/waves.
+# Twice a day, after the Copernicus models' morning and evening runs are out.
+on:
+  schedule:
+    - cron: "35 8,20 * * *"
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: "Only the first N hours (a test); empty: all"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  waves:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    concurrency:
+      group: waves
+      cancel-in-progress: false
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install ecCodes, NumPy, Pillow, SciPy and the Copernicus Marine toolbox
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy copernicusmarine
+
+      - name: Make and upload the waves
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          COPERNICUSMARINE_SERVICE_USERNAME: ${{ secrets.COPERNICUSMARINE_SERVICE_USERNAME }}
+          COPERNICUSMARINE_SERVICE_PASSWORD: ${{ secrets.COPERNICUSMARINE_SERVICE_PASSWORD }}
+          HOURS: ${{ inputs.hours }}
+        run: .venv/bin/python waves_composite.py ${HOURS:+--hours $HOURS}
