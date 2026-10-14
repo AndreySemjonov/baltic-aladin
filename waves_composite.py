@@ -19,6 +19,7 @@ GitHub secrets). Source: E.U. Copernicus Marine Service Information; DWD EWAM (C
 
     python waves_composite.py [--local DIR] [--hours N]
 """
+import multiprocessing
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
@@ -249,7 +250,8 @@ def main():
     out = tiler.Run("waves", run_time, ZOOMS, "Copernicus seas, EWAM", CREDIT, True, local)
     blocks = [targets[i:i + BLOCK] for i in range(0, len(targets), BLOCK)]
     jobs = [(block, keys, {n: set(h) for n, h in have.items()}, ewam_run) for block in blocks]
-    with ProcessPoolExecutor(4) as pool:
+    # Fresh processes (spawned): forked after the Copernicus toolbox's threads they hung.
+    with ProcessPoolExecutor(3, mp_context=multiprocessing.get_context("spawn")) as pool:
         for results in pool.map(make_block, jobs):
             for t, data, models, failures in results:
                 for name, reason in failures:
