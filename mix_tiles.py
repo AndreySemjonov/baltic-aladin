@@ -5,9 +5,9 @@ published, keeping what makes it the best at the spots:
 - the models' weights by place, one set for the spots, the map and new spots: near the app's catalog
   spots their own (Windguru's for each spot), blended smoothly between them, far from all of them by
   the model's kind (fine regional models 1, ICON-EU 0.3, ECMWF 0.2, GFS 0.1);
-- each model's land pulled back to the coastline (as maplib.coast_fill: the sea near the shore
-  takes the model's own sea wind from beyond its land's reach), the land from our coastline tiles
-  (tiles/coast, Natural Earth's shore);
+- a coarse model's land (ICON-EU, ECMWF, GFS) pulled back to the coastline: its sea near the shore
+  towards its own sea wind beyond its land's reach, all of it at the shore, less out to the reach
+  (the fine models resolve the coast themselves), the land from our coastline tiles (tiles/coast);
 - each model counting by its tiles' own weight (alpha: fading over its area's last 30-150 km);
 - speed and gust as weighted means, the direction as a weighted vector mean (weight x speed, calm
   counted as 1 m/s); the 3-hourly hours interpolated (not over a gap of more than 6 hours).
@@ -214,9 +214,16 @@ class Coast:
 _fills = {}
 
 
+# Only a coarse model's land is pulled back (its cells straddle the shore); the fine ones (1-3 km)
+# resolve the coast themselves, the wind picking up over the water as it does (the owner,
+# 14.10.2026: replaced near the shore, their rise became a step at a few km, jagged).
+COARSE_KM = 5.0
+
+
 def coast_fill(arrays, land, buffer_px, valid, key):
-    """As maplib.coast_fill: sea pixels within `buffer_px` of the land take the value of the nearest
-    sea pixel beyond it with the model's data (not from further than twice the buffer)."""
+    """A coarse model's sea near the land towards its sea beyond: sea pixels within `buffer_px` of
+    the land take the nearest sea value beyond it, all of it at the shore and less out to the
+    buffer (no step), only from pixels with the model's data."""
     if buffer_px < 0.75:
         return
     cache = (key, round(buffer_px, 1), hash(valid.tobytes()))
@@ -230,14 +237,15 @@ def coast_fill(arrays, land, buffer_px, valid, key):
         else:
             distance, (ri, ci) = ndimage.distance_transform_edt(~source, return_indices=True)
             target = sea & ~source & (distance <= 2 * buffer_px + 1) & valid
-            _fills[cache] = (target, ri[target], ci[target])
+            share = np.clip(1 - (from_land[target] - 0.5) / max(buffer_px, 1), 0, 1).astype(np.float32)
+            _fills[cache] = (target, ri[target], ci[target], share)
         if len(_fills) > 20000:
             _fills.clear()
     found = _fills[cache]
     if found is not None:
-        target, ri, ci = found
+        target, ri, ci, share = found
         for values in arrays:
-            values[target] = values[ri, ci]
+            values[target] = values[target] * (1 - share) + values[ri, ci] * share
 
 
 class Model:
@@ -411,10 +419,11 @@ def mix_tile(models, hours, coast, z, x, y):
         if land is None:
             land = coast.cached(z, px0, py0, w, h)
         s = np.hypot(u, v)
-        # The model's land pulled back to the coast (u, v, speed, gust as the blend does).
-        arrays = [u, v, s, g]
-        coast_fill(arrays, land, model.coast_km / km, a > 0.5, (model.name, z, x, y))
-        u, v, s, g = arrays
+        # A coarse model's land pulled back to the coast (u, v, speed, gust as the blend does).
+        if model.coast_km >= COARSE_KM:
+            arrays = [u, v, s, g]
+            coast_fill(arrays, land, model.coast_km / km, a > 0.5, (model.name, z, x, y))
+            u, v, s, g = arrays
         wgt = weights[model.label] * a
         unit = np.maximum(np.hypot(u, v), 1e-6)
         pull = wgt * np.maximum(s, 1.0)
@@ -427,6 +436,8 @@ def mix_tile(models, hours, coast, z, x, y):
             cover = np.maximum(cover, a)
         if (a[MARGIN:-MARGIN, MARGIN:-MARGIN] > 0.02).any():
             used.append(model.label)
+    # A light smoothing (about a pixel: no stairs where the models' areas or the coast meet).
+    total, speed, gust, east, north = (ndimage.gaussian_filter(arr, 0.8) for arr in (total, speed, gust, east, north))
     c = slice(MARGIN, MARGIN + SIZE)
     total, speed, gust, east, north, cover = (arr[c, c] for arr in (total, speed, gust, east, north, cover))
     alpha = np.where(total > 0, cover, 0)
