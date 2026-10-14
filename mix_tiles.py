@@ -281,12 +281,72 @@ def tile_km(z, y):
     return 40075.016 * math.cos(math.radians(lat)) / (2 ** z * SIZE)
 
 
+# Tuned weights by place (the owner, 14.10.2026: weights noted for places round Europe, used without
+# showing them): mix_weights.json, {"radius_km": 250, "points": [{"name", "lat", "lon", "radius_km"?,
+# "weights": {model name: weight}}]}. Near a point its weights count, between points they blend
+# smoothly (a Gaussian of its radius), far from all of them the weights above; a model a point
+# doesn't name keeps the one above there.
+WEIGHTS_FILE = "mix_weights.json"
+DEFAULT_SHARE = 0.05
+_points = None
+_tile_weights = {}
+
+
+def weight_points():
+    global _points
+    if _points is None:
+        try:
+            with open(WEIGHTS_FILE, encoding="utf-8") as file:
+                data = json.load(file)
+            radius = float(data.get("radius_km", 250))
+            _points = [(float(p["lat"]), float(p["lon"]), float(p.get("radius_km", radius)), p["weights"])
+                       for p in data.get("points", []) if p.get("weights")]
+        except (OSError, ValueError, KeyError):
+            _points = []
+        if _points:
+            print(f"Tuned weights: {len(_points)} points", flush=True)
+    return _points
+
+
+def tile_weights(models, z, px0, py0, w, h):
+    """Each model's weight over a block of pixels (an array; its number when no point is near)."""
+    points = weight_points()
+    key = (z, px0, py0, w, h)
+    if key in _tile_weights:
+        return _tile_weights[key]
+    plain = {m.label: m.weight for m in models}
+    if not points:
+        return plain
+    n = 2 ** z * SIZE
+    lon = (px0 + np.arange(w) + 0.5) / n * 360 - 180
+    lat = np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * (py0 + np.arange(h) + 0.5) / n))))
+    lat, lon = np.meshgrid(lat, lon, indexing="ij")
+    strengths = []
+    for plat, plon, radius, _ in points:
+        dy = (lat - plat) * 111.2
+        dx = (lon - plon) * 111.2 * np.cos(np.radians(plat))
+        strengths.append(np.exp(-(dx * dx + dy * dy) / (radius * radius)).astype(np.float32))
+    if max(float(s.max()) for s in strengths) < 0.01:
+        _tile_weights[key] = plain
+        return plain
+    total = sum(strengths) + DEFAULT_SHARE
+    out = {}
+    for m in models:
+        mixed = DEFAULT_SHARE * m.weight + sum(s * float(p[3].get(m.label, m.weight)) for s, p in zip(strengths, points))
+        out[m.label] = mixed / total
+    _tile_weights[key] = out
+    if len(_tile_weights) > 5000:
+        _tile_weights.clear()
+    return out
+
+
 def mix_tile(models, hours, coast, z, x, y):
     """One tile of the Mix: its RGBA (wind_rgb and the weight), the models in it; None if empty."""
     px0, py0 = x * SIZE - MARGIN, y * SIZE - MARGIN
     w = h = SIZE + 2 * MARGIN
     land = None
     km = tile_km(z, y)
+    weights = tile_weights(models, z, px0, py0, w, h)
     total = np.zeros((h, w), np.float32)
     speed = np.zeros((h, w), np.float32)
     gust = np.zeros((h, w), np.float32)
@@ -308,7 +368,7 @@ def mix_tile(models, hours, coast, z, x, y):
         arrays = [u, v, s, g]
         coast_fill(arrays, land, model.coast_km / km, a > 0.5, (model.name, z, x, y))
         u, v, s, g = arrays
-        wgt = model.weight * a
+        wgt = weights[model.label] * a
         unit = np.maximum(np.hypot(u, v), 1e-6)
         pull = wgt * np.maximum(s, 1.0)
         east += pull * u / unit

@@ -1,0 +1,5 @@
+{
+  "about": "Tuned weights of the Mix's models by place (mix_tiles.py): near a point its weights count, between points they blend over its radius, far from all of them the defaults in mix_tiles.py. Model names as in mix_tiles.py MODELS.",
+  "radius_km": 250,
+  "points": []
+}
