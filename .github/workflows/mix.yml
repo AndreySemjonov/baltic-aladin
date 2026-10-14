@@ -3,10 +3,10 @@ run-name: Mix tiles (the Baltic Mix over Europe)
 
 # The app's default wind map as tiles (mix_tiles.py; the app's docs/MIX_TILES_PLAN.md, M1): the
 # Mix's weights and coast handling on the published wind tiles, after each regional run (every 3
-# hours), and by hand.
+# hours) and each MET Nordic 1 km run (every hour), and by hand.
 on:
   workflow_run:
-    workflows: ["Regional weather tiles"]
+    workflows: ["Regional weather tiles", "MET Nordic 1 km tiles"]
     types: [completed]
   workflow_dispatch:
     inputs:

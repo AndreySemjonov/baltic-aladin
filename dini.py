@@ -1,8 +1,7 @@
 """DMI's HARMONIE DINI (2 km, open data, CC BY 4.0: https://opendatadocs.dmi.govcloud.dk/) for the
-regional tiles (regional_tiles.py): over the British Isles, the North Sea, Denmark, the Channel and
-the Baltic (its whole domain runs from Greenland to Russia; only the rows crossing that band are read, with
-range requests, as dmi_map.py does for the Baltic). The newest complete run, its 10 m wind hour by
-hour, and how much it counts at a place: 1 inside the band, falling to 0 over its last 50 km.
+regional tiles (regional_tiles.py): its whole domain, from Greenland's coast to Russia (its rows
+read with range requests, as dmi_map.py does for the Baltic). The newest complete run, its 10 m
+wind hour by hour, and how much it counts at a place: 1 inside, falling to 0 over its last 50 km.
 """
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -12,11 +11,11 @@ import numpy as np
 import aladin_map
 import dmi_map
 
-# The band read (degrees): the British Isles to Denmark, the Channel to southern Norway, and on
-# east over the Baltic to Narva (the owner, 14.10.2026: the Mix's tiles need HARM-DK, its largest
-# weight, where the Baltic box's Mix has it; the regional composite takes it only where MET Nordic
-# leaves room, so there it doesn't change).
-SOUTH, NORTH, WEST, EAST = 46.0, 64.0, -14.0, 31.0
+# The band read (degrees): DINI's whole domain, Greenland's coast to Russia, Iberia's north to
+# northern Scandinavia (the owner, 14.10.2026: every model at its full area; the Mix's tiles need
+# HARM-DK, its largest weight; the regional composite takes it only where MET Nordic and the
+# others leave room, so there it changes only beyond them).
+SOUTH, NORTH, WEST, EAST = 37.5, 70.5, -44.0, 41.0
 FADE_KM = 50
 
 
@@ -134,9 +133,12 @@ class Model:
         fi, fj = aladin_map.lambert(lat, lon, dmi_map.GRID)
         col, row = fi - self.c0, fj - self.r0
         inside = (col >= 0) & (row >= 0) & (col <= self.width - 1) & (row <= self.height - 1)
-        # The band's edge in degrees (its lat-lon box), about 111 km a degree north and east.
+        # The band's edge in degrees (its lat-lon box), about 111 km a degree north and east, and
+        # the grid's own edge (2 km a cell).
+        nx, ny = dmi_map.GRID["Nx"], dmi_map.GRID["Ny"]
         km = np.minimum.reduce([(lat - SOUTH) * 111, (NORTH - lat) * 111,
-                                (lon - WEST) * 111 * np.cos(np.radians(lat)), (EAST - lon) * 111 * np.cos(np.radians(lat))])
+                                (lon - WEST) * 111 * np.cos(np.radians(lat)), (EAST - lon) * 111 * np.cos(np.radians(lat)),
+                                np.minimum(np.minimum(fi, nx - 1 - fi), np.minimum(fj, ny - 1 - fj)) * 2.0])
         weight = np.where(inside, np.clip(km / FADE_KM, 0, 1), 0)
         return col, row, weight
 

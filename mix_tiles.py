@@ -4,7 +4,8 @@ published, keeping what makes it the best at the spots:
 
 - the models' weights of the point forecast's backtests (HARM-DK 0.226, MET Nordic 0.181, HARM-FI
   0.181, ICON-EU 0.068, ECMWF 0.034, GFS 0.023); the regional models beyond the Baltic (AROME,
-  ICON-D2, ICON-CH1, HARM-NL, ICON-2I) with HARM-DK's until a backtest says otherwise; ALADIN out;
+  ICON-D2, ICON-CH1, HARM-NL, ICON-2I) with HARM-DK's until a backtest says otherwise, ALADIN with
+  half of it (its edge fades on the tiles);
 - each model's land pulled back to the coastline (as maplib.coast_fill: the sea near the shore
   takes the model's own sea wind from beyond its land's reach), the land from our coastline tiles
   (tiles/coast, Natural Earth's shore);
@@ -48,6 +49,9 @@ MODELS = [
     ("icon-ch1", "ICON-CH1", 0.226, 1.5),
     ("harm-nl", "HARM-NL", 0.226, 3.0),
     ("icon-2i", "ICON-2I", 0.226, 3.3),
+    # Out of the Baltic box's Mix for its edge; the tiles fade it out: half the class's weight
+    # until a backtest says otherwise (the owner, 14.10.2026).
+    ("aladin", "ALADIN", 0.113, 3.5),
     ("icon-eu", "ICON-EU", 0.068, 10.0),
     ("ecmwf", "ECMWF", 0.034, 25.0),
     ("gfs", "GFS", 0.023, 25.0),
@@ -60,7 +64,7 @@ SIZE = 256
 # Pixels round a tile seen for the coast (ECMWF's land reaches 25 km: about 18 zoom-6 pixels here).
 MARGIN = 40
 MAX_GAP = 6 * 3600
-CREDIT = ("MET Nordic, MET Norway; HARMONIE DINI, DMI; HARMONIE, FMI; AROME, Météo-France (Etalab 2.0); "
+CREDIT = ("MET Nordic, MET Norway; HARMONIE DINI, DMI; HARMONIE, FMI; ALADIN, ČHMÚ; AROME, Météo-France (Etalab 2.0); "
           "ICON-D2 and ICON-EU, DWD; ICON-CH1, MeteoSwiss; HARMONIE-AROME, KNMI; ICON-2I, ItaliaMeteo; "
           "ECMWF open data (CC BY 4.0); GFS, NOAA")
 

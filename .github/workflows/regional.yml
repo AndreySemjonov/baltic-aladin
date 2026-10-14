@@ -31,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        set: [wind, weather, metnordic-1km, metnordic-1km-wx, harm-fi, aladin]
+        set: [wind, weather, harm-fi, aladin]
     steps:
       - name: Check out
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
