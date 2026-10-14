@@ -4,7 +4,10 @@ round them doesn't, ground clutter or a radio link's interference. Read from our
 (tiles/radar, zoom 6, about 1.3 km a pixel here) over the last 24 hours, one image every 15
 minutes. A spot is a patch of pixels with rain in at least 90 % of the images they were seen in,
 at most about 25 km across, whose ring 10 to 25 km out had rain in under 15 % (a front that stays
-put is wide: it isn't one). Published as tiles/radar/clutter.json ({"updated", "spots": [{lat,
+put is wide: it isn't one); or, very much alone (its ring under 5 %), in 70 %. A pixel station-history
+cleared as an echo says so (alpha 254) and counts as rain, so a spot stays found while its echo
+goes on (14.10.2026: cleared, it looked dry, dropped off the list and came back); a spot of the
+list before stays while it rains in half of the images. Published as tiles/radar/clutter.json ({"updated", "spots": [{lat,
 lon, km, share}]}) through station-history, which clears them when it makes the radar's tiles and
 checks the rain alerts.
 
@@ -31,6 +34,11 @@ SIZE = 256
 STEP = 900
 SHARE = 0.9
 RING = 0.15
+# Very much alone: a lower share will do.
+ALONE_SHARE = 0.7
+ALONE_RING = 0.05
+# A spot of the list before stays while it rains (or is cleared) in this share.
+KEEP_SHARE = 0.5
 MOST_PIXELS = 400
 INNER, OUTER = 8, 20
 
@@ -58,7 +66,8 @@ def tiles_of(data):
         if z != Z:
             continue
         image = np.asarray(Image.open(io.BytesIO(data[start + offset:start + offset + count])).convert("LA"))
-        out[(x, y)] = (image[..., 0] > 0, image[..., 1] > 0)
+        # Rain, or an echo station-history cleared (alpha 254).
+        out[(x, y)] = ((image[..., 0] > 0) | (image[..., 1] == 254), image[..., 1] > 0)
     return out
 
 
@@ -100,8 +109,8 @@ def main():
         looked[(y - y0) * SIZE:(y - y0 + 1) * SIZE, (x - x0) * SIZE:(x - x0 + 1) * SIZE] = seen[(x, y)]
     enough = looked >= len(frames) / 2
     share = np.where(enough, wet / np.maximum(looked, 1), 0)
-    labels, count = ndimage.label(share >= SHARE)
-    print(f"{count} patches raining in {SHARE:.0%} of the images", flush=True)
+    labels, count = ndimage.label(share >= ALONE_SHARE)
+    print(f"{count} patches raining in {ALONE_SHARE:.0%} of the images", flush=True)
     spots = []
     for k, box in enumerate(ndimage.find_objects(labels), start=1):
         patch = labels[box] == k
@@ -118,7 +127,8 @@ def main():
         if far.sum() < 50:
             continue
         ring = float(share[top:bottom, left:right][far].mean())
-        if ring >= RING:
+        mean = float(share[top:bottom, left:right][here].mean())
+        if not ((mean >= SHARE and ring < RING) or (mean >= ALONE_SHARE and ring < ALONE_RING)):
             continue
         cy, cx = ndimage.center_of_mass(here)
         px, py = (left + cx + 0.5) + x0 * SIZE, (top + cy + 0.5) + y0 * SIZE
@@ -128,6 +138,23 @@ def main():
         km = (math.sqrt(pixels / math.pi) + 1.5) * metres / 1000
         spots.append({"lat": round(lat, 4), "lon": round(lon, 4), "km": round(km, 1),
                       "share": round(float(share[top:bottom, left:right][here].mean()), 2), "ring": round(ring, 2)})
+    # The list before: its spots stay while they still rain (or are cleared) in half the images.
+    try:
+        before = json.loads(get(BASE + "clutter.json")).get("spots", [])
+    except Exception:
+        before = []
+    n = (1 << Z) * SIZE
+    for old in before:
+        if any(abs(s["lat"] - old["lat"]) < 0.05 and abs(s["lon"] - old["lon"]) < 0.08 for s in spots):
+            continue
+        px = (old["lon"] + 180) / 360 * n - x0 * SIZE
+        py = (1 - math.asinh(math.tan(math.radians(old["lat"]))) / math.pi) / 2 * n - y0 * SIZE
+        cx, cy = int(px), int(py)
+        if not (2 <= cx < width - 2 and 2 <= cy < height - 2):
+            continue
+        here = share[cy - 2:cy + 3, cx - 2:cx + 3].max()
+        if here >= KEEP_SHARE:
+            spots.append({**old, "share": round(float(here), 2), "kept": True})
     spots.sort(key=lambda s: -s["share"])
     for s in spots:
         print(f"  {s['lat']:.3f} {s['lon']:.3f}: {s['km']} km, rain {s['share']:.0%}, ring {s['ring']:.0%}", flush=True)
