@@ -95,6 +95,16 @@ def steer_rgb(east, north):
                      np.zeros(east.shape)], axis=-1)
 
 
+def waves_rgb(height, period, direction):
+    """The waves (docs/WAVES_PLAN.md in the app's repository): the height m x 20 + 1 (to 12.7 m;
+    0 = no data), the period s x 10, the direction it comes from degrees x 256 / 360."""
+    height = np.asarray(height, dtype=np.float32)
+    known = np.isfinite(height)
+    return np.stack([np.where(known, np.clip(np.rint(np.nan_to_num(height) * 20) + 1, 1, 255), 0),
+                     np.clip(np.rint(np.nan_to_num(period) * 10), 0, 255),
+                     np.mod(np.rint(np.nan_to_num(direction) * 256 / 360), 256)], axis=-1)
+
+
 def temp_rgb(air, feels, hpa):
     """Air and feels-like (temp_map.encode: (C + 40) x 3 + 1), sea-level pressure (hPa - 940) x 2;
     0 = unknown."""

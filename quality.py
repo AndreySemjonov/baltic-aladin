@@ -58,6 +58,19 @@ def steering(east, north):
     return None
 
 
+def waves(height, period=None):
+    """The waves: heights over 25 m or below 0 on more than 0.1 % of the sea, periods over 30 s, or
+    one height nearly everywhere."""
+    h = _finite(height)
+    if h.size and float(np.mean((h > 25) | (h < 0))) > SHARE:
+        return f"wave height outside 0..25 m on {float(np.mean((h > 25) | (h < 0))) * 100:.1f} %"
+    if period is not None and _over(period, 30):
+        return "wave period over 30 s"
+    if _constant(h):
+        return "wave height the same nearly everywhere"
+    return None
+
+
 def weather(air=None, rain=None):
     if rain is not None:
         r = _finite(rain)

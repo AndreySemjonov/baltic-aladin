@@ -26,8 +26,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # ICON-EU over Europe (iconeu_tiles.py, docs/TILES_PLAN.md phase 2) beside the world's two.
-        model: [gfs, ecmwf, icon-eu]
+        # ICON-EU over Europe (iconeu_tiles.py, docs/TILES_PLAN.md phase 2) beside the world's two; the
+        # waves (waves_tiles.py, docs/WAVES_PLAN.md W1): ECMWF's for the world, EWAM over Europe.
+        model: [gfs, ecmwf, icon-eu, ecmwf-waves, ewam]
     concurrency:
       group: world-${{ matrix.model }}
       cancel-in-progress: false
@@ -44,13 +45,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .venv
-          key: world-venv-${{ runner.os }}-py${{ steps.python.outputs.version }}-eccodes-numpy-pillow-v1
+          key: world-venv-${{ runner.os }}-py${{ steps.python.outputs.version }}-eccodes-numpy-pillow-scipy-v2
 
-      - name: Install ecCodes, NumPy and Pillow
+      - name: Install ecCodes, NumPy, Pillow and SciPy
         if: steps.venv.outputs.cache-hit != 'true'
         run: |
           python3 -m venv .venv
-          .venv/bin/pip install --quiet eccodes numpy pillow
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy
 
       - name: Make and upload the newest run's tiles
         env:
@@ -59,6 +60,8 @@ jobs:
         run: |
           script="world_tiles.py ${{ matrix.model }}"
           if [ "${{ matrix.model }}" = "icon-eu" ]; then script="iconeu_tiles.py"; fi
+          if [ "${{ matrix.model }}" = "ecmwf-waves" ]; then script="waves_tiles.py ecmwf"; fi
+          if [ "${{ matrix.model }}" = "ewam" ]; then script="waves_tiles.py ewam"; fi
           if [ "$FORCE" = "true" ]; then
             .venv/bin/python $script --force
           else
