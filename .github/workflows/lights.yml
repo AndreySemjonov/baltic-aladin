@@ -1,0 +1,32 @@
+name: City lights
+run-name: City lights tiles
+
+# The towns' lights at night as tiles on our file store (lights_tiles.py, the owner, 14.10.2026):
+# NASA's Black Marble, drawn by the app at night over the darkened land. The lights don't change
+# much, so this runs only by hand.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lights:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    concurrency:
+      group: lights
+      cancel-in-progress: false
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install ecCodes, NumPy, Pillow and SciPy
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy
+
+      - name: Make and upload the city lights tiles
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+        run: .venv/bin/python lights_tiles.py
