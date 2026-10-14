@@ -281,9 +281,10 @@ def tile_km(z, y):
     return 40075.016 * math.cos(math.radians(lat)) / (2 ** z * SIZE)
 
 
-# Tuned weights by place (the owner, 14.10.2026: weights noted for places round Europe, used without
-# showing them): mix_weights.json, {"radius_km": 250, "points": [{"name", "lat", "lon", "radius_km"?,
-# "weights": {model name: weight}}]}. Near a point its weights count, between points they blend
+# Weights by place (the owner, 14.10.2026: one set of weights for the spots, the map and new spots):
+# the app's catalog spots with their own weights (catalog_points), and any points of
+# mix_weights.json ({"radius_km": 250, "points": [{"name", "lat", "lon", "radius_km"?, "weights":
+# {model name: weight}}]}). Near a point its weights count, between points they blend
 # smoothly (a Gaussian of its radius), far from all of them the weights above; a model a point
 # doesn't name keeps the one above there.
 WEIGHTS_FILE = "mix_weights.json"
@@ -292,19 +293,59 @@ _points = None
 _tile_weights = {}
 
 
+# The spot forecasts' model keys (Open-Meteo's, the app's catalog) and the Mix's models; the keys
+# without tiles (UKV, ICON 13 km, GDPS, HARMONIE 5 km, ...) leave their share to the others.
+CATALOG = "https://data.meteogust.com/spots/catalog"
+KEYS = {"dmi_harmonie_arome_europe": "HARM-DK", "metno_nordic": "MET Nordic", "fmi": "HARM-FI", "aladin": "ALADIN",
+        "meteofrance_arome_france_hd": "AROME", "meteofrance_arome_france": "AROME", "icon_d2": "ICON-D2",
+        "meteoswiss_icon_ch1": "ICON-CH1", "meteoswiss_icon_ch2": "ICON-CH1", "italia_meteo_arpae_icon_2i": "ICON-2I",
+        "knmi_harmonie_arome_netherlands": "HARM-NL", "icon_eu": "ICON-EU", "ecmwf_ifs": "ECMWF", "gfs_global": "GFS"}
+# Copied weights (a rider's spot took its nearest spot's) aren't a place's own: left out.
+COPIED = ("nearest built-in spot", "default")
+
+
+def catalog_points(radius):
+    """The weight points from the app's spot catalog (the owner, 14.10.2026: one set of weights for the
+    spots, the map and new spots): each spot with its own weights (hidden ones too, a weights-only
+    point is a hidden spot), its models' keys turned into the Mix's names (a name two keys share
+    takes their sum)."""
+    try:
+        spots = json.loads(get(CATALOG))["spots"]
+    except Exception as error:
+        print(f"No catalog ({error}): its weights left out", flush=True)
+        return []
+    out = []
+    for entry in spots:
+        spot = entry.get("spot") or {}
+        source = str(spot.get("weightsSource", ""))
+        if not spot.get("weights") or any(c in source for c in COPIED):
+            continue
+        named = {}
+        for key, weight in spot["weights"].items():
+            if key in KEYS:
+                named[KEYS[key]] = named.get(KEYS[key], 0) + float(weight)
+        if named:
+            out.append((float(spot["lat"]), float(spot["lon"]), radius, named))
+    return out
+
+
 def weight_points():
+    """The catalog's spots, and the points of mix_weights.json (if any)."""
     global _points
     if _points is None:
+        radius = 250.0
+        extra = []
         try:
             with open(WEIGHTS_FILE, encoding="utf-8") as file:
                 data = json.load(file)
-            radius = float(data.get("radius_km", 250))
-            _points = [(float(p["lat"]), float(p["lon"]), float(p.get("radius_km", radius)), p["weights"])
-                       for p in data.get("points", []) if p.get("weights")]
+            radius = float(data.get("radius_km", radius))
+            extra = [(float(p["lat"]), float(p["lon"]), float(p.get("radius_km", radius)), p["weights"])
+                     for p in data.get("points", []) if p.get("weights")]
         except (OSError, ValueError, KeyError):
-            _points = []
-        if _points:
-            print(f"Tuned weights: {len(_points)} points", flush=True)
+            pass
+        spots = catalog_points(radius)
+        _points = spots + extra
+        print(f"Weights: {len(spots)} catalog spots, {len(extra)} other points", flush=True)
     return _points
 
 
