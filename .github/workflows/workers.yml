@@ -1,0 +1,92 @@
+name: Deploy Workers
+run-name: Deploy Workers (${{ inputs.worker }})
+
+# MeteoGust's Cloudflare Workers from the app's repository (private; the owner, 14.10.2026: no more
+# pasting from a phone; the app repository's own Actions have no minutes left, this public one's
+# are free). Only the Worker's code is uploaded, through Cloudflare's "script content" call: its
+# bindings (the database, the file store), schedules, secrets and domains stay as they are set in
+# the dashboard. The code comes from the app repository's master, read with a read-only token, and
+# is checked as a module first (as Cloudflare reads it); nothing of it is printed here.
+# station-history's /status is read after.
+#
+# Started by hand or by the chats after a Worker changes on master (gh workflow run workers.yml
+# -f worker=station-history). Secrets (the owner's, never in a repository or a chat):
+# APP_REPO_TOKEN (GitHub, Contents: Read-only on WindguruStationWatch), CLOUDFLARE_API_TOKEN
+# (Workers Scripts: Edit), CLOUDFLARE_ACCOUNT_ID.
+on:
+  workflow_dispatch:
+    inputs:
+      worker:
+        description: Which Worker
+        type: choice
+        options: [station-history, meteogust-admin, helper-trigger, all]
+        default: station-history
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workers
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: The Workers' code (the app's master)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: AndreySemjonov/WindguruStationWatch
+          ref: master
+          token: ${{ secrets.APP_REPO_TOKEN }}
+          path: app
+          persist-credentials: false
+          sparse-checkout: tools
+
+      - name: Check and upload
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WANTED: ${{ inputs.worker }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TOKEN" ] || [ -z "$ACCOUNT" ]; then
+            echo "::error::Add the repository secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID"
+            exit 1
+          fi
+          if [ "$WANTED" = "all" ]; then list="station-history meteogust-admin helper-trigger"; else list="$WANTED"; fi
+          echo "app master: $(git -C app rev-parse --short HEAD)"
+          for name in $list; do
+            case "$name" in
+              station-history) dir=station-history ;;
+              meteogust-admin) dir=admin ;;
+              helper-trigger) dir=helper-trigger ;;
+              *) echo "::error::Unknown Worker $name"; exit 1 ;;
+            esac
+            file="app/tools/$dir/worker.js"
+            # As Cloudflare reads it: a module (a plain script check let a broken string through once).
+            cp "$file" "$RUNNER_TEMP/check.mjs"
+            node --check "$RUNNER_TEMP/check.mjs" > /dev/null 2>&1 || { echo "::error::$name: not a valid module"; exit 1; }
+            reply=$(curl -sS -X PUT "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/workers/scripts/$name/content" \
+              -H "Authorization: Bearer $TOKEN" \
+              -F 'metadata={"main_module":"worker.js"};type=application/json' \
+              -F "worker.js=@$file;filename=worker.js;type=application/javascript+module")
+            echo "$reply" | NAME="$name" python3 -c '
+          import json, os, sys
+          reply = json.load(sys.stdin)
+          name = os.environ["NAME"]
+          if reply.get("success"):
+              print(f"{name}: uploaded")
+          else:
+              print(f"::error::{name}: " + "; ".join(e.get("message", "") for e in reply.get("errors", [])))
+              sys.exit(1)'
+          done
+
+      - name: station-history answers
+        if: inputs.worker == 'station-history' || inputs.worker == 'all'
+        run: |
+          sleep 5
+          code=$(curl -s -o /dev/null -w "%{http_code}" https://data.meteogust.com/status)
+          echo "station-history /status: $code"
+          [ "$code" = "200" ]
