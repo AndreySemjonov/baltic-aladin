@@ -12,7 +12,7 @@ published, keeping what makes it the best at the spots:
 - speed and gust as weighted means, the direction as a weighted vector mean (weight x speed, calm
   counted as 1 m/s); the 3-hourly hours interpolated (not over a gap of more than 6 hours).
 
-Zooms 4-6 over ICON-EU's area and MET Nordic's north, zoom 7 where MET Nordic's 1 km tiles are;
+Zooms 4-6 over ICON-EU's area, MET Nordic's north and DINI's west, zoom 7 where MET Nordic's 1 km tiles are;
 hourly from now for a day, then every 3 hours while a regional model reaches (about 60 hours; the
 app's ICON-EU and ECMWF layers take over after). Its tiles fade (alpha) where only ECMWF and GFS are. Each hour lists its models;
 the data checks (R3) as the other sets; published as tiles/mix.
@@ -63,7 +63,8 @@ KIND_TOTAL = 15.05
 MODELS = [(name, label, weight / KIND_TOTAL, km) for name, label, weight, km in MODELS]
 GLOBAL = {"ecmwf", "gfs"}
 REGIONAL = {m[0] for m in MODELS} - GLOBAL - {"icon-eu"}
-BOX = (29.5, 74.0, -23.5, 62.5)
+# ICON-EU's area, MET Nordic's north and DINI's west (Greenland's coast, Iceland: 14.10.2026).
+BOX = (29.5, 74.0, -45.0, 62.5)
 ZOOMS = range(4, 8)
 SIZE = 256
 # Pixels round a tile seen for the coast (ECMWF's land reaches 25 km: about 18 zoom-6 pixels here).
