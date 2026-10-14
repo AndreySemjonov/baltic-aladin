@@ -151,10 +151,12 @@ def make_block(job):
         if not wanted:
             continue
         try:
-            ds = copernicusmarine.open_dataset(dataset_id=dataset, variables=list(VARIABLES))
+            ds = copernicusmarine.open_dataset(dataset_id=dataset, variables=list(VARIABLES), service="arco-geo-series")
             stamps = ds["time"].values.astype("datetime64[s]").astype(np.int64)
             index = [int(np.nonzero(stamps == t)[0][0]) for t in wanted]
+            began = time.time()
             loaded[name] = (ds.isel(time=index).load(), wanted)
+            print(f"{name}: {len(wanted)} hours read in {time.time() - began:.0f} s", flush=True)
         except Exception as error:
             print(f"{name}: hours {wanted[0]}-{wanted[-1]} not read ({error})", flush=True)
     out = []
@@ -192,10 +194,12 @@ def sea_tiles(have, first):
     for name, dataset in MODELS:
         if name not in have:
             continue
-        ds = copernicusmarine.open_dataset(dataset_id=dataset, variables=list(VARIABLES))
+        ds = copernicusmarine.open_dataset(dataset_id=dataset, variables=list(VARIABLES), service="arco-geo-series")
         stamps = ds["time"].values.astype("datetime64[s]").astype(np.int64)
         t = min(have[name])
+        began = time.time()
         grids.append(cmems_grid(name, ds.isel(time=[int(np.nonzero(stamps == t)[0][0])]).load(), 0)[0])
+        print(f"{name}: first hour read in {time.time() - began:.0f} s", flush=True)
     if first:
         grids.append(first)
     keys = set()
@@ -221,7 +225,7 @@ def main():
     have = {}
     for name, dataset in MODELS:
         try:
-            ds = copernicusmarine.open_dataset(dataset_id=dataset, variables=["VHM0"])
+            ds = copernicusmarine.open_dataset(dataset_id=dataset, variables=["VHM0"], service="arco-geo-series")
             stamps = set(int(s) for s in ds["time"].values.astype("datetime64[s]").astype(np.int64))
             have[name] = [t for t in targets if t in stamps]
             print(f"{name}: {len(have[name])} of {len(targets)} hours", flush=True)
