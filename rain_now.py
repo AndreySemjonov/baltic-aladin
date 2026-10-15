@@ -37,7 +37,13 @@ import world_tiles
 FILES = "https://files.meteogust.com/tiles/"
 Z = 6
 SETS = ["metnordic-1km-wx", "metnordic-wx", "icon-eu-wx", "ecmwf"]
-HOURS = 7
+# A day of hours (the first ones the radar's, then the forecast moved and trimmed, then the sets
+# weighted by their skill; the owner, 15.10.2026: the models that matched the radar lately count more).
+HOURS = 24
+# The sets' weights from their skill: the last 72 hours, at least this many hours measured.
+SKILL_HOURS, SKILL_LEAST = 72, 12
+# Our blend scored again at each hour ahead it was made for (its runs kept 9 hours).
+CHECK_LEADS = range(1, 8)
 # The measured shift fades out over this many hours; the nowcast's share from 1 at half an hour to
 # 0 at 3.5 hours.
 SHIFT_HOURS, NOW_FROM, NOW_TO = 8.0, 0.5, 3.5
@@ -155,6 +161,44 @@ class Forecast:
         return got
 
 
+def weighted(sets, domain, t, weights):
+    """The sets at time t blended by their skill (`weights`, by name: each where it reaches, by its
+    own weight there); the plain composite when there are no weights."""
+    if not weights:
+        return composite(sets, domain, t)
+    shape = (domain.height, domain.width)
+    rain, cloud, total, reach = (np.zeros(shape, np.float32) for _ in range(4))
+    for forecast in sets:
+        got = forecast.field(domain, t)
+        if got is None or forecast.name not in weights:
+            continue
+        mm, cover, weight = got
+        share = weight * weights[forecast.name]
+        rain += share * mm
+        cloud += share * cover
+        total += share
+        reach = np.maximum(reach, weight)
+    safe = np.maximum(total, 1e-6)
+    return rain / safe, cloud / safe, reach
+
+
+def skill_weights(history):
+    """Each set's weight from its fractions skill score over the last hours (squared, at least
+    0.05): None until enough hours are measured."""
+    if not history:
+        return None
+    newest = max(h["hour"] for h in history)
+    recent = [h for h in history if h["hour"] > newest - SKILL_HOURS * 3600]
+    weights = {}
+    for name in SETS:
+        scores = [h["skill"][name]["fss40km"] for h in recent if name in h.get("skill", {}) and h["skill"][name].get("fss40km") is not None]
+        if len(scores) < SKILL_LEAST:
+            return None
+        weights[name] = max(float(np.mean(scores)), 0.05) ** 2
+    top = max(weights.values())
+    return {name: round(w / top, 3) for name, w in weights.items()}
+
+
 def composite(sets, domain, t):
     """The app's Auto order at time t, each over the ones after it by its weight: mm/h, cloud, weight."""
     shape = (domain.height, domain.width)
@@ -243,15 +287,42 @@ def field_of(cells, shape, sigma, least_gain=0.02, default=(0.0, 0.0)):
     return (vy + floor * default[0]) / (w + floor), (vx + floor * default[1]) / (w + floor)
 
 
-def measure(radar, sets, domain, t, checked=()):
+def blend_field(domain, run_hour, t):
+    """Our blend for hour t from the run made at `run_hour` (its folder; None when gone)."""
+    folder = datetime.fromtimestamp(run_hour, timezone.utc).strftime("%Y%m%dT%HZ")
+    try:
+        data = get(FILES + f"rain-now/{folder}/{t}-rain.pack")
+    except Exception:
+        return None
+    sizes, tiles = read_pack(data)
+    rgba = domain.place(tiles, Z, 256, 4)
+    return (rgba[..., 0] / 50) ** 2, rgba[..., 1] / 255, rgba[..., 3] / 255
+
+
+class Fixed:
+    """A field already read, measured as a set (our blend made some hours before)."""
+
+    def __init__(self, name, run, got):
+        self.name, self.run, self.got = name, run, got
+
+    def field(self, domain, t):
+        return self.got
+
+
+def measure(radar, sets, domain, t, checked=(), weights=None):
     """Each set's (and the composite's) rain at t against the radar's: the skill and the offset;
     `checked`: sets measured but not part of the composite (our own blend from an hour before)."""
     r5 = half(radar)
     out = {}
-    for forecast in list(sets) + ["composite"] + list(checked):
+    for forecast in list(sets) + ["composite", "weighted"] + list(checked):
         if forecast == "composite":
             mm, _, weight = composite(sets, domain, t)
             name, run = "composite", None
+        elif forecast == "weighted":
+            if not weights:
+                continue
+            mm, _, weight = weighted(sets, domain, t, weights)
+            name, run = "weighted", None
         else:
             got = forecast.field(domain, t)
             if got is None:
@@ -322,16 +393,16 @@ def trim_level(radar, mm, known):
     return max(WET, float(np.quantile(m, 1 - share)))
 
 
-def frames(radar, newest_time, vy, vx, sets, domain, t0, shift, trim):
-    """The blended hours (time, mm/h, cloud, weight)."""
+def frames(radar, newest_time, vy, vx, sets, domain, t0, shift, trim, weights=None):
+    """The blended hours (time, mm/h, cloud, weight), one at a time (a day of them won't fit in
+    memory at once)."""
     first = (newest_time // 3600 + 1) * 3600
     sy, sx = shift
     rows, cols = np.meshgrid(np.arange(domain.height, dtype=np.float32), np.arange(domain.width, dtype=np.float32), indexing="ij")
-    out = []
     for k in range(HOURS):
         t = first + k * 3600
         lead = (t - newest_time) / 3600
-        mm, cloud, weight = composite(sets, domain, t)
+        mm, cloud, weight = weighted(sets, domain, t, weights)
         if not np.any(weight > 0):
             continue
         fade = max(0.0, 1 - (t - t0) / 3600 / SHIFT_HOURS)
@@ -346,8 +417,7 @@ def frames(radar, newest_time, vy, vx, sets, domain, t0, shift, trim):
         share = float(np.clip((NOW_TO - lead) / (NOW_TO - NOW_FROM), 0, 1))
         w = np.where(np.isfinite(now), share, 0).astype(np.float32)
         blended = w * np.nan_to_num(now) + (1 - w) * mm
-        out.append((t, blended, cloud, np.maximum(weight, w)))
-    return out
+        yield t, blended, cloud, np.maximum(weight, w)
 
 
 
@@ -417,13 +487,22 @@ def main():
         except Exception as error:
             print(f"{name}: not read ({error})", flush=True)
 
-    # 1. Measure (our own blend from the run before too: is it nearer the radar than the forecast?).
-    checked = []
+    # The sets' weights from the hours measured before (None until there are enough).
     try:
-        checked.append(Forecast("rain-now"))
-    except Exception as error:
-        print(f"rain-now: no run before ({error})", flush=True)
-    skill = measure(radar_hour, sets, domain, t0, checked)
+        kept = json.loads(get(FILES + "rain-now/skill.json"))
+    except Exception:
+        kept = {"hours": []}
+    weights = skill_weights(kept.get("hours", []))
+    print(f"weights: {weights or 'not yet (too few hours measured)'}", flush=True)
+
+    # 1. Measure (our own blend from the runs before too, at each hour ahead it was made for: is it
+    # nearer the radar than the forecast?).
+    checked = []
+    for lead in CHECK_LEADS:
+        got = blend_field(domain, t0 - lead * 3600, t0)
+        if got is not None:
+            checked.append(Fixed(f"rain-now+{lead}", None, got))
+    skill = measure(radar_hour, sets, domain, t0, checked, weights)
     for name, row in skill.items():
         print(f"  {name}: lead {row.get('leadHours')} h, wet 0.1 radar {row['wet0.1']['radar']:.3f} model {row['wet0.1']['model']:.3f}, "
               f"csi {row['wet0.5']['csi']}, fss {row['fss40km']}, offset {row['offset']['medianKm']} km in {row['offset']['moved']}"
@@ -449,19 +528,15 @@ def main():
     run_time = datetime.fromtimestamp(newest["time"], timezone.utc)
     out = tiler.Run("rain-now", run_time, range(3, Z + 1), "Radar into the forecast", "EUMETNET OPERA (CC BY 4.0); the forecast sets' own",
                     True, local)
-    for t, mm, cloud, weight in frames(radar_new, newest["time"], vy, vx, sets, domain, t0, shift, trim):
+    for t, mm, cloud, weight in frames(radar_new, newest["time"], vy, vx, sets, domain, t0, shift, trim, weights):
         out.report.count()
         out.put(t, pack(domain, mm, cloud, weight), kind="rain")
         print(f"  {datetime.fromtimestamp(t, timezone.utc):%H:%M}: {out.bytes / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
     summary = {name: {k: row[k] for k in row if k != "offset"} | {"offsetKm": row["offset"]["medianKm"], "moved": row["offset"]["moved"],
                                                                    "cellsCompared": row["offset"]["cells"]}
                for name, row in skill.items()}
-    out.finish(radar=newest["time"], hour=t0, trimMm=round(trim, 3), skill=summary)
-    record = {"hour": t0, "radar": newest["time"], "skill": summary}
-    try:
-        kept = json.loads(get(FILES + "rain-now/skill.json"))
-    except Exception:
-        kept = {"hours": []}
+    out.finish(radar=newest["time"], hour=t0, trimMm=round(trim, 3), skill=summary, weights=weights)
+    record = {"hour": t0, "radar": newest["time"], "skill": summary, "weights": weights}
     hours_kept = [h for h in kept.get("hours", []) if h.get("hour") != t0 and h.get("hour", 0) > t0 - 14 * 86400] + [record]
     body = json.dumps({"latest": record | {"offsets": {n: r["offset"]["list"] for n, r in skill.items()}}, "hours": hours_kept},
                       separators=(",", ":")).encode()
