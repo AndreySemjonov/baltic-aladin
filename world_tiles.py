@@ -230,7 +230,12 @@ def upload(path, data):
 
 def published(model):
     try:
-        with urllib.request.urlopen(PUBLISHED.format(model=model) + "?t=%d" % time.time(), timeout=30) as reply:
+        # With our own user agent: the file store's protection answers Python's own with 403
+        # (15.10.2026: read as "nothing published", so a run made again reused its folder's name,
+        # and phones could keep the cached packs of the first).
+        request = urllib.request.Request(PUBLISHED.format(model=model) + "?t=%d" % time.time(),
+                                         headers={"User-Agent": maplib.USER_AGENT})
+        with urllib.request.urlopen(request, timeout=30) as reply:
             return json.load(reply).get("runName")
     except (urllib.error.URLError, OSError, ValueError):
         return None

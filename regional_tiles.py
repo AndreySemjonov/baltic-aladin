@@ -168,7 +168,10 @@ class Placer:
 
 def published_run(model):
     try:
-        with urllib.request.urlopen(PUBLISHED.format(model=model) + "?t=%d" % time.time(), timeout=30) as reply:
+        # Our own user agent (the file store refuses Python's own: world_tiles.published).
+        request = urllib.request.Request(PUBLISHED.format(model=model) + "?t=%d" % time.time(),
+                                         headers={"User-Agent": "MeteoGust helper"})
+        with urllib.request.urlopen(request, timeout=30) as reply:
             return json.load(reply).get("runName")
     except Exception:
         return None
