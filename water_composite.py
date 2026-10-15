@@ -14,7 +14,7 @@ reaches it, fading into the next over its area's edge (as the waves composite):
 5. Mediterranean (MED PHY, 4.2 km)
 6. Global (GLO PHY, about 9 km) under them all, over Europe's box
 
-Every hour for 3 days, then every 3 hours to 6, as far as each model goes; zooms 3-6 (the models
+From 12 hours back, every hour for 3 days, then every 3 hours to 6, as far as each model goes; zooms 3-6 (the models
 are 1.5 km and coarser: zoom 7 only repeated their pixels, at four times the size).
 
 The level: the Baltic model's as it gives it (its sea level against the long-term mean, as the
@@ -80,7 +80,9 @@ ICE = ("siconc", "sithick")
 EUROPE = (30.0, 72.0, -30.0, 45.0)
 ZOOMS = range(3, 7)
 FADE_KM = 40
-STEPS = list(range(0, 72)) + list(range(72, 145, 3))
+# From 12 hours back (the models' analysis: Drift starts where a thing was lost, the map shows the
+# morning), every hour for 3 days ahead, then every 3 hours to 6.
+STEPS = list(range(-12, 72)) + list(range(72, 145, 3))
 BLOCK = 4
 # A model's hour counts for a time when it is within this of it (the hourly means are stamped at
 # the half hour).
