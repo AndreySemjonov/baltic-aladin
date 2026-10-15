@@ -184,14 +184,15 @@ def main():
     model = SETS[which]["model"]
     started = time.time()
     def ask(query, name):
-        # MET Norway's server answers 500 now and then: three tries.
-        for attempt in range(3):
+        # MET Norway's server answers 500 now and then (15.10.2026: for hours on end): five tries,
+        # waiting longer each time.
+        for attempt in range(5):
             try:
-                return mn.ascii_values(mn.get(f"{mn.SOURCE}.ascii?{query}"), name)
+                return mn.ascii_values(mn.get(f"{mn.SOURCE}.ascii?{query}", timeout=120), name)
             except Exception:
-                if attempt == 2:
+                if attempt == 4:
                     raise
-                time.sleep(15)
+                time.sleep(30 * (attempt + 1))
     times = ask("time", "time")
     run = ask("forecast_reference_time", "forecast_reference_time")[0]
     run_name = datetime.fromtimestamp(run, timezone.utc).strftime("%Y%m%dT%HZ")

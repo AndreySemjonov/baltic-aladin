@@ -59,14 +59,15 @@ def main():
     limit = int(args[args.index("--hours") + 1]) if "--hours" in args else None
     weather = "--set" in args and args[args.index("--set") + 1] == "weather"
     def ask(name):
-        # MET Norway's server answers late or with 500 now and then: three tries.
-        for attempt in range(3):
+        # MET Norway's server answers late or with 500 now and then (15.10.2026: for hours on end):
+        # five tries, waiting longer each time.
+        for attempt in range(5):
             try:
                 return mn.ascii_values(mn.get(f"{mn.SOURCE}.ascii?{name}", timeout=120), name)
             except Exception:
-                if attempt == 2:
+                if attempt == 4:
                     raise
-                time.sleep(15)
+                time.sleep(30 * (attempt + 1))
     times = ask("time")
     run = ask("forecast_reference_time")[0]
     run_time = datetime.fromtimestamp(run, timezone.utc)
