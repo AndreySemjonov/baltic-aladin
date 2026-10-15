@@ -118,7 +118,7 @@ jobs:
           NEW_GAUGES: ${{ steps.gauges.outputs.changed }}
         run: |
           rebuild=""
-          for pair in map:metnordic_map.py rain:rain_map.py temp:temp_map.py harmonie:harmonie_map.py harm-dk:dmi_map.py icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py world:gfs_world.py waves:wave_map.py rain-icon:rain_icon.py rain-chance:rain_chance.py; do
+          for pair in rain-chance:rain_chance.py; do
             name=${pair%%:*}; script=${pair##*:}
             newest=$(.venv/bin/python $script --check || echo "")
             published=$(python3 -c "import json; print(json.load(open('docs/runs.json')).get('$name', ''))" 2>/dev/null || echo "")
@@ -149,28 +149,18 @@ jobs:
           # MEPS's ensemble (30 members, a new lagged set every hour). What couldn't be made is noted
           # for the admin panel's report.
           failed() { echo "$1"; echo "$1" >> failed.txt; }
-          for pair in map:metnordic_map.py rain:rain_map.py temp:temp_map.py harmonie:harmonie_map.py harm-dk:dmi_map.py icon-eu:iconeu_map.py ecmwf:ecmwf_map.py gfs:gfs_map.py world:gfs_world.py waves:wave_map.py rain-icon:rain_icon.py rain-chance:rain_chance.py; do
+          for pair in rain-chance:rain_chance.py; do
             name=${pair%%:*}; script=${pair##*:}
             case " $REBUILD " in
               *" $name "*) .venv/bin/python $script site/$name || .venv/bin/python carry.py site/$name $name || failed "$name map unavailable this time" ;;
               *) .venv/bin/python carry.py site/$name $name || .venv/bin/python $script site/$name || failed "$name map unavailable this time" ;;
             esac
           done
-          if [ "$NEW_ALADIN" = "true" ] && [ -f aladin-files/run.txt ]; then
-            .venv/bin/python aladin_map.py site/aladin aladin-files
-          elif [ "$FORCE" = "true" ] || ! .venv/bin/python carry.py site/aladin aladin; then
-            .venv/bin/python aladin_map.py site/aladin || failed "ALADIN map unavailable this time"
-          fi
-          # The rain map's days 3-5 (ICON-EU) joined after its MET Nordic hours.
-          .venv/bin/python rain_join.py site || failed "Rain join failed"
-          # The blend: mixed again when a wind map is new, else the published one.
-          case " $REBUILD " in
-            *" map "*|*" harmonie "*|*" harm-dk "*|*" icon-eu "*|*" ecmwf "*|*" gfs "*) mix=true ;;
-            *) mix=$NEW_ALADIN ;;
-          esac
-          if [ "$mix" = "true" ] || [ "$FORCE" = "true" ] || ! .venv/bin/python carry.py site/blend blend; then
-            .venv/bin/python blend_map.py site || .venv/bin/python carry.py site/blend blend || failed "Blend unavailable this time"
-          fi
+          # The wind, rain, temperature and wave pictures (MET Nordic, HARMONIE, HARM-DK, ICON-EU,
+          # ECMWF, GFS, the world, ALADIN's map, the rain's days 3-5 and the Mix) retired on
+          # 15.10.2026: every tester's phone reads the tiles (build 228 and on). Still made here:
+          # the ALADIN spots (aladin.json), the chance of rain (build 228's Chance), the water and
+          # ice maps (build 228's Water, Ice and Drift) and the gauges.
           cp docs/aladin.json docs/index.html site/
           if [ -f docs/nemo.json ]; then cp docs/nemo.json site/; fi
           # The water map (NEMO-EST): this run's frames, else the published ones.
@@ -188,7 +178,7 @@ jobs:
               m = json.load(open("site/map/map.json"))
               json.dump({"built": now, "run": m["run"], "frames": len(m["frames"])}, open("docs/map-state.json", "w"))
           runs = {}
-          for name in ("map", "rain", "temp", "harmonie", "harm-dk", "icon-eu", "ecmwf", "gfs", "world", "waves", "rain-icon", "rain-chance"):
+          for name in ("rain-chance",):
               path = f"site/{name}/map.json"
               if os.path.exists(path):
                   run = json.load(open(path))["run"]
