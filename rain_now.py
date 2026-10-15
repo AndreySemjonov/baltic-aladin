@@ -7,7 +7,8 @@ wider than the radar's), every hour:
    skill score (40 km, 0.5 mm/h), and how far its rain is off (phase correlation in 250 km cells).
    Kept in tiles/rain-now/skill.json (the latest and two weeks of hours) for the admin panel.
 2. **Correct and blend.** The app's forecast (its Auto order: MET Nordic 1 km, the regional
-   composite, ICON-EU, ECMWF) shifted by the measured offset, the shift fading out over 8 hours;
+   composite, ICON-EU, ECMWF) shifted by the measured offset, the shift whole for 2 hours and gone
+   by 5 (15.10.2026: over 8 hours the blend scored under the plain forecast from 5 hours ahead);
    its too-wide light rain trimmed to the radar's wet area, fading the same; and the radar's own
    rain carried along its motion (the nowcast) blended into it over the first 3.5 hours. Hourly
    frames from the next whole hour, 7 of them, as tiles/rain-now (zooms 3-6, the rain encoding:
@@ -44,9 +45,11 @@ HOURS = 24
 SKILL_HOURS, SKILL_LEAST = 72, 12
 # Our blend scored again at each hour ahead it was made for (its runs kept 9 hours).
 CHECK_LEADS = range(1, 8)
-# The measured shift fades out over this many hours; the nowcast's share from 1 at half an hour to
-# 0 at 3.5 hours.
-SHIFT_HOURS, NOW_FROM, NOW_TO = 8.0, 0.5, 3.5
+# The measured shift (and the light rain's trim) whole for SHIFT_FULL hours, then fading out by
+# SHIFT_END (15.10.2026: fading over 8 hours, the blend scored 0.33 and 0.28 at +5 and +6 hours
+# against the plain forecast's 0.36; the admin panel's "Blend, hours ahead" tells if this does
+# better); the nowcast's share from 1 at half an hour to 0 at 3.5 hours.
+SHIFT_FULL, SHIFT_END, NOW_FROM, NOW_TO = 2.0, 5.0, 0.5, 3.5
 # Offsets: cells of 96 zoom-5 pixels (about 250 km here), every 48, the search within 48 (about 130 km).
 CELL, STEP, REACH = 96, 48, 48
 WET = 0.1
@@ -406,7 +409,7 @@ def frames(radar, newest_time, vy, vx, sets, domain, t0, shift, trim, weights=No
         mm, cloud, weight = weighted(sets, domain, t, weights)
         if not np.any(weight > 0):
             continue
-        fade = max(0.0, 1 - (t - t0) / 3600 / SHIFT_HOURS)
+        fade = float(np.clip((SHIFT_END - (t - t0) / 3600) / (SHIFT_END - SHIFT_FULL), 0, 1))
         if fade > 0:
             at = [rows - sy * fade, cols - sx * fade]
             mm = ndimage.map_coordinates(mm, at, order=1, mode="nearest")
