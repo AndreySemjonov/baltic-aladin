@@ -1,0 +1,40 @@
+name: Chance of rain
+run-name: Chance of rain (MEPS, ICON-EU-EPS)
+
+# The chance of rain as tiles over Europe (chance_tiles.py; the owner, 15.10.2026): MEPS's
+# ensemble over the Nordics and the Baltic, ICON-EU-EPS under it, into tiles/chance. Every 3 hours
+# (MEPS updates hourly, ICON-EU-EPS every 6).
+on:
+  schedule:
+    - cron: "40 1-23/3 * * *"
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: "Only the first N hours (a test); empty: all"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  chance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: chance
+      cancel-in-progress: false
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install ecCodes, NumPy, Pillow and SciPy
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy
+
+      - name: Make and upload the chance of rain
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          HOURS: ${{ inputs.hours }}
+        run: .venv/bin/python chance_tiles.py ${HOURS:+--hours $HOURS}
