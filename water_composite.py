@@ -73,20 +73,26 @@ EUROPE = (30.0, 72.0, -30.0, 45.0)
 ZOOMS = range(3, 7)
 FADE_KM = 40
 STEPS = list(range(0, 72)) + list(range(72, 145, 3))
-BLOCK = 6
+BLOCK = 4
 # A model's hour counts for a time when it is within this of it (the hourly means are stamped at
 # the half hour).
 NEAR = 2700
 CREDIT = "E.U. Copernicus Marine Service Information (BAL, NWS, IBI, BS, MED, GLO physics forecasts)"
 
 
-def open_dataset(dataset, variables, box=None):
-    """A Copernicus dataset, its surface only (asked by depth where it has one); `box`: only there."""
+def open_dataset(dataset, variables, box=None, span=None):
+    """A Copernicus dataset, its surface only (asked by depth where it has one); `box`: only there;
+    `span` (first and last Unix time): only those hours (15.10.2026: a whole run's North Sea in
+    three processes at once ran the helper out of memory)."""
     import copernicusmarine
     extra = {}
     if box:
         south, north, west, east = box
         extra = {"minimum_latitude": south, "maximum_latitude": north, "minimum_longitude": west, "maximum_longitude": east}
+    if span:
+        def stamp(t):
+            return datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+        extra.update(start_datetime=stamp(span[0] - NEAR), end_datetime=stamp(span[1] + NEAR))
     try:
         ds = copernicusmarine.open_dataset(dataset_id=dataset, variables=variables, service="arco-geo-series",
                                            minimum_depth=0, maximum_depth=3, **extra)
@@ -238,7 +244,7 @@ def load_model(name, datasets, wanted, with_ice):
     out = {}
     for dataset, fields in by_dataset.items():
         variables = [v for _, v in fields] + (list(ICE) if with_ice and dataset == BAL else [])
-        ds = open_dataset(dataset, variables, EUROPE if name == "GLO" else None)
+        ds = open_dataset(dataset, variables, EUROPE if name == "GLO" else None, (min(wanted), max(wanted)))
         stamps = stamps_of(ds)
         index = [nearest(stamps, t) for t in wanted]
         picked = sorted(set(k for k in index if k is not None))
@@ -386,7 +392,7 @@ def main():
     blocks = [targets[i:i + BLOCK] for i in range(0, len(targets), BLOCK)]
     jobs = [(block, keys, ice_keys, {n: set(h) for n, h in have.items()}, means) for block in blocks]
     # Fresh processes (spawned): forked after the Copernicus toolbox's threads they hung.
-    with ProcessPoolExecutor(3, mp_context=multiprocessing.get_context("spawn")) as pool:
+    with ProcessPoolExecutor(2, mp_context=multiprocessing.get_context("spawn")) as pool:
         for results in pool.map(make_block, jobs):
             for t, data, ice, models, failures in results:
                 for name, reason in failures:
