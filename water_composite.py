@@ -3,7 +3,11 @@ app's docs/WATER_TILES_PLAN.md, W1; the owner, 15.10.2026: the water map beyond 
 the Copernicus Marine physics forecasts blended into tiles/sea, at each place the finest model that
 reaches it, fading into the next over its area's edge (as the waves composite):
 
-1. Baltic (BAL PHY, about 1.7 km)
+0. The Baltic water picture (W2: NEMO-EST at about 1 km in Estonia and the Gulf of Riga, the
+   Copernicus Baltic model round it, shifted and nudged to the Estonian and Latvian gauges: the
+   helper's water_map.py, published every run as water/ on its site), over its own box
+1. Baltic (BAL PHY, about 1.7 km), its level shifted onto the gauges' height (EH2000) as the
+   picture shifts it (its "copernicusOffset"), so the Baltic has one level with no step
 2. North-West Shelf (NWS PHY, 1.5 km): the North Sea, the Channel, the UK and Ireland
 3. Iberia-Biscay-Ireland (IBI PHY, about 3 km)
 4. Black Sea (BS PHY, 2.5 km)
@@ -43,6 +47,10 @@ import numpy as np
 import tiler
 import world_tiles
 from waves_tiles import filled, regular_grid
+
+# The Baltic water picture (W2): its frames, decoded here as the app read them.
+PICTURE = "https://andreysemjonov.github.io/baltic-aladin/water/"
+USER_AGENT = {"User-Agent": "MeteoGust seas (data.meteogust.com)"}
 
 # Each model's datasets for the level, the temperature and the current (the same dataset may serve
 # several); finest first.
@@ -150,7 +158,7 @@ def layer(ds, variable, index, offset=None):
     (on the same grid) taken off."""
     lats, lons = ds["latitude"].values.astype(np.float64), ds["longitude"].values.astype(np.float64)
     raw = ds[variable].values[index].astype(np.float32)
-    if offset is not None and offset.shape == raw.shape:
+    if offset is not None and (np.ndim(offset) == 0 or np.shape(offset) == raw.shape):
         raw = raw - offset
     missing = ~np.isfinite(raw)
     place, sample = regular_grid(lats[0], lons[0], lats[1] - lats[0], lons[1] - lons[0], len(lats), len(lons), False)
@@ -260,10 +268,66 @@ def load_model(name, datasets, wanted, with_ice):
     return out
 
 
+def picture_index():
+    """The Baltic water picture's run: {frames: {time: file}, bounds, width, height, shift (the
+    Copernicus level's to the gauges, m)}; None when it can't be read."""
+    import json
+    import urllib.request
+    try:
+        with urllib.request.urlopen(urllib.request.Request(PICTURE + "map.json", headers=USER_AGENT), timeout=60) as reply:
+            manifest = json.load(reply)
+        return {"frames": {int(f["time"]): f["file"] for f in manifest["frames"]}, "bounds": manifest["bounds"],
+                "width": int(manifest["width"]), "height": int(manifest["height"]),
+                "shift": float(manifest.get("copernicusOffset") or 0) / 100}
+    except Exception as error:
+        print(f"Baltic picture: not read ({error})", flush=True)
+        return None
+
+
+def picture_grid(info, t):
+    """The Baltic water picture's hour as a Grid (red level cm + 128, 0 none; green degC x 8; blue
+    current m/s x 100; alpha towards degrees x 256/360; Web Mercator over its bounds); None when
+    it has no frame then or can't be read."""
+    import io
+    import urllib.request
+    from PIL import Image
+    file = info["frames"].get(t)
+    if not file:
+        return None
+    try:
+        with urllib.request.urlopen(urllib.request.Request(PICTURE + file, headers=USER_AGENT), timeout=60) as reply:
+            pixels = np.asarray(Image.open(io.BytesIO(reply.read())).convert("RGBA")).astype(np.float32)
+    except Exception as error:
+        print(f"Baltic picture {t}: not read ({error})", flush=True)
+        return None
+    b, width, height = info["bounds"], info["width"], info["height"]
+    sea = pixels[..., 0] > 0
+    level = np.where(sea, (pixels[..., 0] - 128) / 100, np.nan).astype(np.float32)
+    temp = np.where(sea, pixels[..., 1] / 8, np.nan).astype(np.float32)
+    speed = pixels[..., 2] / 100
+    towards = np.radians(pixels[..., 3] * 360 / 256)
+    east = np.where(sea, speed * np.sin(towards), np.nan).astype(np.float32)
+    north = np.where(sea, speed * np.cos(towards), np.nan).astype(np.float32)
+
+    def mercator(lat):
+        return np.log(np.tan(np.pi / 4 + np.radians(lat) / 2))
+    top, bottom = mercator(b["north"]), mercator(b["south"])
+    _, sample = regular_grid(0, 0, 1, 1, height, width, False)
+
+    def place(lon, lat):
+        # Pixel centres: column 0 half a pixel in from the west edge (the image spans the bounds).
+        col = (lon - b["west"]) / (b["east"] - b["west"]) * width - 0.5
+        row = (top - mercator(np.clip(lat, -85, 85))) / (top - bottom) * height - 0.5
+        inside = (col >= 0) & (col <= width - 1) & (row >= 0) & (row <= height - 1)
+        return col, row, inside.astype(np.float32)
+    layers = {"level": (place, sample, level), "temp": (place, sample, temp), "u": (place, sample, east), "v": (place, sample, north)}
+    return Grid("Baltic", (b["south"], b["north"], b["west"], b["east"]), layers)
+
+
 def make_block(job):
     """Some hours (Unix times) in one process: (time, pack or None, ice pack or None, models,
     [(model, reason)]) each."""
-    times, keys, ice_keys, have, means = job
+    times, keys, ice_keys, have, means, picture = job
     loaded = {}
     for name, datasets in MODELS:
         wanted = [t for t in times if t in have.get(name, ())]
@@ -282,6 +346,10 @@ def make_block(job):
     for t in times:
         grids, failures = [], []
         ice = None
+        # The Baltic picture first, over its box (NEMO-EST, the gauges).
+        fine = picture_grid(picture, t) if picture else None
+        if fine:
+            grids.append(fine)
         for name, _ in MODELS:
             if name not in loaded or t not in loaded[name][1]:
                 continue
@@ -294,6 +362,9 @@ def make_block(job):
                 if rows[k] is None:
                     break
                 offset = means.get(name) if field == "level" else None
+                # The Baltic model's level onto the gauges' height, as the picture's.
+                if field == "level" and name == "BAL" and picture:
+                    offset = -picture["shift"]
                 layers[field], raw[field], field_box = layer(ds, variable, rows[k], offset)
                 if field == "level":
                     box = field_box
@@ -387,10 +458,13 @@ def main():
         raise SystemExit("no sea model could be read")
     keys, ice_keys = sea_tiles(have, first_hours)
     means = level_means(have)
+    picture = picture_index()
+    if picture:
+        print(f"Baltic picture: {len(picture['frames'])} hours, the Baltic model's level +{picture['shift'] * 100:.1f} cm", flush=True)
     print(f"{len(keys)} tiles with sea ({len(ice_keys)} in the Baltic's), {time.time() - started:.0f} s", flush=True)
     out = tiler.Run("sea", run_time, ZOOMS, "Copernicus seas", CREDIT, True, local)
     blocks = [targets[i:i + BLOCK] for i in range(0, len(targets), BLOCK)]
-    jobs = [(block, keys, ice_keys, {n: set(h) for n, h in have.items()}, means) for block in blocks]
+    jobs = [(block, keys, ice_keys, {n: set(h) for n, h in have.items()}, means, picture) for block in blocks]
     # Fresh processes (spawned): forked after the Copernicus toolbox's threads they hung.
     with ProcessPoolExecutor(2, mp_context=multiprocessing.get_context("spawn")) as pool:
         for results in pool.map(make_block, jobs):
