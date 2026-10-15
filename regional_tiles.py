@@ -86,20 +86,31 @@ def fetch_hours(name, steps, rows, cols):
         runs.append(current)
     for chunk in runs:
         start, end = chunk[0], chunk[-1]
-        query = f"{name}[{start}:1:{end}][0:{STRIDE}:{rows - 1}][0:{STRIDE}:{cols - 1}]"
-        shape = (end - start + 1, (rows - 1) // STRIDE + 1, (cols - 1) // STRIDE + 1)
-        for attempt in range(3):
-            try:
-                raw = mn.get(f"{mn.SOURCE}.dods?" + urllib.request.quote(query, safe=":,"))
-                data = mn.dods_array(raw, shape)
-                break
-            except Exception:
-                if attempt == 2:
-                    raise
-                time.sleep(10)
+        data = fetch_chunk(name, start, end, rows, cols)
         for k, s in enumerate(range(start, end + 1)):
             out[s] = data[k]
     return out
+
+
+def fetch_chunk(name, start, end, rows, cols):
+    """Hours start to end of a variable; when MET Norway's server keeps failing on it (15.10.2026:
+    a 500, a dropped connection, an empty reply, two hours running), tried more patiently and then
+    in two halves, down to single hours."""
+    query = f"{name}[{start}:1:{end}][0:{STRIDE}:{rows - 1}][0:{STRIDE}:{cols - 1}]"
+    shape = (end - start + 1, (rows - 1) // STRIDE + 1, (cols - 1) // STRIDE + 1)
+    last = None
+    for attempt in range(4):
+        try:
+            raw = mn.get(f"{mn.SOURCE}.dods?" + urllib.request.quote(query, safe=":,"))
+            return mn.dods_array(raw, shape)
+        except Exception as error:
+            last = error
+            time.sleep(15 * (attempt + 1))
+    if end > start:
+        middle = (start + end) // 2
+        print(f"  {name} hours {start}-{end}: {last!r}; in two halves", flush=True)
+        return np.concatenate([fetch_chunk(name, start, middle, rows, cols), fetch_chunk(name, middle + 1, end, rows, cols)])
+    raise last
 
 
 def tile_lonlat(z, x, y):
