@@ -10,8 +10,16 @@ reaches it, fading into the next over its area's edge (as the waves composite):
 5. Mediterranean (MED PHY, 4.2 km)
 6. Global (GLO PHY, about 9 km) under them all, over Europe's box
 
-Every hour for 3 days, then every 3 hours to 6, as far as each model goes; zooms 3-7. Each tile
-RGBA, read as raw numbers:
+Every hour for 3 days, then every 3 hours to 6, as far as each model goes; zooms 3-6 (the models
+are 1.5 km and coarser: zoom 7 only repeated their pixels, at four times the size).
+
+The level: the Baltic model's as it gives it (its sea level against the long-term mean, as the
+Baltic picture). The others give theirs against their own reference, with a fixed offset there
+(the Mediterranean about -40 cm, the Norwegian Sea -65 on a calm day), so each one's mean over its
+first day (two tides) is taken off at each place: the tide and the surge against the sea's usual
+level, which is what a rider needs.
+
+Each tile RGBA, read as raw numbers:
     red   = the level: 128 + 4.8 x sign x sqrt(|cm|), 1-255 (0 = no sea)
     green = the water temperature: (degrees C + 4) x 7
     blue  = the current's east part: 128 + m/s x 42 (1-255)
@@ -62,7 +70,7 @@ FIELDS = ("level", "temp", "u", "v")
 ICE = ("siconc", "sithick")
 # Europe's box (south, north, west, east): the global model is read only here.
 EUROPE = (30.0, 72.0, -30.0, 45.0)
-ZOOMS = range(3, 8)
+ZOOMS = range(3, 7)
 FADE_KM = 40
 STEPS = list(range(0, 72)) + list(range(72, 145, 3))
 BLOCK = 6
@@ -131,10 +139,13 @@ class Grid:
         return (*out, weight)
 
 
-def layer(ds, variable, index):
-    """One field's hour as (place, sample, values), its land filled, and the raw values."""
+def layer(ds, variable, index, offset=None):
+    """One field's hour as (place, sample, values), its land filled, and the raw values; `offset`
+    (on the same grid) taken off."""
     lats, lons = ds["latitude"].values.astype(np.float64), ds["longitude"].values.astype(np.float64)
     raw = ds[variable].values[index].astype(np.float32)
+    if offset is not None and offset.shape == raw.shape:
+        raw = raw - offset
     missing = ~np.isfinite(raw)
     place, sample = regular_grid(lats[0], lons[0], lats[1] - lats[0], lons[1] - lons[0], len(lats), len(lons), False)
     return (place, sample, filled(raw, missing)), raw, (float(lats.min()), float(lats.max()), float(lons.min()), float(lons.max()))
@@ -246,7 +257,7 @@ def load_model(name, datasets, wanted, with_ice):
 def make_block(job):
     """Some hours (Unix times) in one process: (time, pack or None, ice pack or None, models,
     [(model, reason)]) each."""
-    times, keys, ice_keys, have = job
+    times, keys, ice_keys, have, means = job
     loaded = {}
     for name, datasets in MODELS:
         wanted = [t for t in times if t in have.get(name, ())]
@@ -276,7 +287,8 @@ def make_block(job):
                 ds, variable, rows = got[field]
                 if rows[k] is None:
                     break
-                layers[field], raw[field], field_box = layer(ds, variable, rows[k])
+                offset = means.get(name) if field == "level" else None
+                layers[field], raw[field], field_box = layer(ds, variable, rows[k], offset)
                 if field == "level":
                     box = field_box
             if len(layers) < len(FIELDS):
@@ -322,6 +334,28 @@ def sea_tiles(have, first_hours):
     return sorted(keys), ice_keys
 
 
+def level_means(have):
+    """Each model's level averaged over its first day (25 hours: two tides) at each place, to take
+    off its fixed offset; not the Baltic's (its own is the sea's level already)."""
+    means = {}
+    for name, datasets in MODELS:
+        if name == "BAL" or name not in have:
+            continue
+        dataset, variable = datasets["level"]
+        began = time.time()
+        try:
+            ds = open_dataset(dataset, [variable], EUROPE if name == "GLO" else None)
+            stamps = stamps_of(ds)
+            first = int(stamps[np.argmin(np.abs(stamps - min(have[name])))])
+            picked = [k for k, s in enumerate(stamps) if first <= s < first + 25 * 3600]
+            values = ds[variable].isel(time=picked).load().values.astype(np.float32)
+            means[name] = np.nanmean(values, axis=0).astype(np.float32)
+            print(f"{name}: its level's day mean from {len(picked)} hours in {time.time() - began:.0f} s", flush=True)
+        except Exception as error:
+            print(f"{name}: no day mean ({error}); its level as given", flush=True)
+    return means
+
+
 def main():
     args = sys.argv[1:]
     local = args[args.index("--local") + 1] if "--local" in args else None
@@ -346,10 +380,11 @@ def main():
     if not have:
         raise SystemExit("no sea model could be read")
     keys, ice_keys = sea_tiles(have, first_hours)
+    means = level_means(have)
     print(f"{len(keys)} tiles with sea ({len(ice_keys)} in the Baltic's), {time.time() - started:.0f} s", flush=True)
     out = tiler.Run("sea", run_time, ZOOMS, "Copernicus seas", CREDIT, True, local)
     blocks = [targets[i:i + BLOCK] for i in range(0, len(targets), BLOCK)]
-    jobs = [(block, keys, ice_keys, {n: set(h) for n, h in have.items()}) for block in blocks]
+    jobs = [(block, keys, ice_keys, {n: set(h) for n, h in have.items()}, means) for block in blocks]
     # Fresh processes (spawned): forked after the Copernicus toolbox's threads they hung.
     with ProcessPoolExecutor(3, mp_context=multiprocessing.get_context("spawn")) as pool:
         for results in pool.map(make_block, jobs):
@@ -365,8 +400,8 @@ def main():
             print(f"  {len(out.frames)} hours, {out.bytes / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
     if not out.frames:
         raise SystemExit("no hours made")
-    out.finish(encoding="level 128 + 4.8 sign sqrt|cm| (0 no sea), (C + 4) x 7, current east and north 128 + m/s x 42; "
-                        "ice: 1 + cover x 200, thickness cm")
+    out.finish(encoding="level 128 + 4.8 sign sqrt|cm| (0 no sea; outside the Baltic against each model's first-day mean), "
+                        "(C + 4) x 7, current east and north 128 + m/s x 42; ice: 1 + cover x 200, thickness cm")
 
 
 if __name__ == "__main__":
