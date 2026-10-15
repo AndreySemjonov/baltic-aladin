@@ -31,7 +31,9 @@ ZOOMS = range(3, 6)
 STEPS = list(range(0, 25)) + list(range(27, 121, 3))
 FADE_KM = 150
 WIND = ("U_10M", "V_10M", "VMAX_10M")
-WEATHER = ("U_10M", "V_10M", "T_2M", "TD_2M", "PMSL", "TOT_PREC", "CLCT")
+# The clouds low (under about 2 km), mid (2-6 km) and high (over 6 km) too: the app's forecast clouds in
+# layers (the owner, 15.10.2026).
+WEATHER = ("U_10M", "V_10M", "T_2M", "TD_2M", "PMSL", "TOT_PREC", "CLCT", "CLCL", "CLCM", "CLCH")
 # The wind aloft: (name in the fields, variable, level in hPa).
 STEER = (("U_700", "U", 700), ("V_700", "V", 700))
 STEER_ZOOMS = range(3, 4)
@@ -145,6 +147,9 @@ def main():
                 continue
             weather.put(t, tiler.pack(placement, sample, lambda at: tiler.temp_rgb(at(air), at(feels), at(hpa))), "temp")
             weather.put(t, tiler.pack(placement, sample, lambda at: tiler.rain_rgb(at(rain), at(cloud))), "rain")
+            if {"CLCL", "CLCM", "CLCH"} <= fields.keys():
+                low, mid, high = (fields[name] / 100 for name in ("CLCL", "CLCM", "CLCH"))
+                weather.put(t, tiler.pack(placement, sample, lambda at: tiler.cloud_rgb(at(low), at(mid), at(high))), "cloud")
             # The totals before the one before aren't needed any more.
             for s in [s for s in totals if s < before]:
                 del totals[s]

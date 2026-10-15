@@ -113,6 +113,11 @@ def temp_rgb(air, feels, hpa):
                      np.where(np.isfinite(hpa), np.clip(np.rint((hpa - 940) * 2), 1, 255), 0)], axis=-1)
 
 
+def cloud_rgb(low, mid, high):
+    """The clouds' cover in layers (0-1 each) x 255: low (under about 2 km), mid, high."""
+    return np.stack([np.clip(np.rint(np.nan_to_num(v) * 255), 0, 255) for v in (low, mid, high)], axis=-1)
+
+
 def rain_rgb(mm, cloud):
     """sqrt(mm an hour) x 50, the cloud cover (0-1) x 255."""
     mm = np.maximum(np.nan_to_num(mm), 0)
@@ -178,7 +183,7 @@ class Run:
             print(f"{self.name}: check.json not sent ({error})", flush=True)
 
     def put(self, unix_time, data, kind=None):
-        """One hour's pack (kind: None the wind, "temp" or "rain")."""
+        """One hour's pack (kind: None the wind, "temp", "rain" or "cloud")."""
         file = f"{self.folder}/{unix_time}{'-' + kind if kind else ''}.pack"
         if self.local:
             (self.local / self.folder).mkdir(parents=True, exist_ok=True)
