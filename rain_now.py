@@ -64,7 +64,8 @@ def get(url, tries=4):
         except urllib.error.HTTPError as error:
             if error.code == 404 or attempt == tries - 1:
                 raise
-        except (urllib.error.URLError, OSError):
+        except Exception:
+            # Dropped connections, a reply cut short (http.client.IncompleteRead): again.
             if attempt == tries - 1:
                 raise
         time.sleep(5 * (attempt + 1))
