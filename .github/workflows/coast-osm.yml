@@ -1,0 +1,32 @@
+name: Europe's coastline (OSM)
+run-name: Europe's coastline from OpenStreetMap
+
+# Europe's coasts in full detail (coast_osm.py, the owner, 15.10.2026: Norway's islands and fjords,
+# the Isle of Wight were blocks): OpenStreetMap's land polygons to zoom 10 over Europe, Natural
+# Earth's elsewhere, into tiles/coast/v2. Run by hand (the coast changes little).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    concurrency:
+      group: coast-osm
+      cancel-in-progress: false
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install ecCodes, NumPy, Pillow, SciPy and pyshp
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy pyshp
+
+      - name: Make and upload the coastline tiles
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+        run: .venv/bin/python -W ignore coast_osm.py
