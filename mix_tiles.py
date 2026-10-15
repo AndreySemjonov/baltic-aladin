@@ -62,6 +62,38 @@ MODELS = [
 KIND_TOTAL = 15.05
 MODELS = [(name, label, weight / KIND_TOTAL, km) for name, label, weight, km in MODELS]
 GLOBAL = {"ecmwf", "gfs"}
+
+# Fresher runs count more (the owner, 15.10.2026, after reading how the WG mix weights its models;
+# the same as the app's spot forecasts, ForecastEngine.freshness): each model's weight times
+# 100 x (hours its run is older than the newest model's + 4)^(-s/2) - 3 x s x hours (at least 0),
+# scaled so they stay about 1 (2 / (largest + smallest), the largest at most 1.5). 0: off. Set from
+# the backtest (the app's backend/lab/freshness.py).
+FRESHNESS = 0.0
+FRESH = {}
+
+
+def freshness(runs, sensitivity=FRESHNESS):
+    """Each model's factor from its run's start (Unix s): {label: factor}; {} when off or none."""
+    if sensitivity <= 0 or not runs:
+        return {}
+    newest = max(runs.values())
+    raw = {k: max(100 * ((newest - r) / 3600 + 4) ** (-sensitivity / 2) - 3 * sensitivity * (newest - r) / 3600, 0)
+           for k, r in runs.items()}
+    top, low = max(raw.values()), min(raw.values())
+    if top + low <= 0:
+        return {}
+    scale = 2 / (top + low)
+    if top * scale > 1.5:
+        scale = 1.5 / top
+    return {k: v * scale for k, v in raw.items()}
+
+
+def run_unix(text):
+    """An index's run ("2026-10-15T09:00Z") as Unix seconds; None when it has none."""
+    try:
+        return int(datetime.strptime(text, "%Y-%m-%dT%H:%MZ").replace(tzinfo=timezone.utc).timestamp())
+    except (TypeError, ValueError):
+        return None
 REGIONAL = {m[0] for m in MODELS} - GLOBAL - {"icon-eu"}
 # ICON-EU's area, MET Nordic's north and DINI's west (Greenland's coast, Iceland: 14.10.2026).
 BOX = (29.5, 74.0, -45.0, 62.5)
@@ -254,6 +286,7 @@ class Model:
     def __init__(self, name, label, weight, coast_km):
         self.name, self.label, self.weight, self.coast_km = name, label, weight, coast_km
         index = json.loads(get(FILES + f"{name}/index.json"))
+        self.run = run_unix(index.get("run"))
         self.files = {f["time"]: f["file"] for f in index["frames"] if not f["file"].endswith(("-temp.pack", "-rain.pack"))}
         self.times = sorted(self.files)
         self.packs = {}
@@ -402,6 +435,8 @@ def mix_tile(models, hours, coast, z, x, y):
     land = None
     km = tile_km(z, y)
     weights = tile_weights(models, z, px0, py0, w, h)
+    if FRESH:
+        weights = {k: v * FRESH.get(k, 1.0) for k, v in weights.items()}
     total = np.zeros((h, w), np.float32)
     speed = np.zeros((h, w), np.float32)
     gust = np.zeros((h, w), np.float32)
@@ -468,6 +503,9 @@ def main():
     regional = [m for m in models if m.name in REGIONAL]
     if not regional:
         raise SystemExit("No regional model to mix")
+    FRESH.update(freshness({m.label: m.run for m in models if m.run}))
+    if FRESH:
+        print("Freshness: " + ", ".join(f"{k} {v:.2f}" for k, v in sorted(FRESH.items(), key=lambda kv: -kv[1])), flush=True)
     now = int(time.time()) // 3600 * 3600
     last = max(m.times[-1] for m in regional if m.times)
     # Hourly for the first day, then every 3 hours (as MET Nordic's 1 km tiles; the app goes
@@ -525,7 +563,7 @@ def main():
         out.frames[t]["models"] = [m.label for m in models if m.label in used]
         print(f"  {datetime.fromtimestamp(t, timezone.utc):%d %H:%M}: {len(tiles)} tiles, "
               f"{', '.join(out.frames[t]['models'])}, {time.time() - started:.0f} s", flush=True)
-    out.finish(weights={m.label: m.weight for m in models})
+    out.finish(weights={m.label: m.weight for m in models}, freshness={k: round(v, 3) for k, v in FRESH.items()})
     print(f"Mix done in {time.time() - started:.0f} s")
 
 
