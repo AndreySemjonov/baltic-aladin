@@ -1,0 +1,68 @@
+name: World coastline (OSM)
+run-name: The world's coastline from OpenStreetMap
+
+# The whole world's coast in full detail (coast_osm.py --world; the owner, 16.10.2026: "fine
+# coastline worldwide", usable anywhere at release): OpenStreetMap's land polygons to zoom 10, the
+# shore from the land drawn 8 times finer, into tiles/coast/v4. In 16 parts by columns of zoom-5
+# tiles side by side, then the index from all of them (only when every part made it). Run by hand.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  part:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: true
+      matrix:
+        part: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install ecCodes, NumPy, Pillow, SciPy and pyshp
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy pyshp
+
+      - name: Make and upload this part's coast
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          PART: ${{ matrix.part }}
+        run: |
+          mkdir -p parts
+          .venv/bin/python -W ignore coast_osm.py --world --columns $((PART * 2)),$((PART * 2 + 1)) --part parts/part-$PART.json
+
+      - name: Keep the part's lists
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coast-part-${{ matrix.part }}
+          path: parts/part-${{ matrix.part }}.json
+          retention-days: 3
+
+  index:
+    needs: part
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install NumPy, Pillow, SciPy and pyshp
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy pyshp
+
+      - name: The parts' lists
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: coast-part-*
+          path: parts
+
+      - name: The world's index
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+        run: .venv/bin/python -W ignore coast_osm.py --index parts

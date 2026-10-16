@@ -16,7 +16,14 @@ at a time, as each pixel's distance to the nearest fine pixel across the shore; 
 16 levels a pixel of their own zoom (127.5 on the shore, so 8 pixels either way), so the phone finds
 the shore between the pixels to a sixteenth of one. Only the shore's place and side are read.
 
+v4 (the owner, 16.10.2026: "fine coastline worldwide"; usable anywhere at release): the whole world
+the same way (--world), in parts by columns of zoom-5 tiles run side by side (--columns 0,3
+--part part.json: their packs uploaded, the part's lists written), then the index from all the
+parts (--index DIR). Natural Earth's packs are no longer used.
+
     python coast_osm.py                upload (INGEST_TOKEN)
+    python coast_osm.py --world --columns 0,3 --part part-0.json    one part of the world
+    python coast_osm.py --index parts/                               the world's index from its parts
     python coast_osm.py --local DIR    write to DIR (a test; --only 16,8 for one zoom-5 tile)
 """
 import io
@@ -40,9 +47,11 @@ import world_tiles
 
 OSM = "https://osmdata.openstreetmap.de/download/land-polygons-split-3857.zip"
 FILES = "https://files.meteogust.com/tiles/coast/"
-FOLDER = "v3"
+FOLDER = "v4"
 BASE, TOP, SIZE = 5, 10, 256
 EUROPE_X, EUROPE_Y = range(13, 21), range(6, 13)
+# The zoom-5 tiles made (Europe's by default; the world's, or a part of it, by the arguments).
+X_RANGE, Y_RANGE = EUROPE_X, EUROPE_Y
 SPAN = SIZE * 2 ** (TOP - BASE)          # a zoom-5 tile in zoom-10 pixels (8192)
 MARGIN = 192                              # zoom-10 pixels round it, so the distance sees past its edge
 FINE = 8                                  # the shore's place from the land drawn this much finer
@@ -75,8 +84,8 @@ def regions_of(bbox):
     x1 = (bbox[2] + WORLD) / (2 * WORLD) * n + pad
     y0 = (WORLD - bbox[3]) / (2 * WORLD) * n - pad
     y1 = (WORLD - bbox[1]) / (2 * WORLD) * n + pad
-    return [(x, y) for x in range(max(int(x0), EUROPE_X.start), min(int(x1), EUROPE_X.stop - 1) + 1)
-            for y in range(max(int(y0), EUROPE_Y.start), min(int(y1), EUROPE_Y.stop - 1) + 1)]
+    return [(x, y) for x in range(max(int(x0), X_RANGE.start), min(int(x1), X_RANGE.stop - 1) + 1)
+            for y in range(max(int(y0), Y_RANGE.start), min(int(y1), Y_RANGE.stop - 1) + 1)]
 
 
 def load_land(zip_path):
@@ -266,10 +275,39 @@ def get(url):
             time.sleep(5 * (attempt + 1))
 
 
+def world_index(parts, put):
+    """The world's index from its parts' lists (every part must be there)."""
+    packs, all_land = [], []
+    files = sorted(Path(parts).rglob("*.json"))
+    for file in files:
+        part = json.loads(file.read_text())
+        packs += part["packs"]
+        all_land += part["land"]
+    columns = sorted({int(name.split("-")[0]) for name in packs + all_land})
+    print(f"{len(files)} parts, {len(packs)} packs, {len(all_land)} all land, columns {columns[0]}-{columns[-1]}", flush=True)
+    if len(files) < 16 or len(packs) < 300:
+        raise SystemExit("parts missing: the index stays as it was")
+    index = {"source": "OpenStreetMap land polygons (ODbL), the world, zooms 5-10 (the shore from the land drawn 8 times finer); "
+                       "Natural Earth's lakes (public domain)",
+             "zooms": [BASE, TOP], "fine": {"zooms": [BASE, TOP], "x": [0, 31], "y": [0, 31]},
+             "tileSize": SIZE, "encoding": "127.5 on the shore, inland up and out to sea down, 16 levels a pixel of the tile's zoom",
+             "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "folder": FOLDER,
+             "packs": sorted(packs), "land": sorted(all_land)}
+    put("index.json", json.dumps(index, separators=(",", ":")).encode())
+
+
 def main():
+    global X_RANGE, Y_RANGE
     args = sys.argv[1:]
     local = Path(args[args.index("--local") + 1]) if "--local" in args else None
     only = tuple(int(v) for v in args[args.index("--only") + 1].split(",")) if "--only" in args else None
+    part_file = Path(args[args.index("--part") + 1]) if "--part" in args else None
+    world = "--world" in args
+    if world:
+        X_RANGE, Y_RANGE = range(0, 32), range(0, 32)
+        if "--columns" in args:
+            first, last = (int(v) for v in args[args.index("--columns") + 1].split(","))
+            X_RANGE = range(first, last + 1)
     started = time.time()
 
     def put(name, data):
@@ -279,11 +317,14 @@ def main():
         else:
             world_tiles.upload(f"coast/{name}" if name == "index.json" else f"coast/{FOLDER}/{name}", data)
 
+    if "--index" in args:
+        world_index(args[args.index("--index") + 1], put)
+        return
     land = load_land(download(Path("land-polygons-split-3857.zip")))
     lakes = coast_tiles.polygons("lakes")
     old = json.loads(get(FILES + "index.json"))
     packs, all_land, size = [], [], 0
-    europe = {(x, y) for x in EUROPE_X for y in EUROPE_Y}
+    europe = {(x, y) for x in X_RANGE for y in Y_RANGE}
     for (tx, ty) in sorted(europe):
         if only and (tx, ty) != only:
             continue
@@ -301,6 +342,13 @@ def main():
         print(f"{name}: {len(data) / 1e6:.1f} MB, {time.time() - started:.0f} s", flush=True)
     if only:
         print(f"done {packs} {all_land}")
+        return
+    if world:
+        # A part of the world: its lists for the index (written by the last step from all parts).
+        if part_file:
+            part_file.write_text(json.dumps({"columns": [X_RANGE.start, X_RANGE.stop - 1], "packs": packs, "land": all_land}))
+        print(f"coast v4 columns {X_RANGE.start}-{X_RANGE.stop - 1}: {len(packs)} packs, {len(all_land)} all land, "
+              f"{size / 1e6:.0f} MB, {time.time() - started:.0f} s")
         return
     # The rest of the world: Natural Earth's packs as they were.
     for name in old["packs"]:
