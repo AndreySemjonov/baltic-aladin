@@ -13,8 +13,16 @@ each), little-endian.
 Also check.json (the run's artifact, not uploaded): pyTMD's own prediction (FES nodal corrections,
 the major constituents only, as the phones) at a few ports for a week, for the app's tests.
 
+The tide map (--map; the owner, 16.10.2026: "make worldwide tide"): the 8 main constituents over
+the whole sea as map tiles, zooms 0-4 of 256 pixels on the web map's grid, two constituents to a
+pack (tiles/tides/map-0.pack M2 S2, map-1 N2 K2, map-2 K1 O1, map-3 P1 Q1; "MGT1" as the world
+tiles). A pixel's RGBA: the first constituent's amplitude code and phase, the second's; the code
+0 no sea, else 1 + sqrt(cm) / sqrt(800) x 254, the phase (Greenwich lag) x 256 / 360. The phones
+predict the hour over the view from them as the spots' tide.
+
     python tides_world.py              # download, make, upload
     python tides_world.py --local out  # make into a folder, no upload
+    python tides_world.py --map [--local out]  # the tide map's packs only
 """
 import io
 import json
@@ -80,6 +88,9 @@ def main():
     work = HERE / "eot20-data"
     work.mkdir(exist_ok=True)
     files = download(work)
+    if "--map" in args:
+        map_packs(files, local)
+        return
     amps, phases = [], []
     lat = lon = None
     for name in CONSTITUENTS:
@@ -142,6 +153,90 @@ def main():
     else:
         upload("tides/args.json", table)
     check(work, local or HERE)
+
+
+MAP_PAIRS = [("M2", "S2"), ("N2", "K2"), ("K1", "O1"), ("P1", "Q1")]
+MAP_ZOOMS = range(0, 5)
+MAP_SIDE = 256
+MAP_TOP = 800.0  # cm, the amplitude code's top
+
+
+def map_packs(files, local):
+    """The tide map's four packs (see the top): each pixel's constituents from the grid's four
+    cells round it, the sea's only, blended as complex harmonics (so phases blend round the circle)."""
+    from PIL import Image
+    lat = lon = None
+    harm = {}
+    sea = None
+    for pair in MAP_PAIRS:
+        for name in pair:
+            with Dataset(files[name]) as data:
+                if lat is None:
+                    lat, lon = np.array(data["lat"][:], dtype=np.float64), np.array(data["lon"][:], dtype=np.float64)
+                a = np.ma.filled(data["amplitude"][:], 0).astype(np.float64)
+                p = np.ma.filled(data["phase"][:], 0).astype(np.float64)
+            if a.shape != (lat.size, lon.size):
+                a, p = a.T, p.T
+            if sea is None:
+                sea = ((a != 0) | (p != 0)).astype(np.float32)
+            harm[name] = (a * np.exp(1j * np.radians(p))).astype(np.complex64)
+    step_lat, step_lon = float(lat[1] - lat[0]), float(lon[1] - lon[0])
+    out_dir = local / "tides" if local else None
+    if out_dir:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    tiles = {k: {} for k in range(len(MAP_PAIRS))}
+    for z in MAP_ZOOMS:
+        n = 1 << z
+        for y in range(n):
+            # Pixel centres' latitudes (Mercator) and the grid rows round them.
+            py = (y * MAP_SIDE + np.arange(MAP_SIDE) + 0.5) / (MAP_SIDE * n)
+            la = np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * py))))
+            fr = np.clip((la - lat[0]) / step_lat, 0, lat.size - 1.001)
+            r0 = np.floor(fr).astype(int)
+            wr = (fr - r0)[:, None]
+            for x in range(n):
+                px = (x * MAP_SIDE + np.arange(MAP_SIDE) + 0.5) / (MAP_SIDE * n)
+                fc = np.mod(px * 360 - 180 - lon[0], 360) / step_lon
+                c0 = np.floor(fc).astype(int) % lon.size
+                c1 = (c0 + 1) % lon.size
+                wc = (fc - np.floor(fc))[None, :]
+                corners = [(r0[:, None], c0[None, :], (1 - wr) * (1 - wc)), (r0[:, None], c1[None, :], (1 - wr) * wc),
+                           (r0[:, None] + 1, c0[None, :], wr * (1 - wc)), (r0[:, None] + 1, c1[None, :], wr * wc)]
+                weights = [w * sea[r, c] for r, c, w in corners]
+                total = sum(weights)
+                valid = total > 0
+                if not valid.any():
+                    continue
+                safe = np.where(valid, total, 1)
+                for k, pair in enumerate(MAP_PAIRS):
+                    rgba = np.zeros((MAP_SIDE, MAP_SIDE, 4), dtype=np.uint8)
+                    for j, name in enumerate(pair):
+                        h = sum(w * harm[name][r, c] for (r, c, _), w in zip(corners, weights)) / safe
+                        amp = np.minimum(np.abs(h), MAP_TOP)
+                        code = 1 + np.rint(np.sqrt(amp) / math.sqrt(MAP_TOP) * 254)
+                        rgba[..., 2 * j] = np.where(valid, code, 0).astype(np.uint8)
+                        phase = np.mod(np.rint(np.mod(np.degrees(np.angle(h)), 360) / 360 * 256), 256)
+                        rgba[..., 2 * j + 1] = np.where(valid, phase, 0).astype(np.uint8)
+                    buffer = io.BytesIO()
+                    Image.fromarray(rgba, "RGBA").save(buffer, format="PNG", compress_level=9)
+                    tiles[k][(z, x, y)] = buffer.getvalue()
+        print(f"zoom {z}: {len(tiles[0])} tiles so far", flush=True)
+    for k, pair in enumerate(MAP_PAIRS):
+        header, offset, body = {}, 0, []
+        for key, data in tiles[k].items():
+            header["%d/%d/%d" % key] = [offset, len(data)]
+            body.append(data)
+            offset += len(data)
+        head = json.dumps({"sizes": {str(z): MAP_SIDE for z in MAP_ZOOMS}, "zooms": [min(MAP_ZOOMS), max(MAP_ZOOMS)],
+                           "constituents": list(pair), "top": MAP_TOP, "credit": CREDIT, "tiles": header},
+                          separators=(",", ":")).encode()
+        data = b"MGT1" + struct.pack("<I", len(head)) + head + b"".join(body)
+        name = f"map-{k}.pack"
+        print(f"{name} {pair}: {len(header)} tiles, {len(data) / 1e6:.1f} MB", flush=True)
+        if out_dir:
+            (out_dir / name).write_bytes(data)
+        else:
+            upload("tides/" + name, data)
 
 
 def upload(path, data):

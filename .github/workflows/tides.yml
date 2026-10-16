@@ -12,6 +12,10 @@ on:
         description: "Upload the packs (false: make them as an artifact only)"
         type: boolean
         default: true
+      map:
+        description: "Only the tide map's packs (map-0..3.pack: the 8 main constituents over the whole sea)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -33,8 +37,10 @@ jobs:
         env:
           INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
           UPLOAD: ${{ inputs.upload }}
+          MAP: ${{ inputs.map }}
         run: |
-          if [ "$UPLOAD" = "true" ]; then .venv/bin/python tides_world.py; else .venv/bin/python tides_world.py --local tides-out; fi
+          MODE=""; if [ "$MAP" = "true" ]; then MODE="--map"; fi
+          if [ "$UPLOAD" = "true" ]; then .venv/bin/python tides_world.py $MODE; else .venv/bin/python tides_world.py $MODE --local tides-out; fi
           mkdir -p tides-out && cp -f check.json tides-out/ 2>/dev/null || true
 
       - name: Keep the check
