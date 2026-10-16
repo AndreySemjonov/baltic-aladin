@@ -1,0 +1,46 @@
+name: Europe's seas, a test
+run-name: Europe's seas test (${{ inputs.date }}, ${{ inputs.hours }} h)
+
+# The sea tiles for a past hour, kept as the run's artifact and never uploaded (the owner,
+# 16.10.2026: test the ice map on last winter's ice before the first real ice). The app's
+# decoding is checked from the packs on the PC (WindguruStationWatch backend/lab/ice_check.py).
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "The run's hour, UTC (YYYY-MM-DDTHH)"
+        type: string
+        default: "2026-02-20T00"
+      hours:
+        description: "How many of its hours"
+        type: string
+        default: "6"
+
+permissions:
+  contents: read
+
+jobs:
+  sea-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install ecCodes, NumPy, Pillow, SciPy and the Copernicus Marine toolbox
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy copernicusmarine
+
+      - name: Make the seas locally
+        env:
+          COPERNICUSMARINE_SERVICE_USERNAME: ${{ secrets.COPERNICUSMARINE_SERVICE_USERNAME }}
+          COPERNICUSMARINE_SERVICE_PASSWORD: ${{ secrets.COPERNICUSMARINE_SERVICE_PASSWORD }}
+        run: .venv/bin/python water_composite.py --local sea-test --date "${{ inputs.date }}" --hours "${{ inputs.hours }}"
+
+      - name: Keep the packs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sea-test
+          path: sea-test
+          retention-days: 7

@@ -441,6 +441,9 @@ def main():
     limit = int(args[args.index("--hours") + 1]) if "--hours" in args else None
     started = time.time()
     run_time = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    # A past hour (a test with --local, e.g. last winter's ice: sea-test.yml): 2026-02-20T00.
+    if "--date" in args:
+        run_time = datetime.strptime(args[args.index("--date") + 1], "%Y-%m-%dT%H").replace(tzinfo=timezone.utc)
     targets = [int((run_time + timedelta(hours=s)).timestamp()) for s in (STEPS[:limit] if limit else STEPS)]
     # Which of the hours each model has (its level's times only: no values read here).
     have, first_hours = {}, {}
