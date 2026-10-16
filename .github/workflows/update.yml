@@ -204,6 +204,15 @@ jobs:
         if: steps.due.outputs.deploy == 'true'
         uses: actions/deploy-pages@v4
 
+      # The phones' small data files on our file store too (publish_files.py; the owner, 16.10.2026:
+      # GitHub Pages' traffic is capped): files.meteogust.com/helper/. A failure never fails the run.
+      - name: Copy the phones' data files to our file store
+        if: steps.due.outputs.deploy == 'true'
+        continue-on-error: true
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+        run: python3 publish_files.py site
+
       # A short report of every run (also the quick "nothing new" ones) for the admin panel: what was
       # due, what was rebuilt, what failed, each map's newest and published run. Sent to the
       # station-history Worker, which keeps 14 days; nothing secret in it. Without the
