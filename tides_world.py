@@ -212,7 +212,7 @@ def check(work, folder):
         try:
             tide = pyTMD.compute.tide_elevations(np.full(hours.size, lo), np.full(hours.size, la), seconds_since_2000 / 86400.0,
                                                  directory=root, model="EOT20", epoch=(2000, 1, 1, 0, 0, 0), type="time series",
-                                                 standard="UTC", method="bilinear", extrapolate=True, cutoff=20,
+                                                 standard="UTC", method="linear", extrapolate=True, cutoff=20,
                                                  infer_minor=False, corrections="FES")
             values = np.asarray(tide).ravel()
             out["ports"][name] = {"lat": la, "lon": lo, "cm": [round(float(v), 2) for v in values]}
