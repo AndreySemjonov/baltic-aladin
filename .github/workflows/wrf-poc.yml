@@ -77,7 +77,7 @@ jobs:
           .venv/bin/python wrf_poc/report.py work | tee -a "$GITHUB_STEP_SUMMARY" || true
           mkdir -p keep && cp -r work/report work/times.txt work/env keep/ 2>/dev/null || true
           cp work/wps/*.log work/wps/namelist.wps work/wrf/namelist.input work/wrf/rsl.error.0000 work/wrf/*.log keep/ 2>/dev/null || true
-          cp work/wrf/wrfout_d03_* keep/ 2>/dev/null || true
+          # (WRF's own output, about 600 MB a box, isn't kept: the pictures and the table say it.)
 
       - name: Keep the report
         if: always()
