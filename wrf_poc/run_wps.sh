@@ -11,12 +11,27 @@ set +u
 [ -f /opt/intel/oneapi/setvars.sh ] && source /opt/intel/oneapi/setvars.sh --force > /dev/null 2>&1 || true
 [ -f /home/wrfuser/.bashrc ] && source /home/wrfuser/.bashrc > /dev/null 2>&1 || true
 set -u
+# The libraries the programs miss (the image sets no library path: NetCDF, Intel's runtime):
+# each one found in the image and its folder added to LD_LIBRARY_PATH.
+libraries() {
+  local extra="" lib dir
+  for exe in "$@"; do
+    for lib in $(ldd "$exe" 2>/dev/null | awk '/not found/ {print $1}'); do
+      dir=$(dirname "$(find / -name "$lib" -not -path "/proc/*" -not -path "/work/*" 2>/dev/null | head -1)")
+      if [ "$dir" != "." ] && [[ ":$extra:" != *":$dir:"* ]]; then extra="$extra:$dir"; fi
+    done
+  done
+  export LD_LIBRARY_PATH="${extra#:}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  log "library path: $LD_LIBRARY_PATH"
+  for exe in "$@"; do ldd "$exe" | grep "not found" && log "still missing for $exe" || true; done
+}
 
 GEOGRID=$(find / -name geogrid.exe -not -path "/proc/*" -not -path "/work/*" 2>/dev/null | head -1)
 WPS=$(dirname "$GEOGRID")
 # geogrid.exe may sit in WPS/geogrid/src (the link at WPS's top is what the tables sit beside).
 [ -d "$WPS/geogrid" ] || WPS=$(dirname "$(dirname "$(dirname "$GEOGRID")")")
 log "WPS at $WPS"
+libraries "$WPS"/geogrid/src/geogrid.exe "$WPS"/ungrib/src/ungrib.exe "$WPS"/metgrid/src/metgrid.exe
 mkdir -p /work/wps && cd /work/wps
 rm -f geogrid.exe ungrib.exe metgrid.exe GRIBFILE.* FILE:* met_em.* geo_em.* Vtable
 for exe in geogrid ungrib metgrid; do
