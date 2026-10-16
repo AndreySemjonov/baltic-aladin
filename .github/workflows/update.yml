@@ -150,6 +150,8 @@ jobs:
           # (aladin.json), the water picture (the Baltic's 1 km layer of the sea tiles, sea.yml, and
           # the app's fallback), the ice picture (the app's "no sea ice" until its tiles say so)
           # and the gauges.
+          # The site folder itself (no picture build makes it any more since the wind pictures retired).
+          mkdir -p site
           cp docs/aladin.json docs/index.html site/
           if [ -f docs/nemo.json ]; then cp docs/nemo.json site/; fi
           # The water map (NEMO-EST): this run's frames, else the published ones.
