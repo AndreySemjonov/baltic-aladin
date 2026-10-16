@@ -1,0 +1,45 @@
+name: World tides
+run-name: World tides (EOT20 constituents along the coasts)
+
+# The harmonic constituents of the EOT20 ocean tide model for every coast (tides_world.py; the
+# owner, 16.10.2026): made once into tiles/tides, run again only when the model or the packs
+# change. Its check.json (pyTMD's prediction at a few ports) is kept as the run's artifact for the
+# app's tests.
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: "Upload the packs (false: make them as an artifact only)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  tides:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install NumPy, SciPy, netCDF4 and pyTMD
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet numpy scipy netCDF4 pyTMD pillow
+
+      - name: Make the tides
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          UPLOAD: ${{ inputs.upload }}
+        run: |
+          if [ "$UPLOAD" = "true" ]; then .venv/bin/python tides_world.py; else .venv/bin/python tides_world.py --local tides-out; fi
+          mkdir -p tides-out && cp -f check.json tides-out/ 2>/dev/null || true
+
+      - name: Keep the check
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tides
+          path: tides-out
+          retention-days: 14
