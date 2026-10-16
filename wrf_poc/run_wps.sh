@@ -5,7 +5,12 @@
 set -euo pipefail
 source /work/env
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
-timed() { local name=$1; shift; local t0; t0=$(date +%s); "$@"; echo "$name $(( $(date +%s) - t0 ))" >> /work/times.txt; log "$name done"; }
+timed() { local name=$1; shift; local t0; t0=$(date +%s); "$@" || return $?; echo "$name $(( $(date +%s) - t0 ))" >> /work/times.txt; log "$name done"; }
+# The container's own set-up (its entrypoint is bypassed): Intel's MPI and compilers, the user's paths.
+set +u
+[ -f /opt/intel/oneapi/setvars.sh ] && source /opt/intel/oneapi/setvars.sh --force > /dev/null 2>&1 || true
+[ -f /home/wrfuser/.bashrc ] && source /home/wrfuser/.bashrc > /dev/null 2>&1 || true
+set -u
 
 GEOGRID=$(find / -name geogrid.exe -not -path "/proc/*" -not -path "/work/*" 2>/dev/null | head -1)
 WPS=$(dirname "$GEOGRID")

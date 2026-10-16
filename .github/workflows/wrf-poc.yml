@@ -34,6 +34,8 @@ jobs:
       - name: NCAR's WRF container, and where its programs are
         run: |
           docker pull ncar/iwrf:latest
+          docker inspect ncar/iwrf:latest --format 'env {{json .Config.Env}} entrypoint {{json .Config.Entrypoint}} cmd {{json .Config.Cmd}} user {{.Config.User}}'
+          docker run --rm --entrypoint bash ncar/iwrf:latest -c 'cat /home/wrfuser/.bashrc 2>/dev/null | tail -20; ldd /home/wrfuser/WPS/geogrid/src/geogrid.exe | grep "not found" || echo "geogrid: libraries found"'
           docker run --rm --entrypoint bash ncar/iwrf:latest -c 'find / \( -name wrf.exe -o -name real.exe -o -name geogrid.exe -o -name ungrib.exe -o -name metgrid.exe -o -name mpirun -o -name Vtable.GFS \) -not -path "/proc/*" 2>/dev/null; head -2 /etc/os-release'
 
       - name: The terrain data (WPS's mandatory high-resolution set)
