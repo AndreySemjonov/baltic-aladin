@@ -31,8 +31,6 @@ import numpy as np
 from netCDF4 import Dataset
 from scipy import ndimage
 
-import world_tiles
-
 URL = "https://www.seanoe.org/data/00683/79489/data/85762.zip"
 CONSTITUENTS = ["M2", "S2", "N2", "K2", "K1", "O1", "P1", "Q1", "2N2", "J1", "M4", "MF", "MM", "S1", "SA", "SSA", "T2"]
 NEAR = 4  # cells (half a degree) from land
@@ -129,16 +127,64 @@ def main():
         if out_dir:
             (out_dir / name).write_bytes(data)
         else:
-            world_tiles.upload("tides/" + name, data)
+            upload("tides/" + name, data)
     index = {"version": "eot20-1", "made": time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime()), "tiles": names,
              "constituents": CONSTITUENTS, "credit": CREDIT, "near": NEAR}
     body = json.dumps(index, separators=(",", ":")).encode()
     if out_dir:
         (out_dir / "index.json").write_bytes(body)
     else:
-        world_tiles.upload("tides/index.json", body)
+        upload("tides/index.json", body)
     print(f"{len(names)} tiles, {total / 1e6:.1f} MB", flush=True)
+    table = arguments_table()
+    if out_dir:
+        (out_dir / "args.json").write_bytes(table)
+    else:
+        upload("tides/args.json", table)
     check(work, local or HERE)
+
+
+def upload(path, data):
+    # world_tiles' upload without its map imports (eccodes is not installed here).
+    token = os.environ.get("INGEST_TOKEN")
+    if not token:
+        raise SystemExit("INGEST_TOKEN is not set")
+    for attempt in range(4):
+        try:
+            request = urllib.request.Request("https://data.meteogust.com/tiles/upload/" + path, data=data, method="PUT",
+                                             headers={"Authorization": "Bearer " + token,
+                                                      "User-Agent": "MeteoGust tides (data.meteogust.com)"})
+            with urllib.request.urlopen(request, timeout=300) as reply:
+                return reply.read().decode()
+        except Exception:
+            if attempt == 3:
+                raise
+            time.sleep(15 * (attempt + 1))
+
+
+def arguments_table():
+    """The constituents' astronomical arguments by month, 2026-2036, for the phones' prediction
+    (pyTMD, FES corrections, as the check): each month's start (Unix s), and per constituent its
+    phase G at that start (degrees), its nodal angle u (degrees) and factor f; the speeds (degrees an
+    hour). Between two months the phones carry G on at its speed and blend u and f."""
+    import pyTMD
+    names = [c.lower() for c in CONSTITUENTS]
+    starts, G0, U, F = [], [], [], []
+    for year in range(2026, 2037):
+        for month in range(1, 13):
+            unix = int(time.mktime(time.strptime(f"{year}-{month:02d}-01", "%Y-%m-%d")) - time.timezone)
+            starts.append(unix)
+    starts.append(int(time.mktime(time.strptime("2037-01-01", "%Y-%m-%d")) - time.timezone))
+    mjd = np.array(starts, dtype=np.float64) / 86400.0 + 40587.0
+    pu, pf, G = pyTMD.constituents.arguments(mjd, names, corrections="FES")
+    pu1, pf1, G1 = pyTMD.constituents.arguments(mjd + 1.0 / 24, names, corrections="FES")
+    speed = np.mod(np.asarray(G1)[0] - np.asarray(G)[0], 360.0)
+    table = {"constituents": CONSTITUENTS, "starts": starts, "speed": [round(float(v), 7) for v in speed],
+             "g": [[round(float(v) % 360, 4) for v in row] for row in np.asarray(G)],
+             "u": [[round(float(np.degrees(v)), 4) for v in row] for row in np.asarray(pu)],
+             "f": [[round(float(v), 5) for v in row] for row in np.asarray(pf)],
+             "corrections": "FES", "source": "pyTMD"}
+    return json.dumps(table, separators=(",", ":")).encode()
 
 
 def check(work, folder):
