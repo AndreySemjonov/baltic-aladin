@@ -27,7 +27,7 @@ jobs:
       - name: Install NumPy, SciPy, netCDF4 and pyTMD
         run: |
           python3 -m venv .venv
-          .venv/bin/pip install --quiet numpy scipy netCDF4 pyTMD pillow
+          .venv/bin/pip install --quiet numpy scipy netCDF4 pyTMD pillow dask
 
       - name: Make the tides
         env:
