@@ -107,14 +107,21 @@ def main():
     keys = [(z, x, y) for z in ZOOMS for x in range(1 << z) for y in range(1 << z)]
     out = tiler.Run("sea-world", run_time, ZOOMS, "Copernicus global ocean", CREDIT, True, local)
     fill = Filler(~np.isfinite(offset))
-    for t, k in wanted:
-        hour = ds.isel(time=[k]).load()
-        place, sample, fields, reason = grids(hour, 0, offset, fill)
-        if not out.checked("GLO", t, reason):
-            continue
-        out.put(t, pack(place, sample, fields, keys))
-        print(f"  {datetime.fromtimestamp(t, timezone.utc):%d.%m %H}Z: {len(out.frames)} hours, {out.bytes / 1e6:.0f} MB, "
-              f"{time.time() - started:.0f} s", flush=True)
+    # A block of hours read at once (16.10.2026: hour by hour took 100 s each, Copernicus's chunks
+    # span many hours and each was read again for every hour); the hours' places in the block.
+    BLOCK = 12
+    for start in range(0, len(wanted), BLOCK):
+        block = wanted[start:start + BLOCK]
+        indices = sorted(set(k for _, k in block))
+        loaded = ds.isel(time=indices).load()
+        for t, k in block:
+            place, sample, fields, reason = grids(loaded, indices.index(k), offset, fill)
+            if not out.checked("GLO", t, reason):
+                continue
+            out.put(t, pack(place, sample, fields, keys))
+            print(f"  {datetime.fromtimestamp(t, timezone.utc):%d.%m %H}Z: {len(out.frames)} hours, {out.bytes / 1e6:.0f} MB, "
+                  f"{time.time() - started:.0f} s", flush=True)
+        del loaded
     if not out.frames:
         raise SystemExit("no hours made")
     out.finish(encoding="level 128 + 4.8 sign sqrt|cm| (0 no sea; against the first day's mean), (C + 4) x 7, "
