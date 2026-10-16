@@ -8,8 +8,8 @@ as world tiles under Europe's detailed set (tiles/sea, water_composite.py), in t
     blue  = the current's east part: 128 + m/s x 42 (1-255)
     alpha = its north part, the same
 
-Every 3 hours from 12 hours back to 7 days on, zooms 0-3 of 256 pixels (zoom 3 about 18 km a
-pixel), round the world (tiles/sea-world). The global model has no tide: its current is the ocean's
+Every hour from 12 hours back to 3 days on, then every 3 hours to 7 days, zooms 0-4 of 256 pixels
+(zoom 4 about 10 km a pixel at the equator, the model's own), round the world (tiles/sea-world). The global model has no tide: its current is the ocean's
 own and the wind's; Europe's set (with the tide where its models have it) goes over it on the map.
 
 Free data, but Copernicus needs our account (COPERNICUSMARINE_SERVICE_USERNAME and _PASSWORD,
@@ -26,15 +26,32 @@ import numpy as np
 import tiler
 import world_tiles
 from water_composite import GLO, NEAR, check, nearest, open_dataset, sea_rgba, stamps_of
-from waves_tiles import filled, regular_grid
+from scipy import ndimage
 
-ZOOMS = range(0, 4)
-STEPS = list(range(-12, 7 * 24 + 1, 3))
+from waves_tiles import regular_grid
+
+ZOOMS = range(0, 5)
+STEPS = list(range(-12, 72)) + list(range(72, 7 * 24 + 1, 3))
+REACH = 3  # cells the sea's values reach onto the land (so the coast's pixels blend with sea)
+
+
+class Filler:
+    """The land within REACH cells of the sea, each from its nearest sea cell: worked out once (the
+    land is the same every hour), used for every field and hour."""
+
+    def __init__(self, missing):
+        distance, (self.rows, self.cols) = ndimage.distance_transform_edt(missing, return_indices=True)
+        self.missing = missing
+        self.near = distance <= REACH
+
+    def __call__(self, raw):
+        out = raw[self.rows, self.cols]
+        return np.where(self.near, out, np.nan).astype(np.float32)
 VARIABLES = {"level": "zos", "temp": "thetao", "u": "uo", "v": "vo"}
 CREDIT = "E.U. Copernicus Marine Service Information (GLO physics forecast)"
 
 
-def grids(ds, index, offset):
+def grids(ds, index, offset, fill):
     """The hour's fields as (place, sample, values), the land filled 3 cells out, round the world."""
     lats, lons = ds["latitude"].values.astype(np.float64), ds["longitude"].values.astype(np.float64)
     place, sample = regular_grid(lats[0], lons[0], lats[1] - lats[0], lons[1] - lons[0], len(lats), len(lons), True)
@@ -48,7 +65,8 @@ def grids(ds, index, offset):
             raw_level = raw
         if field == "temp":
             raw_temp = raw
-        out[field] = filled(raw, ~np.isfinite(raw))
+        # A cell the land mask calls sea but this field lacks (rare): its nearest sea cell's value too.
+        out[field] = fill(np.where(np.isfinite(raw), raw, 0) if field != "level" else raw)
     return place, sample, out, check(raw_level, raw_temp)
 
 
@@ -88,9 +106,10 @@ def main():
     print(f"level mean from {len(first)} hours, {time.time() - started:.0f} s", flush=True)
     keys = [(z, x, y) for z in ZOOMS for x in range(1 << z) for y in range(1 << z)]
     out = tiler.Run("sea-world", run_time, ZOOMS, "Copernicus global ocean", CREDIT, True, local)
+    fill = Filler(~np.isfinite(offset))
     for t, k in wanted:
         hour = ds.isel(time=[k]).load()
-        place, sample, fields, reason = grids(hour, 0, offset)
+        place, sample, fields, reason = grids(hour, 0, offset, fill)
         if not out.checked("GLO", t, reason):
             continue
         out.put(t, pack(place, sample, fields, keys))
