@@ -1,0 +1,42 @@
+name: World seas
+run-name: World seas (Copernicus global level, temperature, current)
+
+# The world's water map under Europe's (sea_world.py; the owner, 16.10.2026: the final current over
+# the whole world): the Copernicus global ocean forecast every 3 hours for 7 days, zooms 0-3, into
+# tiles/sea-world. Once a day, after the global model's run is out.
+on:
+  schedule:
+    - cron: "40 10 * * *"
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: "Only the first N times (a test); empty: all"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  sea-world:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    concurrency:
+      group: sea-world
+      cancel-in-progress: false
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install ecCodes, NumPy, Pillow, SciPy and the Copernicus Marine toolbox
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy copernicusmarine
+
+      - name: Make and upload the world's seas
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          COPERNICUSMARINE_SERVICE_USERNAME: ${{ secrets.COPERNICUSMARINE_SERVICE_USERNAME }}
+          COPERNICUSMARINE_SERVICE_PASSWORD: ${{ secrets.COPERNICUSMARINE_SERVICE_PASSWORD }}
+          HOURS: ${{ inputs.hours }}
+        run: .venv/bin/python sea_world.py ${HOURS:+--hours $HOURS}
