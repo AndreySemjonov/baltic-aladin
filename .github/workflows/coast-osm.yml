@@ -3,7 +3,7 @@ run-name: Europe's coastline from OpenStreetMap
 
 # Europe's coasts in full detail (coast_osm.py, the owner, 15.10.2026: Norway's islands and fjords,
 # the Isle of Wight were blocks): OpenStreetMap's land polygons to zoom 10 over Europe, Natural
-# Earth's elsewhere, into tiles/coast/v2. Run by hand (the coast changes little).
+# Earth's elsewhere, into tiles/coast/v3 (v3: the shore from the land drawn 8 times finer). Run by hand (the coast changes little).
 on:
   workflow_dispatch:
 
@@ -13,7 +13,7 @@ permissions:
 jobs:
   coast:
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 360
     concurrency:
       group: coast-osm
       cancel-in-progress: false
