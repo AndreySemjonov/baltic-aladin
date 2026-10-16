@@ -1,0 +1,86 @@
+name: WRF test
+run-name: WRF proof of concept (Tarifa, 9-3-1 km)
+
+# Can we run our own 1 km model where no open one reaches (the owner, 16.10.2026: Windguru's
+# "WRF 1 km" at Tarifa and Cape Town)? NCAR's WRF in their i-WRF container (ncar/iwrf), three nested
+# boxes round Tarifa (9, 3 and 1 km) from the newest GFS, a short forecast; each step timed, the
+# wind as pictures and at Tarifa hour by hour (the run's summary and artifact). Nothing published:
+# a test before the Mac mini.
+on:
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: "Forecast hours (multiples of 3)"
+        type: string
+        default: "12"
+
+permissions:
+  contents: read
+
+jobs:
+  wrf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Room on the disk (the terrain data unpacks to about 30 GB)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h / /mnt
+          nproc; free -g
+
+      - name: NCAR's WRF container, and where its programs are
+        run: |
+          docker pull ncar/iwrf:latest
+          docker run --rm --entrypoint bash ncar/iwrf:latest -c 'find / \( -name wrf.exe -o -name real.exe -o -name geogrid.exe -o -name ungrib.exe -o -name metgrid.exe -o -name mpirun -o -name Vtable.GFS \) -not -path "/proc/*" 2>/dev/null; head -2 /etc/os-release'
+
+      - name: The terrain data (WPS's mandatory high-resolution set)
+        run: |
+          sudo mkdir -p /geog && sudo chmod 777 /geog
+          t0=$(date +%s)
+          curl -sSL https://www2.mmm.ucar.edu/wrf/src/wps_files/geog_high_res_mandatory.tar.gz | tar -xz -C /geog
+          echo "geog_download $(( $(date +%s) - t0 ))" > times.txt
+          du -sh /geog/*; df -h /
+
+      - name: The newest GFS round Tarifa
+        env:
+          HOURS: ${{ inputs.hours }}
+        run: |
+          mkdir -p work && mv times.txt work/
+          python3 wrf_poc/gfs.py work
+          cat work/env
+
+      - name: WPS (geogrid, ungrib, metgrid)
+        run: |
+          docker run --rm --entrypoint bash -u root -v "$PWD/work:/work" -v /geog:/geog -v "$PWD/wrf_poc:/poc" \
+            ncar/iwrf:latest /poc/run_wps.sh
+
+      - name: The met_em files' levels
+        run: |
+          python3 -m venv .venv && .venv/bin/pip install --quiet netCDF4 numpy pillow
+          sudo chmod -R a+rwX work
+          .venv/bin/python wrf_poc/levels.py work
+
+      - name: WRF (real, then the forecast on every core)
+        run: |
+          docker run --rm --entrypoint bash -u root --ulimit stack=-1:-1 --shm-size=4g -v "$PWD/work:/work" -v "$PWD/wrf_poc:/poc" \
+            ncar/iwrf:latest /poc/run_wrf.sh
+
+      - name: The report
+        if: always()
+        run: |
+          sudo chmod -R a+rwX work || true
+          .venv/bin/python wrf_poc/report.py work | tee -a "$GITHUB_STEP_SUMMARY" || true
+          mkdir -p keep && cp -r work/report work/times.txt work/env keep/ 2>/dev/null || true
+          cp work/wps/*.log work/wps/namelist.wps work/wrf/namelist.input work/wrf/rsl.error.0000 work/wrf/*.log keep/ 2>/dev/null || true
+          cp work/wrf/wrfout_d03_* keep/ 2>/dev/null || true
+
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: wrf-test
+          path: keep
+          retention-days: 14
