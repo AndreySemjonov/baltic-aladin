@@ -15,7 +15,7 @@ the major constituents only, as the phones) at a few ports for a week, for the a
 
 The tide map (--map; the owner, 16.10.2026: "make worldwide tide"): the 8 main constituents over
 the whole sea as map tiles, zooms 0-4 of 256 pixels on the web map's grid, two constituents to a
-pack (tiles/tides/map-0.pack M2 S2, map-1 N2 K2, map-2 K1 O1, map-3 P1 Q1; "MGT1" as the world
+pack (tiles/tides/v2/map-0.pack M2 S2, map-1 N2 K2, map-2 K1 O1, map-3 P1 Q1; "MGT1" as the world
 tiles). A pixel's RGBA: the first constituent's amplitude code and phase, the second's; the code
 0 no sea, else 1 + sqrt(cm) / sqrt(800) x 254, the phase (Greenwich lag) x 256 / 360. The phones
 predict the hour over the view from them as the spots' tide.
@@ -159,6 +159,11 @@ MAP_PAIRS = [("M2", "S2"), ("N2", "K2"), ("K1", "O1"), ("P1", "Q1")]
 MAP_ZOOMS = range(0, 5)
 MAP_SIDE = 256
 MAP_TOP = 800.0  # cm, the amplitude code's top
+# The fjords (the owner, 16.10.2026: Bomlafjorden's patches had no tide): at the top zoom (4, the
+# one shown close in, where the phones always have the fine coastline to hide the land) the tide
+# reaches this many grid cells (3/8 degree) past EOT20's sea, each cell from the nearest sea cell.
+MAP_FILL = 3
+MAP_FOLDER = "v2"  # the packs made again go in a folder of their own (kept a month in caches)
 
 
 def map_packs(files, local):
@@ -181,12 +186,16 @@ def map_packs(files, local):
                 sea = ((a != 0) | (p != 0)).astype(np.float32)
             harm[name] = (a * np.exp(1j * np.radians(p))).astype(np.complex64)
     step_lat, step_lon = float(lat[1] - lat[0]), float(lon[1] - lon[0])
-    out_dir = local / "tides" if local else None
+    plain = (sea, harm)
+    distance, (iy, ix) = ndimage.distance_transform_edt(sea == 0, return_indices=True)
+    filled = (((sea > 0) | (distance <= MAP_FILL)).astype(np.float32), {name: values[iy, ix] for name, values in harm.items()})
+    out_dir = local / "tides" / MAP_FOLDER if local else None
     if out_dir:
         out_dir.mkdir(parents=True, exist_ok=True)
     tiles = {k: {} for k in range(len(MAP_PAIRS))}
     for z in MAP_ZOOMS:
         n = 1 << z
+        sea, harm = filled if z == max(MAP_ZOOMS) else plain
         for y in range(n):
             # Pixel centres' latitudes (Mercator) and the grid rows round them.
             py = (y * MAP_SIDE + np.arange(MAP_SIDE) + 0.5) / (MAP_SIDE * n)
@@ -236,7 +245,7 @@ def map_packs(files, local):
         if out_dir:
             (out_dir / name).write_bytes(data)
         else:
-            upload("tides/" + name, data)
+            upload(f"tides/{MAP_FOLDER}/" + name, data)
 
 
 def upload(path, data):
