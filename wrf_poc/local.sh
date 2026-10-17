@@ -61,6 +61,8 @@ else
   log "map tiles (packed: $WORK/$REGION-tiles.tgz)"
   rm -rf "$WORK/tiles"
   .venv/bin/python wrf_poc/tiles.py "$WORK" --local "$WORK/tiles"
+  # The run's wind at the airports and spots (points.py), uploaded with the tiles.
+  .venv/bin/python wrf_poc/points.py "$WORK" "$WORK/tiles/points.json" || true
   tar -czf "$WORK/$REGION-tiles.tgz" -C "$WORK/tiles" .
 fi
 log "done: $WORK/report.md"

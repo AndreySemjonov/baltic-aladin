@@ -5,6 +5,7 @@ only (as world_tiles.upload).
 
     python wrf_poc/publish_tiles.py DIR wrf-tarifa
 """
+import json
 import os
 import sys
 import time
@@ -48,6 +49,11 @@ def main():
         if (folder / last).exists():
             upload(f"{name}/{last}", (folder / last).read_bytes())
     print(f"{name}: {len(packs)} packs and the index uploaded", flush=True)
+    # The run's points (points.py), kept per run for the comparison with the airports.
+    if (folder / "points.json").exists():
+        run = json.loads((folder / "points.json").read_text())["run"].replace("-", "").replace(":", "")
+        upload(f"{name}/points/{run}.json", (folder / "points.json").read_bytes())
+        print(f"{name}: points for {run}", flush=True)
 
 
 if __name__ == "__main__":
