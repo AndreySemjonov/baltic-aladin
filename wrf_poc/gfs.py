@@ -12,7 +12,9 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-REGION = {"toplat": 42, "bottomlat": 30, "leftlon": -14, "rightlon": 3}
+# The region's box for NOAA's filter (the region file, sourced into the environment by the workflow).
+REGION = {"toplat": os.environ.get("GFS_TOP", "42"), "bottomlat": os.environ.get("GFS_BOTTOM", "30"),
+          "leftlon": os.environ.get("GFS_LEFT", "-14"), "rightlon": os.environ.get("GFS_RIGHT", "3")}
 FILTER = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl"
 AGENT = {"User-Agent": "MeteoGust WRF test (data.meteogust.com)"}
 
@@ -46,7 +48,7 @@ def main():
             raise SystemExit(f"{name} could not be read")
     end = cycle + timedelta(hours=hours)
     stamp = "%Y-%m-%d_%H:00:00"
-    (work / "env").write_text(f"START={cycle.strftime(stamp)}\nEND={end.strftime(stamp)}\nHOURS={hours}\n"
+    (work / "env").write_text(f"REGION={os.environ.get('REGION', 'tarifa')}\nSTART={cycle.strftime(stamp)}\nEND={end.strftime(stamp)}\nHOURS={hours}\n"
                               f"CYCLE={cycle.strftime('%Y-%m-%dT%HZ')}\n")
     print(f"GFS {cycle:%Y-%m-%d %H}Z, {hours} hours", flush=True)
 

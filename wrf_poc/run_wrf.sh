@@ -4,6 +4,7 @@
 # core. NLEV and NSOIL (the met_em files' levels) come from /work/env, read on the runner.
 set -euo pipefail
 source /work/env
+source "/poc/regions/$REGION.env"
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 timed() { local name=$1; shift; local t0; t0=$(date +%s); "$@" || return $?; echo "$name $(( $(date +%s) - t0 ))" >> /work/times.txt; log "$name done"; }
 # The container's own set-up (its entrypoint is bypassed): Intel's MPI and compilers, the user's paths.
@@ -70,8 +71,8 @@ cat > namelist.input <<EOF
  time_step_fract_num = 0,
  time_step_fract_den = 1,
  max_dom = 3,
- e_we = 100, 88, 190,
- e_sn = 80, 61, 112,
+ e_we = $E_WE,
+ e_sn = $E_SN,
  e_vert = 40, 40, 40,
  p_top_requested = 5000,
  num_metgrid_levels = $NLEV,
@@ -80,8 +81,8 @@ cat > namelist.input <<EOF
  dy = 9000, 3000, 1000,
  grid_id = 1, 2, 3,
  parent_id = 0, 1, 2,
- i_parent_start = 1, 36, 13,
- j_parent_start = 1, 31, 13,
+ i_parent_start = $I_PARENT,
+ j_parent_start = $J_PARENT,
  parent_grid_ratio = 1, 3, 3,
  parent_time_step_ratio = 1, 3, 3,
  feedback = 1,

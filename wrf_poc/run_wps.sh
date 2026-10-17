@@ -4,6 +4,7 @@
 # boxes). Each step timed into /work/times.txt. START and END come from /work/env.
 set -euo pipefail
 source /work/env
+source "/poc/regions/$REGION.env"
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 timed() { local name=$1; shift; local t0; t0=$(date +%s); "$@" || return $?; echo "$name $(( $(date +%s) - t0 ))" >> /work/times.txt; log "$name done"; }
 # The container's own set-up (its entrypoint is bypassed): Intel's MPI and compilers, the user's paths.
@@ -51,19 +52,19 @@ cat > namelist.wps <<EOF
 &geogrid
  parent_id         = 1, 1, 2,
  parent_grid_ratio = 1, 3, 3,
- i_parent_start    = 1, 36, 13,
- j_parent_start    = 1, 31, 13,
- e_we              = 100, 88, 190,
- e_sn              = 80, 61, 112,
+ i_parent_start    = $I_PARENT,
+ j_parent_start    = $J_PARENT,
+ e_we              = $E_WE,
+ e_sn              = $E_SN,
  geog_data_res = 'default', 'default', 'default',
  dx = 9000,
  dy = 9000,
  map_proj  = 'lambert',
- ref_lat   = 36.26,
- ref_lon   = -5.28,
- truelat1  = 36.0,
- truelat2  = 36.5,
- stand_lon = 11.7,
+ ref_lat   = $REF_LAT,
+ ref_lon   = $REF_LON,
+ truelat1  = $TRUELAT1,
+ truelat2  = $TRUELAT2,
+ stand_lon = $STAND_LON,
  geog_data_path = '/geog/WPS_GEOG/',
  opt_geogrid_tbl_path = '$WPS/geogrid/',
 /

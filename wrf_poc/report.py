@@ -5,6 +5,7 @@ as pictures (every 3 hours), and the wind at Tarifa hour by hour from each box; 
     python report.py work
 """
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -15,7 +16,12 @@ from PIL import Image, ImageDraw
 work = Path(sys.argv[1] if len(sys.argv) > 1 else "work")
 out = work / "report"
 out.mkdir(exist_ok=True)
-TARIFA = (36.013, -5.606)
+REGION = {}
+for _line in open(Path(__file__).parent / "regions" / f"{os.environ.get('REGION', 'tarifa')}.env", encoding="utf-8"):
+    if "=" in _line and not _line.startswith("#"):
+        _key, _value = _line.strip().split("=", 1)
+        REGION[_key] = _value.strip('"')
+TARIFA = (float(REGION["POINT_LAT"]), float(REGION["POINT_LON"]))
 # Our wind colours (m/s): calm pale to strong purple.
 STOPS = [(0, (220, 235, 240)), (3, (120, 210, 230)), (6, (80, 200, 120)), (9, (240, 220, 60)), (12, (245, 150, 40)),
          (15, (220, 50, 50)), (20, (180, 40, 160)), (30, (90, 40, 160))]
@@ -68,7 +74,7 @@ def picture(path, domain, hour, scale):
 def at_tarifa(path):
     with Dataset(path) as data:
         lat, lon = np.asarray(data["XLAT"][0]), np.asarray(data["XLONG"][0])
-        k = np.unravel_index(np.argmin((lat - TARIFA[0]) ** 2 + ((lon - TARIFA[1]) * math.cos(math.radians(36))) ** 2), lat.shape)
+        k = np.unravel_index(np.argmin((lat - TARIFA[0]) ** 2 + ((lon - TARIFA[1]) * math.cos(math.radians(TARIFA[0]))) ** 2), lat.shape)
         u, v = np.asarray(data["U10"][:, k[0], k[1]]), np.asarray(data["V10"][:, k[0], k[1]])
         stamps = ["".join(c.decode() for c in t)[8:13].replace("_", " ") for t in data["Times"][:]]
         land = float(data["LANDMASK"][0, k[0], k[1]])
@@ -76,7 +82,7 @@ def at_tarifa(path):
 
 
 def main():
-    print("## WRF test: Tarifa, 9 → 3 → 1 km\n")
+    print(f"## WRF test: {REGION['NAME']}, 9 → 3 → 1 km\n")
     env = dict(line.split("=", 1) for line in (work / "env").read_text().split() if "=" in line)
     print(f"GFS run {env.get('CYCLE')}, {env.get('HOURS')} hours; levels {env.get('NLEV')}, soil {env.get('NSOIL')}.\n")
     rows = times()
@@ -98,7 +104,7 @@ def main():
             count = len(data.dimensions["Time"])
         names = [picture(outs[domain][0], domain, h, scale) for h in range(0, count, 3)]
         print(f"{domain}: {count} hours, pictures {', '.join(names)}")
-    print("\n### Tarifa (36.01 N, 5.61 W), 10 m wind (m/s, from °)\n")
+    print(f"\n### {REGION['POINT_NAME']} ({TARIFA[0]:.2f}, {TARIFA[1]:.2f}), 10 m wind (m/s, from °)\n")
     series = {d: at_tarifa(outs[d][0]) for d in ("d01", "d02", "d03") if outs[d]}
     others = global_models(env)
     if series:
@@ -122,7 +128,7 @@ def global_models(env):
     start = datetime.strptime(env["CYCLE"], "%Y-%m-%dT%HZ").replace(tzinfo=timezone.utc)
     end = start + timedelta(hours=int(env.get("HOURS", 12)))
     models = {"ECMWF 9 km": "ecmwf_ifs", "ICON 13 km": "icon_global", "GFS 13 km": "gfs_global"}
-    url = ("https://api.open-meteo.com/v1/forecast?latitude=36.013&longitude=-5.606&hourly=wind_speed_10m,wind_direction_10m"
+    url = (f"https://api.open-meteo.com/v1/forecast?latitude={TARIFA[0]}&longitude={TARIFA[1]}&hourly=wind_speed_10m,wind_direction_10m"
            f"&models={','.join(models.values())}&wind_speed_unit=ms&timezone=GMT"
            f"&start_hour={start:%Y-%m-%dT%H:00}&end_hour={end:%Y-%m-%dT%H:00}")
     try:

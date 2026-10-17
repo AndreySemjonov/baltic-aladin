@@ -1,5 +1,5 @@
 name: WRF test
-run-name: WRF proof of concept (Tarifa, 9-3-1 km)
+run-name: WRF proof of concept (${{ inputs.region }}, 9-3-1 km)
 
 # Can we run our own 1 km model where no open one reaches (the owner, 16.10.2026: Windguru's
 # "WRF 1 km" at Tarifa and Cape Town)? NCAR's WRF in their i-WRF container (ncar/iwrf), three nested
@@ -13,6 +13,11 @@ on:
         description: "Forecast hours (multiples of 3)"
         type: string
         default: "12"
+      region:
+        description: "The region (wrf_poc/regions/<name>.env)"
+        type: choice
+        options: [tarifa, capetown]
+        default: tarifa
 
 permissions:
   contents: read
@@ -49,8 +54,10 @@ jobs:
       - name: The newest GFS round Tarifa
         env:
           HOURS: ${{ inputs.hours }}
+          REGION: ${{ inputs.region }}
         run: |
           mkdir -p work && mv times.txt work/
+          set -a; source "wrf_poc/regions/$REGION.env"; set +a
           python3 wrf_poc/gfs.py work
           cat work/env
 
@@ -74,7 +81,7 @@ jobs:
         if: always()
         run: |
           sudo chmod -R a+rwX work || true
-          .venv/bin/python wrf_poc/report.py work | tee -a "$GITHUB_STEP_SUMMARY" || true
+          REGION="${{ inputs.region }}" .venv/bin/python wrf_poc/report.py work | tee -a "$GITHUB_STEP_SUMMARY" || true
           mkdir -p keep && cp -r work/report work/times.txt work/env keep/ 2>/dev/null || true
           cp work/wps/*.log work/wps/namelist.wps work/wrf/namelist.input work/wrf/rsl.error.0000 work/wrf/*.log keep/ 2>/dev/null || true
           # (WRF's own output, about 600 MB a box, isn't kept: the pictures and the table say it.)
