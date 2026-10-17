@@ -41,20 +41,42 @@ rm -f namelist.input met_em.* wrfout_* wrfinput_* wrfbdy_* rsl.*
 ln -sf /work/wps/met_em.* .
 
 y() { echo "${1:0:4}"; }; m() { echo "${1:5:2}"; }; d() { echo "${1:8:2}"; }; h() { echo "${1:11:2}"; }
+plus() { date -u -d "${1:0:10} ${1:11:8} UTC + $2 hours" +%Y-%m-%d_%H:00:00; }
+# The 1 km box only for some hours (the owner, 17.10.2026: the nights don't need it, and it is about
+# 88% of the computing): D3_FROM and D3_TO, hours from the start (3s: the met_em files' hours); the
+# 3 km box goes on round it. Unset: the whole run.
+D3S=$START; D3E=$END
+[ -n "${D3_FROM:-}" ] && D3S=$(plus "$START" "$D3_FROM")
+[ -n "${D3_TO:-}" ] && D3E=$(plus "$START" "$D3_TO")
+log "1 km box from $D3S to $D3E"
+# Adaptive time steps (ADAPTIVE=1): longer steps where the wind allows (WRF keeps the CFL under 1.2).
+ADAPT=""
+if [ "${ADAPTIVE:-0}" = "1" ]; then
+  ADAPT=" use_adaptive_time_step = .true.,
+ step_to_output_time = .true.,
+ target_cfl = 1.2, 1.2, 1.2,
+ target_hcfl = .84, .84, .84,
+ max_step_increase_pct = 5, 51, 51,
+ starting_time_step = -1, -1, -1,
+ max_time_step = -1, -1, -1,
+ min_time_step = -1, -1, -1,
+ adaptation_domain = 1,"
+  log "adaptive time steps"
+fi
 cat > namelist.input <<EOF
 &time_control
  run_days = 0,
  run_hours = $HOURS,
  run_minutes = 0,
  run_seconds = 0,
- start_year  = $(y $START), $(y $START), $(y $START),
- start_month = $(m $START), $(m $START), $(m $START),
- start_day   = $(d $START), $(d $START), $(d $START),
- start_hour  = $(h $START), $(h $START), $(h $START),
- end_year    = $(y $END), $(y $END), $(y $END),
- end_month   = $(m $END), $(m $END), $(m $END),
- end_day     = $(d $END), $(d $END), $(d $END),
- end_hour    = $(h $END), $(h $END), $(h $END),
+ start_year  = $(y $START), $(y $START), $(y $D3S),
+ start_month = $(m $START), $(m $START), $(m $D3S),
+ start_day   = $(d $START), $(d $START), $(d $D3S),
+ start_hour  = $(h $START), $(h $START), $(h $D3S),
+ end_year    = $(y $END), $(y $END), $(y $D3E),
+ end_month   = $(m $END), $(m $END), $(m $D3E),
+ end_day     = $(d $END), $(d $END), $(d $D3E),
+ end_hour    = $(h $END), $(h $END), $(h $D3E),
  interval_seconds = 10800,
  input_from_file = .true., .true., .true.,
  history_interval = 60, 60, 60,
@@ -71,6 +93,7 @@ cat > namelist.input <<EOF
  time_step = 45,
  time_step_fract_num = 0,
  time_step_fract_den = 1,
+$ADAPT
  max_dom = 3,
  e_we = $E_WE,
  e_sn = $E_SN,

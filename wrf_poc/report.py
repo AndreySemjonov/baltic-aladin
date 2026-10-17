@@ -112,8 +112,10 @@ def main():
         head = " | ".join(f"WRF {d} ({'land' if series[d][3] > 0.5 else 'sea'})" for d in series)
         head += "".join(f" | {name}" for name in others)
         print(f"| Time (day hour UTC) | {head} |\n|---|" + "---|" * (len(series) + len(others)))
+        at = {d: {s: k for k, s in enumerate(series[d][0])} for d in series}
         for i, stamp in enumerate(stamps):
-            cells = " | ".join(f"{series[d][1][i]:.1f} from {series[d][2][i]:.0f}°" if i < len(series[d][1]) else "–" for d in series)
+            cells = " | ".join(f"{series[d][1][at[d][stamp]]:.1f} from {series[d][2][at[d][stamp]]:.0f}°" if stamp in at[d] else "–"
+                               for d in series)
             for values in others.values():
                 good = i < len(values) and values[i][0] is not None
                 cells += " | " + (f"{values[i][0]:.1f} from {values[i][1]:.0f}°" if good else "–")

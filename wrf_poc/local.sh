@@ -45,10 +45,14 @@ docker run --rm --entrypoint bash -u root -v "$WORK:/work" -v "$GEOG:/geog" -v "
 docker run --rm --entrypoint bash -u root -v "$WORK:/work" "$IMAGE" -c "chmod -R a+rwX /work"
 .venv/bin/python wrf_poc/levels.py "$WORK"
 log "WRF on $(nproc) cores"
-docker run --rm --entrypoint bash -u root --ulimit stack=-1:-1 --shm-size=8g -v "$WORK:/work" -v "$HERE/wrf_poc:/poc" "$IMAGE" /poc/run_wrf.sh
+# The faster settings, when given: ADAPTIVE=1, D3_FROM / D3_TO (the 1 km box's hours).
+docker run --rm --entrypoint bash -u root --ulimit stack=-1:-1 --shm-size=8g -e ADAPTIVE -e D3_FROM -e D3_TO \
+  -v "$WORK:/work" -v "$HERE/wrf_poc:/poc" "$IMAGE" /poc/run_wrf.sh
 docker run --rm --entrypoint bash -u root -v "$WORK:/work" "$IMAGE" -c "chmod -R a+rwX /work"
 .venv/bin/python wrf_poc/report.py "$WORK" > "$WORK/report.md" || true
-if [ -n "${INGEST_TOKEN:-}" ]; then
+if [ "${NO_TILES:-0}" = "1" ]; then
+  log "no map tiles (NO_TILES)"
+elif [ -n "${INGEST_TOKEN:-}" ]; then
   log "map tiles"
   .venv/bin/python wrf_poc/tiles.py "$WORK"
 else
