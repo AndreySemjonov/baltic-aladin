@@ -1,0 +1,38 @@
+name: WRF publish
+run-name: WRF tiles from our own computer (${{ inputs.region }})
+
+# A WRF run made on our own computer (wrf_poc/local.sh; the owner, 17.10.2026: the laptop for now)
+# leaves its map tiles as the release asset wrf-local/<region>-tiles.tgz (the laptop has no upload
+# key); this uploads them to our file store with ADMIN_INGEST_TOKEN (wrf_poc/publish_tiles.py).
+on:
+  workflow_dispatch:
+    inputs:
+      region:
+        description: "The region"
+        type: choice
+        options: [tarifa, capetown]
+        default: tarifa
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: The tiles from the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download wrf-local -p "${{ inputs.region }}-tiles.tgz" -D in
+          mkdir tiles && tar -xzf "in/${{ inputs.region }}-tiles.tgz" -C tiles
+          find tiles -maxdepth 2 | head -20
+
+      - name: Upload
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+        run: python3 wrf_poc/publish_tiles.py tiles "wrf-${{ inputs.region }}"

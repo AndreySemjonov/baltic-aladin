@@ -52,6 +52,11 @@ if [ -n "${INGEST_TOKEN:-}" ]; then
   log "map tiles"
   .venv/bin/python wrf_poc/tiles.py "$WORK"
 else
-  log "no INGEST_TOKEN: the map tiles not uploaded"
+  # No upload key here: the tiles packed for GitHub (wrf-publish.yml uploads them with its secret,
+  # from the release asset wrf-local/<region>-tiles.tgz).
+  log "map tiles (packed: $WORK/$REGION-tiles.tgz)"
+  rm -rf "$WORK/tiles"
+  .venv/bin/python wrf_poc/tiles.py "$WORK" --local "$WORK/tiles"
+  tar -czf "$WORK/$REGION-tiles.tgz" -C "$WORK/tiles" .
 fi
 log "done: $WORK/report.md"
