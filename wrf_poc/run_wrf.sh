@@ -58,6 +58,7 @@ cat > namelist.input <<EOF
  interval_seconds = 10800,
  input_from_file = .true., .true., .true.,
  history_interval = 60, 60, 60,
+ nwp_diagnostics = 1,
  frames_per_outfile = 1000, 1000, 1000,
  restart = .false.,
  restart_interval = 100000,

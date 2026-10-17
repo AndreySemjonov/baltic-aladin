@@ -68,7 +68,7 @@ jobs:
 
       - name: The met_em files' levels
         run: |
-          python3 -m venv .venv && .venv/bin/pip install --quiet netCDF4 numpy pillow
+          python3 -m venv .venv && .venv/bin/pip install --quiet netCDF4 numpy pillow scipy eccodes
           sudo chmod -R a+rwX work
           .venv/bin/python wrf_poc/levels.py work
 
@@ -76,6 +76,16 @@ jobs:
         run: |
           docker run --rm --entrypoint bash -u root --ulimit stack=-1:-1 --shm-size=4g -v "$PWD/work:/work" -v "$PWD/wrf_poc:/poc" \
             ncar/iwrf:latest /poc/run_wrf.sh
+
+      # The 1 km box as map tiles, uploaded (tiles/wrf-<region>/): the app's "WRF 1 km" map
+      # (the owner, 17.10.2026; admins only while it's a test).
+      - name: Map tiles
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          REGION: ${{ inputs.region }}
+        run: |
+          sudo chmod -R a+rwX work
+          .venv/bin/python wrf_poc/tiles.py work
 
       - name: The report
         if: always()
