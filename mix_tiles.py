@@ -4,7 +4,7 @@ published, keeping what makes it the best at the spots:
 
 - the models' weights by place, one set for the spots, the map and new spots: near the app's catalog
   spots their own (Windguru's for each spot), blended smoothly between them, far from all of them by
-  the model's kind (fine regional models 1, ICON-EU 0.3, ECMWF 0.2, GFS 0.1);
+  the WG formula (1 / the model's resolution in km, as the app's SpotWeights);
 - a coarse model's land (ICON-EU, ECMWF, GFS) pulled back to the coastline: its sea near the shore
   towards its own sea wind beyond its land's reach, all of it at the shore, less out to the reach
   (the fine models resolve the coast themselves), the land from our coastline tiles (tiles/coast);
@@ -40,26 +40,32 @@ FILES = "https://files.meteogust.com/tiles/"
 AGENT = "baltic-aladin mix_tiles (+https://github.com/AndreySemjonov/baltic-aladin)"
 # Set, name, weight, how far the model's land reaches over the sea (km, about 1.5 of its cells).
 MODELS = [
-    # The default weights by the model's kind (far from every weight point: the app's SpotWeights,
-    # close to Windguru's own mixes at Pāvilosta and Texel): fine regional models 1, ICON-EU 0.3,
-    # ECMWF 0.2, GFS 0.1. Near the catalog's spots, their own weights (weight_points).
-    ("metnordic-1km", "MET Nordic", 1.0, 1.5),
-    ("dini", "HARM-DK", 1.0, 3.0),
-    ("harm-fi", "HARM-FI", 1.0, 3.75),
-    ("arome", "AROME", 1.0, 2.0),
-    ("icon-d2", "ICON-D2", 1.0, 3.3),
-    ("icon-ch1", "ICON-CH1", 1.0, 1.5),
-    ("harm-nl", "HARM-NL", 1.0, 3.0),
-    ("icon-2i", "ICON-2I", 1.0, 3.3),
-    ("aladin", "ALADIN", 1.0, 3.5),
-    ("icon-eu", "ICON-EU", 0.3, 10.0),
-    ("ecmwf", "ECMWF", 0.2, 25.0),
-    ("gfs", "GFS", 0.1, 25.0),
+    # The default weights (far from every weight point): the WG formula, as the app's SpotWeights
+    # (the owner, 17.10.2026: one rule everywhere): 1 / the model's resolution in km (MET Nordic as
+    # 2.5 km, its real resolution); its run freshness left out. Near the catalog's spots, their own
+    # weights (weight_points).
+    ("metnordic-1km", "MET Nordic", 1 / 2.5, 1.5),
+    ("dini", "HARM-DK", 1 / 2.0, 3.0),
+    ("harm-fi", "HARM-FI", 1 / 2.5, 3.75),
+    ("arome", "AROME", 1 / 1.5, 2.0),
+    ("icon-d2", "ICON-D2", 1 / 2.2, 3.3),
+    ("icon-ch1", "ICON-CH1", 1 / 1.0, 1.5),
+    ("harm-nl", "HARM-NL", 1 / 2.0, 3.0),
+    ("icon-2i", "ICON-2I", 1 / 2.2, 3.3),
+    ("aladin", "ALADIN", 1 / 2.3, 3.5),
+    ("icon-eu", "ICON-EU", 1 / 7.0, 10.0),
+    ("ecmwf", "ECMWF", 1 / 9.0, 25.0),
+    ("gfs", "GFS", 1 / 13.0, 25.0),
 ]
-# The defaults on the app's scale: its kinds over all its 20 forecast models sum to 15.05 (14 fine
-# models 1, HARMONIE 5 km and ICON-EU 0.3, ECMWF 0.2, GFS and ICON 13 km 0.1, GDPS 0.05), normalized
-# to 1 as a spot's weights are, so a model a spot doesn't name counts beside them as in the app.
-KIND_TOTAL = 15.05
+# The defaults on the app's scale: the formula over all its 20 forecast models (their grids in the
+# app's ForecastSpots.json), normalized to 1 as a spot's weights are, so a model a spot doesn't name
+# counts beside them as in the app.
+APP_GRIDS = {"dmi_harmonie_arome_europe": 2, "metno_nordic": 2.5, "aladin": 2.3, "fmi": 2.5, "meteofrance_arome_france_hd": 1.5,
+             "knmi_harmonie_arome_netherlands": 2, "ukmo_uk_deterministic_2km": 2, "icon_d2": 2.2, "meteoswiss_icon_ch1": 1,
+             "meteoswiss_icon_ch2": 2.1, "italia_meteo_arpae_icon_2i": 2.2, "meteofrance_arome_france": 2.5, "ncep_hrrr_conus": 3,
+             "gem_hrdps_continental": 2.5, "knmi_harmonie_arome_europe": 5, "icon_eu": 7, "ecmwf_ifs": 9, "gfs_global": 13,
+             "icon_global": 13 / 0.9, "gem_global": 15 / 0.7}
+KIND_TOTAL = sum(1 / km for km in APP_GRIDS.values())
 MODELS = [(name, label, weight / KIND_TOTAL, km) for name, label, weight, km in MODELS]
 GLOBAL = {"ecmwf", "gfs"}
 
