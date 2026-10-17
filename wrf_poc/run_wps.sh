@@ -1,6 +1,6 @@
 #!/bin/bash
 # The WRF test's preprocessing inside NCAR's i-WRF container (wrf-poc.yml): geogrid (the terrain of
-# three nested boxes round Tarifa: 9, 3 and 1 km), ungrib (the GFS files), metgrid (GFS onto the
+# three nested boxes: 9, 3 and 1 km, the 1 km one Cádiz to Málaga with Tangier, tilted about 10°), ungrib (the GFS files), metgrid (GFS onto the
 # boxes). Each step timed into /work/times.txt. START and END come from /work/env.
 set -euo pipefail
 source /work/env
@@ -51,18 +51,19 @@ cat > namelist.wps <<EOF
 &geogrid
  parent_id         = 1, 1, 2,
  parent_grid_ratio = 1, 3, 3,
- i_parent_start    = 1, 31, 41,
- j_parent_start    = 1, 26, 31,
- e_we              = 100, 121, 121,
- e_sn              = 80, 91, 91,
+ i_parent_start    = 1, 36, 13,
+ j_parent_start    = 1, 31, 13,
+ e_we              = 100, 88, 190,
+ e_sn              = 80, 61, 112,
  geog_data_res = 'default', 'default', 'default',
  dx = 9000,
  dy = 9000,
- map_proj  = 'mercator',
- ref_lat   = 36.0,
- ref_lon   = -5.6,
+ map_proj  = 'lambert',
+ ref_lat   = 36.26,
+ ref_lon   = -5.28,
  truelat1  = 36.0,
- stand_lon = -5.6,
+ truelat2  = 36.5,
+ stand_lon = 11.7,
  geog_data_path = '/geog/WPS_GEOG/',
  opt_geogrid_tbl_path = '$WPS/geogrid/',
 /

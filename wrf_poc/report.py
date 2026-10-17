@@ -100,13 +100,39 @@ def main():
         print(f"{domain}: {count} hours, pictures {', '.join(names)}")
     print("\n### Tarifa (36.01 N, 5.61 W), 10 m wind (m/s, from °)\n")
     series = {d: at_tarifa(outs[d][0]) for d in ("d01", "d02", "d03") if outs[d]}
+    others = global_models(env)
     if series:
         stamps = next(iter(series.values()))[0]
-        head = " | ".join(f"{d} ({'land' if series[d][3] > 0.5 else 'sea'})" for d in series)
-        print(f"| Time (day hour UTC) | {head} |\n|---|" + "---|" * len(series))
+        head = " | ".join(f"WRF {d} ({'land' if series[d][3] > 0.5 else 'sea'})" for d in series)
+        head += "".join(f" | {name}" for name in others)
+        print(f"| Time (day hour UTC) | {head} |\n|---|" + "---|" * (len(series) + len(others)))
         for i, stamp in enumerate(stamps):
             cells = " | ".join(f"{series[d][1][i]:.1f} from {series[d][2][i]:.0f}°" if i < len(series[d][1]) else "–" for d in series)
+            for values in others.values():
+                good = i < len(values) and values[i][0] is not None
+                cells += " | " + (f"{values[i][0]:.1f} from {values[i][1]:.0f}°" if good else "–")
             print(f"| {stamp} | {cells} |")
+
+
+def global_models(env):
+    """ECMWF, ICON and GFS at Tarifa for the same hours (Open-Meteo), to compare."""
+    import json
+    import urllib.request
+    from datetime import datetime, timedelta, timezone
+    start = datetime.strptime(env["CYCLE"], "%Y-%m-%dT%HZ").replace(tzinfo=timezone.utc)
+    end = start + timedelta(hours=int(env.get("HOURS", 12)))
+    models = {"ECMWF 9 km": "ecmwf_ifs", "ICON 13 km": "icon_global", "GFS 13 km": "gfs_global"}
+    url = ("https://api.open-meteo.com/v1/forecast?latitude=36.013&longitude=-5.606&hourly=wind_speed_10m,wind_direction_10m"
+           f"&models={','.join(models.values())}&wind_speed_unit=ms&timezone=GMT"
+           f"&start_hour={start:%Y-%m-%dT%H:00}&end_hour={end:%Y-%m-%dT%H:00}")
+    try:
+        request = urllib.request.Request(url, headers={"User-Agent": "MeteoGust WRF test"})
+        with urllib.request.urlopen(request, timeout=30) as reply:
+            hourly = json.load(reply)["hourly"]
+    except Exception as error:
+        print(f"(the global models couldn't be read: {error})")
+        return {}
+    return {name: list(zip(hourly[f"wind_speed_10m_{key}"], hourly[f"wind_direction_10m_{key}"])) for name, key in models.items()}
 
 
 if __name__ == "__main__":
