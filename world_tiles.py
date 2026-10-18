@@ -65,8 +65,12 @@ MODELS = {
 ICON_STEPS = list(range(0, 145, 3)) + list(range(150, 181, 6))
 GDPS_STEPS = list(range(0, 145, 3)) + list(range(150, 241, 6))
 ICON_URL = "https://opendata.dwd.de/weather/nwp/icon/grib/{hour}/{folder}/icon_global_icosahedral_{kind}_{run}{step}_{name}.grib2.bz2"
-GDPS_URL = ("https://dd.weather.gc.ca/{day}/WXO-DD/model_gdps/15km/{hour}/{step:03d}/"
+GDPS_URL = ("{host}/{day}/WXO-DD/model_gdps/15km/{hour}/{step:03d}/"
             "{day}T{hour}Z_MSC_GDPS_{name}_AGL-10m_LatLon0.15_PT{step:03d}H.grib2")
+# Canada's high-performance mirror first (its main datamart timed out from GitHub's runners,
+# 18.10.2026), the datamart itself after.
+GDPS_HOSTS = ["https://hpfx.collab.science.gc.ca", "https://dd.weather.gc.ca"]
+gdps_host = [GDPS_HOSTS[0]]
 # ICON's triangles on a regular grid: rows from 90° N down, columns from 0° E.
 ICON_GRID = {"Ni": 2880, "Nj": 1441, "latitudeOfFirstGridPointInDegrees": 90.0, "longitudeOfFirstGridPointInDegrees": 0.0,
              "iDirectionIncrementInDegrees": 0.125, "jDirectionIncrementInDegrees": 0.125, "jScansPositively": 0}
@@ -135,7 +139,7 @@ def fetch_bytes(url, tries=4):
 def exists(url):
     try:
         request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": maplib.USER_AGENT})
-        with urllib.request.urlopen(request, timeout=60):
+        with urllib.request.urlopen(request, timeout=20):
             return True
     except (urllib.error.URLError, OSError):
         return False
@@ -158,18 +162,21 @@ def icon_newest_run():
     raise SystemExit("No complete ICON run found")
 
 
-def gdps_url(run, name, step):
-    return GDPS_URL.format(day=run.strftime("%Y%m%d"), hour=run.strftime("%H"), step=step, name=name)
+def gdps_url(run, name, step, host=None):
+    return GDPS_URL.format(host=host or gdps_host[0], day=run.strftime("%Y%m%d"), hour=run.strftime("%H"), step=step, name=name)
 
 
 def gdps_newest_run():
-    """The newest 00/12 UTC GDPS run with its last step published."""
+    """The newest 00/12 UTC GDPS run with its last step published (on the first server that has it)."""
     now = datetime.now(timezone.utc)
     start = now.replace(hour=now.hour // 12 * 12, minute=0, second=0, microsecond=0)
     for back in range(3):
         run = start - timedelta(hours=12 * back)
-        if exists(gdps_url(run, "WindV", GDPS_STEPS[-1])):
-            return run
+        for host in GDPS_HOSTS:
+            if exists(gdps_url(run, "WindV", GDPS_STEPS[-1], host)):
+                gdps_host[0] = host
+                print(f"GDPS from {host}", flush=True)
+                return run
     raise SystemExit("No complete GDPS run found")
 
 
