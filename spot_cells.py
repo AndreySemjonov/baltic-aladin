@@ -339,7 +339,7 @@ class SpotCells:
             value = float(np.ravel(sample(values, *cell))[0])
             return value if math.isfinite(value) else None
         row = {}
-        for k, cell in wind_cells.items():
+        for k, cell in (wind_cells.items() if self.set_name else ()):
             e, n, g = at(east, cell), at(north, cell), at(gust, cell)
             if e is None or n is None:
                 row[k] = None

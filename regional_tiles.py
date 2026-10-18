@@ -451,7 +451,8 @@ def main():
             if name not in MODEL_SETS or not data:
                 continue
             try:
-                model_weather_set(name, data, sample, parts[name], [m for m in models if m["name"] == name][0], run_name, local)
+                model_weather_set(name, data, sample, parts[name], [m for m in models if m["name"] == name][0], run_name, local,
+                                  place=place)
             except Exception as error:
                 print(f"{name} weather alone left out: {error}", flush=True)
         return
@@ -467,13 +468,27 @@ def main():
             print(f"{name} alone left out: {error}", flush=True)
 
 
-def model_weather_set(name, data, sample, parts, info, run_name, local):
+# The models' keys in the apps (Open-Meteo's names).
+OPEN_METEO_KEYS = {"ICON-D2": "icon_d2", "HARMONIE DINI": "dmi_harmonie_arome_europe", "HARM-NL": "knmi_harmonie_arome_netherlands",
+                   "AROME": "meteofrance_arome_france_hd", "ICON-CH1": "meteoswiss_icon_ch1", "ICON-2I": "italia_meteo_arpae_icon_2i"}
+
+
+def model_weather_set(name, data, sample, parts, info, run_name, local, place=None):
     """One regional model's own air and rain (tiles/<folder>-wx/<run_name>/<time>-temp.pack and
     -rain.pack, as the world's: air, feels like and no pressure; the hour's rain and the cloud
-    cover), its weight as the alpha, and its index."""
+    cover), its weight as the alpha, and its index; and the spots' weather from its own cells
+    (spot_cells.py: points/<folder>-wx.json; the owner, 18.10.2026: the spot pages' weather from our
+    files, every model's)."""
     folder, label, credit = MODEL_SETS[name]
     folder += "-wx"
     started = time.time()
+    import spot_cells
+    try:
+        # The weather alone (no wind set: its wind file is model_set's).
+        cells = spot_cells.SpotCells(None, OPEN_METEO_KEYS[name], weather=folder) if place is not None and name in OPEN_METEO_KEYS else None
+    except Exception as error:
+        print(f"{label}: the spots' weather left out ({error})", flush=True)
+        cells = None
     keys = [key for key, (c, r, w) in parts.items() if np.any(w > 0)]
     frames, total = [], 0
 
@@ -486,6 +501,8 @@ def model_weather_set(name, data, sample, parts, info, run_name, local):
 
     for t in sorted(data):
         d = data[t]
+        if cells is not None:
+            cells.add_placed(t, place, sample, None, None, None, air=d["air"], rain=d["rain"], cloud=d["cloud"])
         temp_tiles, rain_tiles = {}, {}
         for key in keys:
             c, r, w = parts[key]
@@ -521,6 +538,11 @@ def model_weather_set(name, data, sample, parts, info, run_name, local):
     else:
         world_tiles.upload(f"{folder}/index.json", body)
     print(f"{label} air and rain: {len(keys)} tiles, {len(frames)} hours, {total / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
+    if cells is not None:
+        try:
+            cells.publish(run_name, str(local / "points") if local else None)
+        except Exception as error:
+            print(f"{label}: the spots' weather not published ({error})", flush=True)
 
 
 def model_set(name, data, sample, parts, info, run_name, local, place=None):
@@ -549,8 +571,7 @@ def model_set(name, data, sample, parts, info, run_name, local, place=None):
 
     # The spots' wind from the model's own cells (spot_cells.py; the owner, 18.10.2026).
     import spot_cells
-    open_meteo = {"ICON-D2": "icon_d2", "HARMONIE DINI": "dmi_harmonie_arome_europe", "HARM-NL": "knmi_harmonie_arome_netherlands",
-            "AROME": "meteofrance_arome_france_hd", "ICON-CH1": "meteoswiss_icon_ch1", "ICON-2I": "italia_meteo_arpae_icon_2i"}
+    open_meteo = OPEN_METEO_KEYS
     try:
         cells = spot_cells.SpotCells(folder, open_meteo[name]) if place is not None and name in open_meteo else None
     except Exception as error:
