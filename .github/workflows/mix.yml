@@ -57,3 +57,10 @@ jobs:
           else
             .venv/bin/python mix_tiles.py
           fi
+
+      - name: Make and upload the taps' series
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+        # The files station-history reads a tapped place's hours from (series_tiles.py: not on its
+        # cron, beside the stations' collector); skipped when this run's are made.
+        run: .venv/bin/python series_tiles.py mix
