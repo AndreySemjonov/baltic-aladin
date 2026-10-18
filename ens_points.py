@@ -31,7 +31,9 @@ import numpy as np
 import spot_points
 import world_tiles
 
-BASE = "https://ecmwf-forecasts.s3.eu-central-1.amazonaws.com/"
+# ECMWF's open data mirrors, the next one when one says "Slow Down" (AWS's did, all of it, 18.10.2026).
+MIRRORS = ["https://storage.googleapis.com/ecmwf-open-data/", "https://data.ecmwf.int/forecasts/",
+           "https://ecmwf-forecasts.s3.eu-central-1.amazonaws.com/"]
 PUBLISHED = "https://files.meteogust.com/ens/index.json"
 STEPS = list(range(0, 145, 3)) + list(range(150, 361, 6))
 PARAMS = ("10u", "10v", "10fg")
@@ -39,8 +41,9 @@ AGENT = "baltic-aladin ens_points (+https://github.com/AndreySemjonov/baltic-ala
 
 
 def url(run, step, ext):
+    """The file's path under a mirror."""
     day, hour = run.strftime("%Y%m%d"), run.strftime("%H")
-    return f"{BASE}{day}/{hour}z/ifs/0p25/enfo/{day}{hour}0000-{step}h-enfo-ef.{ext}"
+    return f"{day}/{hour}z/ifs/0p25/enfo/{day}{hour}0000-{step}h-enfo-ef.{ext}"
 
 
 def get(address, start=None, length=None, tries=8):
@@ -49,7 +52,8 @@ def get(address, start=None, length=None, tries=8):
         headers["Range"] = f"bytes={start}-{start + length - 1}"
     for attempt in range(tries):
         try:
-            with urllib.request.urlopen(urllib.request.Request(address, headers=headers), timeout=120) as reply:
+            mirror = MIRRORS[attempt % len(MIRRORS)] if not address.startswith("http") else ""
+            with urllib.request.urlopen(urllib.request.Request(mirror + address, headers=headers), timeout=120) as reply:
                 return reply.read()
         except urllib.error.HTTPError as error:
             if error.code == 404:
@@ -59,8 +63,8 @@ def get(address, start=None, length=None, tries=8):
         except OSError:
             if attempt == tries - 1:
                 raise
-        # The mirror says "Slow Down" (503) to many reads at once: longer each time, not all together.
-        time.sleep(2 ** attempt + random.random() * 2)
+        # A mirror says "Slow Down" (503) to many reads at once: the next one, waiting longer each round.
+        time.sleep(min(2 ** (attempt // len(MIRRORS)), 30) + random.random() * 2)
 
 
 def newest_run():
