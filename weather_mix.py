@@ -420,6 +420,8 @@ def main():
     try:
         terrain = Terrain()
     except Exception as error:
+        if local is None:
+            raise SystemExit(f"No terrain yet ({error}): the mix waits for it (terrain.yml)")
         print(f"No terrain ({error}): the air as each model has it", flush=True)
         terrain = None
     top = spec["zoom"]
