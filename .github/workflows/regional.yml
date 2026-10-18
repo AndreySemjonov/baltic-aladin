@@ -45,13 +45,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .venv
-          key: regional-venv-${{ runner.os }}-py${{ steps.python.outputs.version }}-eccodes-numpy-pillow-scipy-v1
+          key: regional-venv-${{ runner.os }}-py${{ steps.python.outputs.version }}-eccodes-numpy-pillow-scipy-omfiles-pyproj-v2
 
       - name: Install ecCodes, NumPy, Pillow and SciPy
         if: steps.venv.outputs.cache-hit != 'true'
         run: |
           python3 -m venv .venv
-          .venv/bin/pip install --quiet eccodes numpy pillow scipy
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy omfiles pyproj
 
       # The wind (2 km, with each model alone too), the air and the rain (3 km), or a model alone.
       - name: Make and upload the ${{ matrix.set }} tiles
