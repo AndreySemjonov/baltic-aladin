@@ -8,8 +8,11 @@ blended by place, as the Mix does for the wind), from the weather layers already
 - the cloud cover averaged;
 - the rain three ways (averaging alone smears a shower at 14:00 in one model and 16:00 in another
   into drizzle all afternoon): the chance, the models' weighted vote for 0.1 mm or more in the hour
-  (rain within NEAR_KM counting half: showers a few km off are nearly right); the typical amount,
-  their weighted median; and their mean, for the days' totals.
+  (rain within NEAR_KM counting half: showers a few km off are nearly right), blended with the
+  ensembles' own chance (Open-Meteo's open data: ECMWF's 51 runs, GEFS's 31, GEPS, the UK's global
+  and 2 km ensembles, MeteoSwiss's ICON-CH2 ensemble), more of it the further ahead (the owner,
+  18.10.2026: a real rain chance anywhere); the typical amount, their weighted median; and their
+  mean, for the days' totals.
 
 Two sets, each hour two packs (<t>-temp.pack, <t>-rain.pack) as the other weather sets:
 
@@ -31,7 +34,7 @@ import sys
 import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 from scipy import ndimage
@@ -81,6 +84,102 @@ CREDIT = ("The models' own (MET Norway, DMI, Météo-France, DWD, MeteoSwiss, KN
           "ECMWF, NOAA, ECCC); terrain: Copernicus GLO-90 DEM")
 DAYS = 15
 EVERY = 3 * 3600
+# The ensembles' chance of rain (Open-Meteo's open data, data_spatial/<name>/: one file an hour or
+# step, its precipitation_probability %): name, weight, grid (as model_heights.Grid's).
+BUCKET = "https://openmeteo.s3.amazonaws.com/"
+ROTATED_CH = "+proj=ob_tran +o_proj=longlat +o_lat_p=43 +o_lon_p=0 +lon_0=10 +R=6371229 +no_defs"
+ENSEMBLES = [
+    ("ecmwf_ifs025_ensemble", 2.0, {"kind": "latlon"}),
+    ("ncep_gefs025", 1.0, {"kind": "latlon"}),
+    ("cmc_gem_geps", 0.7, {"kind": "latlon"}),
+    ("ukmo_global_ensemble_20km", 1.0, {"kind": "latlon"}),
+    ("meteoswiss_icon_ch2_ensemble", 2.0, {"kind": "rotated", "proj": ROTATED_CH, "x0": -6.46, "y0": -4.06, "dx": 0.02, "dy": 0.02}),
+    ("ukmo_uk_ensemble_2km", 2.0, {"kind": "wkt"}),
+]
+
+
+def ensemble_share(lead_hours):
+    """How much the ensembles' chance counts against our models' vote: 30% for the first day (the
+    fine models see the showers), rising to 80% from the third (the ensembles know the spread)."""
+    return 0.3 if lead_hours < 24 else min(0.8, 0.3 + 0.5 * (lead_hours - 24) / 48)
+
+
+class EnsembleChance:
+    """One ensemble's newest run: its rain chance (0-1) at pixels for an hour, from the step that
+    holds it (the chance over each step up to its time)."""
+
+    def __init__(self, name, weight, spec):
+        import world_tiles
+        self.name, self.weight, self.spec = name, weight, spec
+        self.files, self.grid, self.cache, self.places = {}, None, {}, {}
+        now = datetime.now(timezone.utc)
+        for back in range(3):
+            day = (now - timedelta(days=back)).strftime("%Y/%m/%d/")
+            runs = sorted({k.split("/")[5] for k in world_tiles.s3_list(f"data_spatial/{name}/{day}") if k.endswith(".om")}, reverse=True)
+            for run in runs:
+                keys = [k for k in world_tiles.s3_list(f"data_spatial/{name}/{day}{run}/") if k.endswith(".om") and "_" not in k.rsplit("/", 1)[-1]]
+                if len(keys) >= 24:
+                    for k in keys:
+                        valid = datetime.strptime(k.rsplit("/", 1)[-1][:-3], "%Y-%m-%dT%H%M").replace(tzinfo=timezone.utc)
+                        self.files[int(valid.timestamp())] = k
+                    self.run = f"{day}{run}"
+                    break
+            if self.files:
+                break
+        self.times = sorted(self.files)
+        if not self.times:
+            raise RuntimeError("no run with its hours")
+
+    def field(self, t):
+        """The step's chance (%, the model's grid) holding hour t, or None."""
+        later = next((x for x in self.times if x >= t), None)
+        if later is None:
+            return None
+        i = self.times.index(later)
+        step = later - self.times[i - 1] if i > 0 else 3600
+        if later - t >= max(step, 3600) or step > MAX_GAP:
+            return None
+        if later not in self.cache:
+            import tempfile, os
+            import omfiles
+            import model_heights
+            handle = tempfile.NamedTemporaryFile(suffix=".om", delete=False)
+            handle.close()
+            with open(handle.name, "wb") as out:
+                out.write(get(BUCKET + self.files[later]))
+            reader = omfiles.OmFileReader.from_path(handle.name)
+            values = reader.get_child_by_name("precipitation_probability").read_array((slice(None), slice(None))).astype(np.float32)
+            reader.close()
+            os.unlink(handle.name)
+            if self.grid is None:
+                self.grid = model_heights.Grid(self.name, self.spec, values.shape)
+            if len(self.cache) > 6:
+                self.cache.pop(min(self.cache))
+            self.cache[later] = values
+        return self.cache[later]
+
+    def at(self, t, lon, lat, key=None):
+        """(chance 0-1, on its grid) at pixels, or None; `key` the block's (its pixels' places on the
+        grid kept: the same every hour)."""
+        import model_heights
+        values = self.field(t)
+        if values is None:
+            return None
+        placed = self.places.get(key) if key is not None else None
+        if placed is None:
+            col, row, on = self.grid.place(lon.ravel(), lat.ravel())
+            placed = (np.asarray(col), np.asarray(row), np.asarray(on).reshape(lon.shape))
+            if key is not None:
+                if len(self.places) > 3000:
+                    self.places.clear()
+                self.places[key] = placed
+        col, row, on = placed
+        if not on.any():
+            return None
+        wrap = self.grid.kind == "latlon" and self.grid.nx * self.grid.dx > 359
+        chance = model_heights.bilinear(values, col, row, wrap).reshape(lon.shape)
+        on = on & np.isfinite(chance)
+        return np.clip(np.nan_to_num(chance) / 100, 0, 1), on
 
 
 def get(url):
@@ -271,7 +370,14 @@ def weighted_median(values, weights):
     return np.take_along_axis(v, idx[None], axis=0)[0]
 
 
-def mix_tile(models, t, terrain, z, x, y):
+def block_lonlat(z, px0, py0, w, h):
+    n = 2 ** z * SIZE
+    lon = (px0 + np.arange(w) + 0.5) / n * 360 - 180
+    lat = np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * (py0 + np.arange(h) + 0.5) / n))))
+    return np.broadcast_to(lon, (h, w)), np.broadcast_to(lat[:, None], (h, w))
+
+
+def mix_tile(models, t, terrain, z, x, y, ensembles=(), lead=0.0):
     """One tile: (temp RGBA, rain RGBA, the models in it, checks), or None where no model is."""
     px0, py0 = x * SIZE - MARGIN, y * SIZE - MARGIN
     w = h = SIZE + 2 * MARGIN
@@ -335,7 +441,26 @@ def mix_tile(models, t, terrain, z, x, y):
         rs = np.maximum(rw, 1e-9)
         typical = weighted_median(np.stack(rates)[:, c[0], c[1]], np.stack(rweights)[:, c[0], c[1]])
         cloud = (csum / rs)[c]
-        p = np.clip(chance / rs, 0, 1)[c]
+        p = np.clip(chance / rs, 0, 1)
+        # The ensembles' own chance, more of it the further ahead.
+        if ensembles:
+            lon, lat = block_lonlat(z, px0, py0, w, h)
+            enum, ew = np.zeros((h, w), np.float32), np.zeros((h, w), np.float32)
+            for e in ensembles:
+                try:
+                    got = e.at(t, lon, lat, key=(z, px0, py0, w, h))
+                except Exception as error:
+                    print(f"{e.name}: left out ({error})", flush=True)
+                    got = None
+                if got is None:
+                    continue
+                value, on = got
+                weight = e.weight * on
+                enum += weight * value
+                ew += weight
+            share = ensemble_share(lead)
+            p = np.where(ew > 0, (1 - share) * p + share * enum / np.maximum(ew, 1e-9), p)
+        p = p[c]
         avg = (mean / rs)[c]
         have = rw[c] > 0
         rain = np.stack([np.clip(np.rint(np.sqrt(typical) * 50), 0, 255), np.clip(np.rint(cloud * 255), 0, 255),
@@ -424,6 +549,13 @@ def main():
             raise SystemExit(f"No terrain yet ({error}): the mix waits for it (terrain.yml)")
         print(f"No terrain ({error}): the air as each model has it", flush=True)
         terrain = None
+    ensembles = []
+    for name, weight, grid_spec in ENSEMBLES:
+        try:
+            ensembles.append(EnsembleChance(name, weight, grid_spec))
+            print(f"{name}: {ensembles[-1].run}, {len(ensembles[-1].times)} steps", flush=True)
+        except Exception as error:
+            print(f"{name}: no chance of rain ({error})", flush=True)
     top = spec["zoom"]
     zooms = range(top - 2, top + 1) if args[0] == "europe" else range(0, top + 1)
     keys = tiler.tiles_in_box(mt.BOX, [top]) if args[0] == "europe" else [(top, x, y) for x in range(2 ** top) for y in range(2 ** top)]
@@ -436,7 +568,7 @@ def main():
         with ThreadPoolExecutor(8) as pool:
             list(pool.map(lambda job: job[0].pack(job[1]), [(m, f) for m, files in needed.items() for f in files]))
         with ThreadPoolExecutor(4) as pool:
-            results = list(pool.map(lambda key: (key, mix_tile(models, t, terrain, *key)), keys))
+            results = list(pool.map(lambda key: (key, mix_tile(models, t, terrain, *key, ensembles=ensembles, lead=(t - now) / 3600)), keys))
         for m in models:
             m.forget(set(needed[m]))
         levels = {"temp": {}, "rain": {}}
