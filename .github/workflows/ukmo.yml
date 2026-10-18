@@ -1,0 +1,58 @@
+name: UK Met Office tiles
+run-name: UK Met Office tiles (UKV 2 km)
+
+# The UK Met Office's UKV (ukmo_tiles.py; the owner, 18.10.2026): from Open-Meteo's open data on AWS,
+# its 00, 06, 12 and 18 UTC runs (to 54 hours) as our wind tiles and the spots' values from its own
+# cells; checked every hour, a run published already skipped in a second.
+on:
+  schedule:
+    - cron: "35 * * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Make the newest run again even if published"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ukmo
+  cancel-in-progress: false
+
+jobs:
+  ukmo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Python version (for the package cache)
+        id: python
+        run: echo "version=$(python3 -c 'import sys; print(sys.version.split()[0])')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the installed packages
+        id: venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: world-venv-${{ runner.os }}-py${{ steps.python.outputs.version }}-eccodes-numpy-pillow-scipy-omfiles-v3
+
+      - name: Install ecCodes, NumPy, Pillow, SciPy and omfiles
+        if: steps.venv.outputs.cache-hit != 'true'
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy omfiles
+
+      - name: Make and upload the UKV tiles
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          if [ "$FORCE" = "true" ]; then
+            .venv/bin/python ukmo_tiles.py --force
+          else
+            .venv/bin/python ukmo_tiles.py
+          fi

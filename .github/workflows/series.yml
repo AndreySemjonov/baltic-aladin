@@ -6,7 +6,7 @@ run-name: Places' files (every wind set's hours by place)
 # round; a set already done for its newest run is skipped in a second.
 on:
   workflow_run:
-    workflows: ["Regional weather tiles", "MET Nordic 1 km tiles", "World weather tiles", "Mix tiles", "World mix tiles"]
+    workflows: ["Regional weather tiles", "MET Nordic 1 km tiles", "World weather tiles", "Mix tiles", "World mix tiles", "UK Met Office tiles"]
     types: [completed]
   workflow_dispatch:
 

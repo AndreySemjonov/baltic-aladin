@@ -53,6 +53,8 @@ MODELS = [
     ("harm-nl", "HARM-NL", 1 / 2.0, 3.0),
     ("icon-2i", "ICON-2I", 1 / 2.2, 3.3),
     ("aladin", "ALADIN", 1 / 2.3, 3.5),
+    # The UK Met Office's UKV (ukmo_tiles.py, 18.10.2026).
+    ("ukmo", "UKV", 1 / 2.0, 3.0),
     ("icon-eu", "ICON-EU", 1 / 7.0, 10.0),
     ("ecmwf", "ECMWF", 1 / 9.0, 25.0),
     ("gfs", "GFS", 1 / 13.0, 25.0),
@@ -110,7 +112,7 @@ MARGIN = 40
 MAX_GAP = 6 * 3600
 CREDIT = ("MET Nordic, MET Norway; HARMONIE DINI, DMI; HARMONIE, FMI; ALADIN, ČHMÚ; AROME, Météo-France (Etalab 2.0); "
           "ICON-D2 and ICON-EU, DWD; ICON-CH1, MeteoSwiss; HARMONIE-AROME, KNMI; ICON-2I, ItaliaMeteo; "
-          "ECMWF open data (CC BY 4.0); GFS, NOAA")
+          "ECMWF open data (CC BY 4.0); GFS, NOAA; UKV, Met Office")
 
 
 def get(url, tries=3):
@@ -356,7 +358,7 @@ KEYS = {"dmi_harmonie_arome_europe": "HARM-DK", "metno_nordic": "MET Nordic", "f
         "meteoswiss_icon_ch1": "ICON-CH1", "meteoswiss_icon_ch2": "ICON-CH1", "italia_meteo_arpae_icon_2i": "ICON-2I",
         "knmi_harmonie_arome_netherlands": "HARM-NL", "icon_eu": "ICON-EU", "ecmwf_ifs": "ECMWF", "gfs_global": "GFS",
         # The world mix's (mix_world.py; not in this one).
-        "icon_global": "ICON", "gem_global": "GDPS"}
+        "icon_global": "ICON", "gem_global": "GDPS", "ukmo_uk_deterministic_2km": "UKV"}
 # Copied weights (a rider's spot took its nearest spot's) aren't a place's own: left out.
 COPIED = ("nearest built-in spot", "default", "map's weights")
 

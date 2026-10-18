@@ -33,8 +33,8 @@ BLOCK = 16
 # The zoom a tap reads (station-history SERIES_ZOOMS, the same): the 1 km models and the Mix at 7,
 # the 2-2.5 km ones at 6, the others their finest.
 ZOOMS = {"mix": 7, "metnordic-1km": 7, "arome": 7, "icon-ch1": 7, "icon-d2": 6, "dini": 6, "harm-nl": 6, "icon-2i": 6,
-         "harm-fi": 6, "aladin": 6}
-SETS = ["mix", "mix-world", "metnordic-1km", "dini", "arome", "harm-nl", "icon-d2", "icon-ch1", "icon-2i", "harm-fi", "aladin",
+         "harm-fi": 6, "aladin": 6, "ukmo": 6}
+SETS = ["mix", "mix-world", "metnordic-1km", "dini", "arome", "ukmo", "harm-nl", "icon-d2", "icon-ch1", "icon-2i", "harm-fi", "aladin",
         "icon-eu", "ecmwf", "gfs", "icon", "gdps",
         # The weather's and the waves' too (the owner, 18.10.2026: a place's weather and waves from our
         # files, any place): "<folder>:<layer>", named "<folder>-<layer>" (the waves their own sets).
