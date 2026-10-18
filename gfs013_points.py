@@ -25,9 +25,9 @@ import world_tiles
 
 BUCKET = "https://openmeteo.s3.amazonaws.com/"
 RUNS = "data_spatial/ncep_gfs013/"
-FIELDS = (("10u", "wind_u_component_10m", 0), ("10v", "wind_v_component_10m", 0), ("gust", "wind_gusts_10m", 0),
-          ("2t", "temperature_2m", 273.15), ("rain", "precipitation", 0), ("tcc", "cloud_cover", 0),
-          ("low", "cloud_cover_low", 0), ("mid", "cloud_cover_mid", 0), ("high", "cloud_cover_high", 0))
+# The 0.13° files hold the wind and the air only; the gusts come from the 0.25° grid (as Open-Meteo's
+# gfs_global: world_tiles.py's points/gfs-025.json) and the weather stays world_tiles.py's (gfs-wx).
+FIELDS = (("10u", "wind_u_component_10m", 0), ("10v", "wind_v_component_10m", 0), ("gust", "wind_gusts_10m", 0))
 # A run counts once this many hours are there (Open-Meteo's GFS 0.13°: hourly to 120 h, then 3-hourly: 209).
 COMPLETE = 200
 
@@ -80,7 +80,7 @@ def main():
         return
     hours = sorted(files)[:limit] if limit else sorted(files)
     print(f"GFS 0.13° {run_name}: {len(hours)} hours", flush=True)
-    cells = spot_cells.SpotCells("gfs", "gfs_global", weather="gfs-wx")
+    cells = spot_cells.SpotCells("gfs", "gfs_global")
     started, previous, grid = time.time(), 0, None
     with ThreadPoolExecutor(max_workers=6) as pool:
         for step, path in zip(hours, pool.map(fetch, [files[h] for h in hours])):
@@ -105,11 +105,25 @@ def main():
                         "jScansPositively": 1}
             if grid is None:
                 continue
-            rate = np.maximum(fields.pop("rain"), 0) / max(step - previous, 1) if "rain" in fields else None
             previous = step
-            cells.add_regular(int(run.timestamp()) + step * 3600, grid, fields, rate)
+            cells.add_regular(int(run.timestamp()) + step * 3600, grid, fields)
             if step % 24 == 0:
                 print(f"  +{step} h, {time.time() - started:.0f} s", flush=True)
+    # The gusts from the 0.25° grid at the same place and hour (at least the wind).
+    coarse = spot_points.published("gfs-025") or {}
+    times = {t: i for i, t in enumerate(coarse.get("times", []))}
+    gusted = 0
+    for t, row in cells.wind.items():
+        i = times.get(t)
+        for key, value in row.items():
+            if value is None:
+                continue
+            other = (coarse.get("points", {}).get(key) or [None] * (i + 1 if i is not None else 0))
+            g = other[i][2] if i is not None and i < len(other) and other[i] else None
+            if g is not None:
+                value[2] = round(max(g, value[2]), 2)
+                gusted += 1
+    print(f"  gusts from the 0.25° file ({coarse.get('run')}): {gusted} point-hours", flush=True)
     cells.publish(run_name, local and local + "/points")
     print(f"GFS 0.13° {run_name}: done in {time.time() - started:.0f} s", flush=True)
 
