@@ -1,0 +1,56 @@
+name: World lakes mask
+run-name: World lakes mask${{ inputs.dry && ' (dry run)' || '' }}${{ inputs.only && format(' ({0})', inputs.only) || '' }}
+
+# The world's lakes as a water mask on our file store (lakes_tiles.py; the owner, 18.10.2026: new
+# spots on lakes off Open-Meteo): HydroLAKES rasterised to each pixel's lake share, zooms 6-10. Made
+# once, so this runs only by hand; a dry run makes everything but uploads nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      dry:
+        description: "Make the tiles but don't upload them"
+        type: boolean
+        default: false
+      only:
+        description: "One zoom-5 tile only, x-y (a test: 16-11 is Lake Garda's)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  lakes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    concurrency:
+      group: lakes
+      cancel-in-progress: false
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install GDAL and the Python packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gdal-bin
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow pyogrio shapely rasterio
+          ogr2ogr --version
+
+      - name: Make (and upload) the tiles
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          DRY: ${{ inputs.dry }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          df -h / | tail -1
+          extra=""
+          if [ -n "$ONLY" ]; then extra="--only $ONLY"; fi
+          if [ "$DRY" = "true" ]; then
+            .venv/bin/python lakes_tiles.py --local lakes-out $extra
+            ls -lS lakes-out/lakes | head -5
+          else
+            .venv/bin/python lakes_tiles.py $extra
+          fi
+          df -h / | tail -1
