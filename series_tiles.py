@@ -41,7 +41,9 @@ SETS = ["mix", "mix-world", "metnordic-1km", "dini", "arome", "ukmo", "icon-ch2"
         "mix-wx:temp", "mix-wx:rain", "mix-world-wx:temp", "mix-world-wx:rain",
         "ecmwf:temp", "ecmwf:rain", "ecmwf:cloud", "ecmwf:sky", "icon-eu-wx:temp", "icon-eu-wx:rain", "icon-eu-wx:cloud",
         "metnordic-1km-wx:temp", "metnordic-1km-wx:rain", "gfs:temp", "gfs:rain", "icon:temp", "icon:rain",
-        "gdps:temp", "gdps:rain", "ewam", "ecmwf-waves"]
+        "gdps:temp", "gdps:rain", "ewam", "ecmwf-waves",
+        # The sea's level and temperature (station-history /sea; the owner, 18.10.2026: off Open-Meteo).
+        "sea", "sea-world"]
 
 
 def area_tiles(set_name, index, header):
