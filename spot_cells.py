@@ -162,6 +162,63 @@ class SpotCells:
                           percent("tcc", cell), percent("low", cell), percent("mid", cell), percent("high", cell)]
         self.air[int(t)] = weather
 
+    # MARK: A model's own points, not on a grid (ECMWF's O1280)
+
+    def _add_native(self, t, native):
+        """One hour from a model's own points: native {"lat", "lon" (degrees), "values": {"10u",
+        "10v", "gust", "2t" (K), "rate", "tcc", "low", "mid", "high"}}; the points chosen as Open-Meteo
+        chooses them (checked on its answers, 18.10.2026): the wind at the nearest point by plain
+        degrees (latitude and longitude difference, 60 of 60 places the same), the air at the
+        nearest of the 4 that is land by the model's own ground (HSURF, the sea -999 there; most
+        places the same, in steep places it may take another by its height)."""
+        lats, lons, values = native["lat"], native["lon"], native["values"]
+        if self.cells is None:
+            from scipy.spatial import cKDTree
+            tree = cKDTree(np.column_stack([lats, lons]))
+            wind = {k: int(tree.query([lat, lon])[1]) for k, (lat, lon) in self.wind_points.items()}
+            air = {}
+            if self.weather_name:
+                try:
+                    import model_heights
+                    ground = model_heights.read_hsurf(self.model_key).ravel()
+                except Exception as error:
+                    print(f"{self.set_name}: no ground for the land ({error})", flush=True)
+                    ground = None
+                for k, (lat, lon) in self.air_points.items():
+                    _, near = tree.query([lat, lon], k=4)
+                    land = [int(i) for i in near if ground is not None and ground[i] != 0]
+                    air[k] = land[0] if land else int(near[0])
+            self.cells = (wind, air)
+        wind_cells, air_cells = self.cells
+        u, v, gust = values.get("10u"), values.get("10v"), values.get("gust")
+        if u is None or v is None:
+            return
+        row = {}
+        for k, i in wind_cells.items():
+            speed = math.hypot(float(u[i]), float(v[i]))
+            g = float(gust[i]) if gust is not None else speed
+            row[k] = [round(float(u[i]), 2), round(float(v[i]), 2), round(max(g, speed), 2)]
+        self.wind[int(t)] = row
+        if not self.weather_name or "2t" not in values:
+            return
+        scales = {name: (100 if float(np.nanmax(values[name])) <= 1.5 else 1) for name in ("tcc", "low", "mid", "high") if name in values}
+
+        def percent(name, i):
+            return round(float(values[name][i]) * scales[name]) if name in values else None
+        self.air[int(t)] = {k: [round(float(values["2t"][i]) - 273.15, 1),
+                                None if "rate" not in values else round(max(float(values["rate"][i]), 0), 2),
+                                percent("tcc", i), percent("low", i), percent("mid", i), percent("high", i)]
+                            for k, i in air_cells.items()}
+
+    def add_native(self, *args, **kwargs):
+        if self.failed:
+            return
+        try:
+            self._add_native(*args, **kwargs)
+        except Exception as error:
+            print(f"{self.set_name}: the spots' cells stopped ({error})", flush=True)
+            self.failed = True
+
     # MARK: A model's own projection (the regional models, MET Nordic)
 
     def _add_placed(self, t, place, sample, east, north, gust, air=None, rain=None, cloud=None):

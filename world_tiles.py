@@ -171,6 +171,9 @@ def ecmwf9_steps(run, steps):
     share = (1 / np.maximum(distance, 1e-9)).astype(np.float32)
     share /= share.sum(axis=1, keepdims=True)
     shape = (ECMWF9_GRID["Nj"], ECMWF9_GRID["Ni"])
+    # Its own points too, for the spots' values from their nearest point as Open-Meteo's (the owner,
+    # 18.10.2026: our 0.1° grid's four-point blend read 0.2-0.6 m/s off theirs).
+    native_points = {"lat": np.degrees(la), "lon": (np.degrees(lo) + 180) % 360 - 180}
     del tree, points, gl, go
 
     def regular(values):
@@ -219,18 +222,25 @@ def ecmwf9_steps(run, steps):
                     land = False
             if land is not False:
                 fields["land"] = land
+            native = {}
             for ours, theirs, add in ECMWF9_FIELDS:
                 try:
                     values = reader.get_child_by_name(theirs).read_array((slice(None), slice(None)))[0]
                 except Exception:
                     continue
-                fields[ours] = regular(np.nan_to_num(values.astype(np.float32))) + add
+                values = np.nan_to_num(values.astype(np.float32))
+                fields[ours] = regular(values) + add
+                if ours in ("10u", "10v", "gust", "2t", "rain", "tcc", "low", "mid", "high"):
+                    native[ours] = values + add
             reader.close()
             os.unlink(path)
             # The rain over the step (an hour, then 3 and 6), as mm an hour.
             if "rain" in fields:
                 fields["rain_step"] = fields.pop("rain")
                 fields["rate"] = np.maximum(fields["rain_step"], 0) / max(step - before, 1)
+            if "rain" in native:
+                native["rate"] = np.maximum(native.pop("rain"), 0) / max(step - before, 1)
+            fields["_native"] = dict(native_points, values=native)
             before = step
             yield step, fields, ECMWF9_GRID
 
@@ -664,7 +674,10 @@ def main():
             rate = fields["rate"]
         if cells is not None:
             try:
-                cells.add_regular(t, grid, fields, rate)
+                if "_native" in fields:
+                    cells.add_native(t, fields["_native"])
+                else:
+                    cells.add_regular(t, grid, fields, rate)
             except Exception as error:
                 print(f"{model} step {step}: the spots' cells left out ({error})", flush=True)
                 cells = None
