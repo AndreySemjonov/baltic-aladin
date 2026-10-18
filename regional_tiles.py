@@ -445,6 +445,15 @@ def main():
             print(f"{model}: check.json not sent ({error})", flush=True)
     print(f"MET Nordic {run_name}: {len(frames)} hours, {total / 1e6:.0f} MB, {time.time() - started:.0f} s")
     if which != "wind":
+        # Each model's own air and rain too (tiles/<folder>-wx/: the weather mix's; the owner,
+        # 18.10.2026). One failing leaves the others.
+        for name, (place, data, sample) in others.items():
+            if name not in MODEL_SETS or not data:
+                continue
+            try:
+                model_weather_set(name, data, sample, parts[name], [m for m in models if m["name"] == name][0], run_name, local)
+            except Exception as error:
+                print(f"{name} weather alone left out: {error}", flush=True)
         return
     # Each model alone: its tiles where it counts (its weight as the alpha: the app draws the
     # world's model under it), at this run's hours it has. One failing leaves the others.
@@ -456,6 +465,62 @@ def main():
                       place=others[name][0])
         except Exception as error:
             print(f"{name} alone left out: {error}", flush=True)
+
+
+def model_weather_set(name, data, sample, parts, info, run_name, local):
+    """One regional model's own air and rain (tiles/<folder>-wx/<run_name>/<time>-temp.pack and
+    -rain.pack, as the world's: air, feels like and no pressure; the hour's rain and the cloud
+    cover), its weight as the alpha, and its index."""
+    folder, label, credit = MODEL_SETS[name]
+    folder += "-wx"
+    started = time.time()
+    keys = [key for key, (c, r, w) in parts.items() if np.any(w > 0)]
+    frames, total = [], 0
+
+    def put(file, pack):
+        if local:
+            (local / folder / run_name).mkdir(parents=True, exist_ok=True)
+            (local / folder / file).write_bytes(pack)
+        else:
+            world_tiles.upload(f"{folder}/{file}", pack)
+
+    for t in sorted(data):
+        d = data[t]
+        temp_tiles, rain_tiles = {}, {}
+        for key in keys:
+            c, r, w = parts[key]
+            air = sample(d["air"], c, r)
+            w = np.where(np.isfinite(air), w, 0)
+            if not np.any(w > 0):
+                continue
+            alpha = np.rint(np.clip(w, 0, 1) * 255)[..., None]
+            rh, speed = sample(d["rh"], c, r), sample(d["wind"], c, r)
+            feel = temp_map.feels_like(np.nan_to_num(air), np.nan_to_num(speed), np.clip(np.nan_to_num(rh, nan=0.6), 0, 1))
+            rgb_t = np.stack([temp_map.encode(air), temp_map.encode(feel), np.zeros(air.shape)], axis=-1)
+            mm = np.maximum(np.nan_to_num(sample(d["rain"], c, r)), 0)
+            cover = np.clip(np.nan_to_num(sample(d["cloud"], c, r)), 0, 1)
+            rgb_r = np.stack([np.clip(np.rint(np.sqrt(mm) * 50), 0, 255), np.clip(np.rint(cover * 255), 0, 255), np.zeros(mm.shape)], axis=-1)
+            temp_tiles[key] = world_tiles.png(np.concatenate([rgb_t, alpha], axis=-1).astype(np.uint8), "RGBA")
+            rain_tiles[key] = world_tiles.png(np.concatenate([rgb_r, alpha], axis=-1).astype(np.uint8), "RGBA")
+        if not temp_tiles:
+            continue
+        temp = world_tiles.encode(temp_tiles, {z: SIZE for z in ZOOMS})
+        rain = world_tiles.encode(rain_tiles, {z: SIZE for z in ZOOMS})
+        put(f"{run_name}/{t}-temp.pack", temp)
+        put(f"{run_name}/{t}-rain.pack", rain)
+        frames.append({"time": int(t), "file": f"{run_name}/{t}-temp.pack", "temp": f"{run_name}/{t}-temp.pack",
+                       "rain": f"{run_name}/{t}-rain.pack"})
+        total += len(temp) + len(rain)
+    index = {"model": label + " (air and rain)", "credit": credit, "run": info.get("run"), "runName": run_name,
+             "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "zooms": [ZOOMS.start, ZOOMS.stop - 1],
+             "land": None, "frames": frames}
+    body = json.dumps(index, separators=(",", ":")).encode()
+    if local:
+        (local / folder).mkdir(parents=True, exist_ok=True)
+        (local / folder / "index.json").write_bytes(body)
+    else:
+        world_tiles.upload(f"{folder}/index.json", body)
+    print(f"{label} air and rain: {len(keys)} tiles, {len(frames)} hours, {total / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
 
 
 def model_set(name, data, sample, parts, info, run_name, local, place=None):

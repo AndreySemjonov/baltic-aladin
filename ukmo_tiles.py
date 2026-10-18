@@ -21,6 +21,7 @@ import numpy as np
 
 import quality
 import spot_cells
+import temp_map
 import tiler
 import world_tiles
 
@@ -116,6 +117,7 @@ def main():
                 return None
         speed, direction, gust = field("wind_speed_10m"), field("wind_direction_10m"), field("wind_gusts_10m")
         air, rain, cloud = field("temperature_2m"), field("precipitation"), field("cloud_cover")
+        humidity, msl = field("relative_humidity_2m"), field("pressure_msl")
         reader.close()
         os.unlink(handle.name)
         if speed is None or direction is None:
@@ -130,6 +132,20 @@ def main():
             continue
         out.put(t, tiler.pack(placement, sample, lambda at: tiler.wind_rgb(at(east), at(north), at(gust)),
                               valid=lambda at: np.isfinite(at(speed))))
+        # The air and the rain as weather layers too (<time>-temp.pack, <time>-rain.pack: the weather
+        # mix's; the owner, 18.10.2026), as the world's: air, feels like, sea-level pressure; the
+        # hour's rain and the cloud cover.
+        if air is not None:
+            rh = np.clip(np.nan_to_num(humidity, nan=60) / 100, 0, 1) if humidity is not None else np.full(air.shape, 0.6, np.float32)
+            feels = temp_map.feels_like(air, np.nan_to_num(speed), rh)
+            hpa = msl if msl is not None else np.full(air.shape, np.nan, np.float32)
+            out.put(t, tiler.pack(placement, sample, lambda at: tiler.temp_rgb(at(air), at(feels), at(hpa)),
+                                  valid=lambda at: np.isfinite(at(air))), "temp")
+        if rain is not None:
+            cover = np.clip(np.nan_to_num(cloud) / 100, 0, 1) if cloud is not None else np.zeros_like(rain)
+            wet = np.maximum(np.nan_to_num(rain), 0)
+            out.put(t, tiler.pack(placement, sample, lambda at: tiler.rain_rgb(at(wet), at(cover)),
+                                  valid=lambda at: np.isfinite(at(rain))), "rain")
         print(f"  {valid:%d %H:%M}: {out.bytes / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
     out.finish()
     if cells is not None:
