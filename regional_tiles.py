@@ -549,10 +549,10 @@ def model_set(name, data, sample, parts, info, run_name, local, place=None):
 
     # The spots' wind from the model's own cells (spot_cells.py; the owner, 18.10.2026).
     import spot_cells
-    keys = {"ICON-D2": "icon_d2", "HARMONIE DINI": "dmi_harmonie_arome_europe", "HARM-NL": "knmi_harmonie_arome_netherlands",
+    open_meteo = {"ICON-D2": "icon_d2", "HARMONIE DINI": "dmi_harmonie_arome_europe", "HARM-NL": "knmi_harmonie_arome_netherlands",
             "AROME": "meteofrance_arome_france_hd", "ICON-CH1": "meteoswiss_icon_ch1", "ICON-2I": "italia_meteo_arpae_icon_2i"}
     try:
-        cells = spot_cells.SpotCells(folder, keys[name]) if place is not None and name in keys else None
+        cells = spot_cells.SpotCells(folder, open_meteo[name]) if place is not None and name in open_meteo else None
     except Exception as error:
         print(f"{label}: the spots' cells left out ({error})", flush=True)
         cells = None
