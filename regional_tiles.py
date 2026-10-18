@@ -7,7 +7,7 @@ over France, the Channel and the Alps' west, and MeteoSwiss's ICON-CH1 (1 km) ov
 Italy's lakes, and ItaliaMeteo's ICON-2I (2.2 km) over Italy, its islands and the Adriatic, where MET
 Nordic isn't (MET Nordic first; the others averaged by their weights where they overlap). The same packs as the world's tiles
 (world_tiles.py: "MGT1", a header, PNG tiles), zooms 4-6 on the web map's grid, one pack an hour
-(hourly for the first day, then every 3 hours), uploaded through station-history as
+(the wind hourly; the weather hourly for the first day, then every 3 hours), uploaded through station-history as
 tiles/metnordic/; the app draws them between our Baltic mix and ECMWF's world.
 
 Each tile RGBA: red the east wind x 4 + 128, green the north wind x 4 + 128, blue the gust x 5
@@ -61,14 +61,15 @@ MODEL_SETS = {
 }
 
 
-def hours_wanted(times, run):
-    """Hourly for the first day, then every third hour."""
+def hours_wanted(times, run, hourly=False):
+    """Hourly for the first day, then every third hour; `hourly`: every hour (the wind: the spots'
+    hours come from these tiles, the sea breeze's timing with them; the owner, 18.10.2026)."""
     out = []
     for i, t in enumerate(times):
         ahead = (t - run) / 3600
         if ahead < 0:
             continue
-        if ahead <= 24 or round(ahead) % 3 == 0:
+        if hourly or ahead <= 24 or round(ahead) % 3 == 0:
             out.append(i)
     return out
 
@@ -216,7 +217,7 @@ def main():
         mn.SOURCE = own
     except Exception:
         print(f"MET Nordic {run_name}: its own file not found, reading the latest", flush=True)
-    steps = hours_wanted(times, run)
+    steps = hours_wanted(times, run, hourly=which == "wind")
     # The air and rain without the run's own hour: its rain is the hour before the run, not a
     # forecast (it read as 255 everywhere: R3's check, 13.10.2026).
     if which != "wind":

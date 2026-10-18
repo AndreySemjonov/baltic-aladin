@@ -1,0 +1,59 @@
+name: Spot points
+run-name: Spot points (our models' wind at the spots)
+
+# Our models' wind at every spot's points (spot_points.py; the owner, 18.10.2026: the spot page's
+# wind from our own data), after each run of their tiles; a set already done for its newest run is
+# skipped in a second.
+on:
+  workflow_run:
+    workflows: ["Regional weather tiles", "MET Nordic 1 km tiles", "World weather tiles"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Make every set's points again"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spot-points
+  cancel-in-progress: false
+
+jobs:
+  points:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Python version (for the package cache)
+        id: python
+        run: echo "version=$(python3 -c 'import sys; print(sys.version.split()[0])')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the installed packages
+        id: venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: world-venv-${{ runner.os }}-py${{ steps.python.outputs.version }}-eccodes-numpy-pillow-scipy-v2
+
+      - name: Install ecCodes, NumPy, Pillow and SciPy
+        if: steps.venv.outputs.cache-hit != 'true'
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy
+
+      - name: Make and upload the spots' points
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          if [ "$FORCE" = "true" ]; then
+            .venv/bin/python spot_points.py --force
+          else
+            .venv/bin/python spot_points.py
+          fi

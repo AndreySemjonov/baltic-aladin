@@ -28,7 +28,9 @@ import temp_map
 import tiler
 
 ZOOMS = range(3, 6)
-STEPS = list(range(0, 25)) + list(range(27, 121, 3))
+# Hourly while ICON-EU is (78 hours: the spots' hours come from these tiles; the owner, 18.10.2026),
+# then every 3 hours.
+STEPS = list(range(0, 79)) + list(range(81, 121, 3))
 FADE_KM = 150
 WIND = ("U_10M", "V_10M", "VMAX_10M")
 # The clouds low (under about 2 km), mid (2-6 km) and high (over 6 km) too: the app's forecast clouds in

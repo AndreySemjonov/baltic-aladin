@@ -83,7 +83,7 @@ def main():
         mn.SOURCE = own
     except Exception:
         print("its own file not found, reading the latest", flush=True)
-    steps = regional_tiles.hours_wanted(times, run)
+    steps = regional_tiles.hours_wanted(times, run, hourly=not weather)
     # The air and rain without the run's own hour (its rain is the hour before the run: 255
     # everywhere, caught by R3's check 13.10.2026).
     if weather:
