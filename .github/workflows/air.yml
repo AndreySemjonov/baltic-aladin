@@ -1,0 +1,58 @@
+name: Air quality
+run-name: Air quality (CAMS Europe and global)
+
+# The air quality and pollen for our server (air_points.py; the owner, 18.10.2026: off Open-Meteo's
+# API): CAMS from Open-Meteo's open data on AWS, each new run's files; a region already published for
+# its newest run is skipped in a second.
+on:
+  schedule:
+    - cron: "50 */3 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Make the newest runs again even if published"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: air
+  cancel-in-progress: false
+
+jobs:
+  air:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Python version (for the package cache)
+        id: python
+        run: echo "version=$(python3 -c 'import sys; print(sys.version.split()[0])')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the installed packages
+        id: venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: world-venv-${{ runner.os }}-py${{ steps.python.outputs.version }}-eccodes-numpy-pillow-scipy-omfiles-v3
+
+      - name: Install ecCodes, NumPy, Pillow, SciPy and omfiles
+        if: steps.venv.outputs.cache-hit != 'true'
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy omfiles
+
+      - name: Make and upload the air quality
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          if [ "$FORCE" = "true" ]; then
+            .venv/bin/python air_points.py --force
+          else
+            .venv/bin/python air_points.py
+          fi
