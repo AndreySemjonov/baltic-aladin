@@ -5,7 +5,12 @@ the model's area: tiles/heights/<model>.pack, encoded as tiles/terrain (red x 25
 + 1000 m), alpha 255 on the grid, 0 off it. The grids from each one's meta.json (its projection and
 first and last points; the rotated ones as bucket_tiles.py's, checked on the terrain). Made once.
 
-    python model_heights.py [model ...] [--local DIR]
+Also (--grids) each grid itself for station-history's spot setup (the owner, 18.10.2026: new spots
+off Open-Meteo): tiles/grids/<model>.json, how a place finds its cell (the projection's parameters,
+the first point, the steps; ECMWF's Gaussian rows), and tiles/grids/<model>.bin, each cell's ground
+as one byte (0 sea, 1 land, 2 off the model's area), zlib, row by row as Open-Meteo has them.
+
+    python model_heights.py [model ...] [--local DIR] [--grids]
 """
 import json
 import math
@@ -201,6 +206,41 @@ def make(model, local):
     print(f"{model}: {len(tiles)} tiles, {len(data) / 1e6:.1f} MB, {time.time() - started:.0f} s", flush=True)
 
 
+def grid_files(model, local):
+    """The grid's description and its land and sea, for the server's nearest cell (as Open-Meteo:
+    plain degrees on regular grids and ECMWF's own, the nearest column and row on projected ones)."""
+    import zlib
+    spec = MODELS[model]
+    values = read_hsurf(model, raw=True)
+    flat = values.ravel()
+    mask = np.where(~np.isfinite(flat), 2, np.where(flat < -500, 0, 1)).astype(np.uint8)
+    if spec["kind"] == "o1280":
+        x, _ = np.polynomial.legendre.leggauss(2560)
+        lats = np.degrees(np.arcsin(x))[::-1]
+        info = {"kind": "o1280", "lats": [round(float(v), 6) for v in lats]}
+    else:
+        grid = Grid(model, spec, values.shape)
+        info = {"kind": grid.kind, "x0": grid.x0, "y0": grid.y0, "dx": grid.dx, "dy": grid.dy, "nx": grid.nx, "ny": grid.ny}
+        if grid.kind == "rotated":
+            parts = dict(item.lstrip("+").split("=", 1) for item in spec["proj"].split() if "=" in item)
+            info.update(kind="rotated", o_lat_p=float(parts["o_lat_p"]), lon_0=float(parts["lon_0"]))
+        elif grid.kind == "wkt":
+            params = grid.to_grid.target_crs.to_dict()
+            info.update(kind=params["proj"], lat_0=float(params["lat_0"]), lon_0=float(params["lon_0"]))
+        elif grid.kind == "latlon":
+            info["wrap"] = bool(grid.nx * grid.dx > 359)
+    body = json.dumps(info, separators=(",", ":")).encode()
+    packed = zlib.compress(mask.tobytes(), 9)
+    if local:
+        (local / "grids").mkdir(parents=True, exist_ok=True)
+        (local / "grids" / f"{model}.json").write_bytes(body)
+        (local / "grids" / f"{model}.bin").write_bytes(packed)
+    else:
+        world_tiles.upload(f"grids/{model}.bin", packed)
+        world_tiles.upload(f"grids/{model}.json", body)
+    print(f"{model} grid: {info['kind']}, {mask.size} cells, {len(packed) / 1e3:.0f} kB", flush=True)
+
+
 def main():
     args = sys.argv[1:]
     local = Path(args[args.index("--local") + 1]) if "--local" in args else None
@@ -208,7 +248,10 @@ def main():
     failed = []
     for model in chosen:
         try:
-            make(model, local)
+            if "--grids" in args:
+                grid_files(model, local)
+            else:
+                make(model, local)
         except Exception as error:
             failed.append(model)
             print(f"{model} failed: {error}", flush=True)

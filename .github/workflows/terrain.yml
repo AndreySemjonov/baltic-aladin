@@ -10,7 +10,7 @@ on:
       part:
         description: "terrain, heights or both"
         type: choice
-        options: [both, terrain, heights]
+        options: [both, terrain, heights, grids]
         default: both
 
 permissions:
@@ -36,7 +36,7 @@ jobs:
         run: .venv/bin/python terrain_tiles.py
 
   heights:
-    if: inputs.part != 'terrain'
+    if: inputs.part != 'terrain' && inputs.part != 'grids'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -52,3 +52,22 @@ jobs:
         env:
           INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
         run: .venv/bin/python model_heights.py
+
+  # Each model's grid and land for the spot setup (station-history /cells; the owner, 18.10.2026).
+  grids:
+    if: inputs.part == 'grids' || inputs.part == 'both'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install ecCodes, NumPy, Pillow, SciPy, omfiles and pyproj
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy omfiles pyproj
+
+      - name: Make and upload each model's grid
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+        run: .venv/bin/python model_heights.py --grids
