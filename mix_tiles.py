@@ -205,13 +205,15 @@ class Coast:
     def __init__(self):
         index = json.loads(get(FILES + "coast/index.json"))
         self.packs, self.land = set(index["packs"]), set(index.get("land", []))
+        # The packs made again go in a folder of their own (v2, ...: the world's coasts since v4).
+        self.folder = (index["folder"] + "/") if index.get("folder") else ""
         self.cache = {}
         self.blocks = {}
 
     def pack(self, x5, y5):
         name = f"{x5}-{y5}"
         if name not in self.cache:
-            self.cache[name] = Pack(get(FILES + f"coast/5-{name}.pack")) if name in self.packs else None
+            self.cache[name] = Pack(get(FILES + f"coast/{self.folder}5-{name}.pack")) if name in self.packs else None
         return self.cache[name]
 
     def cached(self, z, px0, py0, w, h):
@@ -352,7 +354,9 @@ CATALOG = "https://data.meteogust.com/spots/catalog"
 KEYS = {"dmi_harmonie_arome_europe": "HARM-DK", "metno_nordic": "MET Nordic", "fmi": "HARM-FI", "aladin": "ALADIN",
         "meteofrance_arome_france_hd": "AROME", "meteofrance_arome_france": "AROME", "icon_d2": "ICON-D2",
         "meteoswiss_icon_ch1": "ICON-CH1", "meteoswiss_icon_ch2": "ICON-CH1", "italia_meteo_arpae_icon_2i": "ICON-2I",
-        "knmi_harmonie_arome_netherlands": "HARM-NL", "icon_eu": "ICON-EU", "ecmwf_ifs": "ECMWF", "gfs_global": "GFS"}
+        "knmi_harmonie_arome_netherlands": "HARM-NL", "icon_eu": "ICON-EU", "ecmwf_ifs": "ECMWF", "gfs_global": "GFS",
+        # The world mix's (mix_world.py; not in this one).
+        "icon_global": "ICON", "gem_global": "GDPS"}
 # Copied weights (a rider's spot took its nearest spot's) aren't a place's own: left out.
 COPIED = ("nearest built-in spot", "default", "map's weights")
 

@@ -1,5 +1,5 @@
 name: World weather tiles
-run-name: World tiles (GFS, ECMWF)
+run-name: World tiles (GFS, ECMWF, ICON, GDPS)
 
 # The world's models as weather tiles on our file store (world_tiles.py; the app's map plan
 # step 1, the owner, 12.10.2026): every hour each model's newest run is checked and, when it is
@@ -28,7 +28,8 @@ jobs:
       matrix:
         # ICON-EU over Europe (iconeu_tiles.py, docs/TILES_PLAN.md phase 2) beside the world's two; the
         # waves (waves_tiles.py, docs/WAVES_PLAN.md W1): ECMWF's for the world, EWAM over Europe.
-        model: [gfs, ecmwf, icon-eu, ecmwf-waves, ewam]
+        # ICON (DWD's 13 km) and GDPS (Canada's 15 km) for the world mix (mix_world.py, 18.10.2026).
+        model: [gfs, ecmwf, icon-eu, ecmwf-waves, ewam, icon, gdps]
     concurrency:
       group: world-${{ matrix.model }}
       cancel-in-progress: false

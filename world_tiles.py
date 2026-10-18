@@ -1,4 +1,7 @@
-"""World weather tiles from GFS (NOAA, public domain) and ECMWF open data (CC BY 4.0).
+"""World weather tiles from GFS (NOAA, public domain), ECMWF open data (CC BY 4.0), ICON (DWD's
+open data; its triangles put on a regular 0.125° grid) and GDPS (Environment and Climate Change
+Canada's 15 km, Open Government Licence - Canada): the world mix's models (mix_world.py; the owner,
+18.10.2026: the mix all the way to 14 days, everywhere).
 
 Plan step 1 for the world (the owner, 12.10.2026): each hour of a run becomes one pack of
 weather tiles on the web map's grid (Web Mercator, 256-pixel tiles, zooms 0-3: the models'
@@ -10,10 +13,11 @@ offset from the header's end and its length) and the tiles (PNG); the app reads 
 The packs and tiles/<model>/index.json (the run's hours) go to the file store through our
 service (station-history /tiles/upload, the INGEST_TOKEN secret), the index last.
 
-    python world_tiles.py gfs|ecmwf              build and upload the newest run, if new
-    python world_tiles.py gfs|ecmwf --force      even if it's the published one
-    python world_tiles.py gfs|ecmwf --local DIR  write to DIR, no upload (a test; --steps 0,24)
+    python world_tiles.py gfs|ecmwf|icon|gdps              build and upload the newest run, if new
+    python world_tiles.py gfs|ecmwf|icon|gdps --force      even if it's the published one
+    python world_tiles.py gfs|ecmwf|icon|gdps --local DIR  write to DIR, no upload (a test; --steps 0,24)
 """
+import bz2
 import io
 import json
 import math
@@ -27,6 +31,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import eccodes as ec
 import numpy as np
 from PIL import Image
 
@@ -39,6 +44,8 @@ ZOOMS = range(0, 4)
 # Pixels a tile side at each zoom: 256, except zoom 3 at the models' own detail (1440 columns
 # round the world, 0.25°): more pixels there only made the packs bigger (5 MB an hour).
 SIZES = {0: 256, 1: 256, 2: 256, 3: 180}
+# ICON's 0.125° and GDPS's 0.15°: zoom 3 at their own detail too (2880 and 2400 columns).
+MODEL_SIZES = {"icon": {0: 256, 1: 256, 2: 256, 3: 360}, "gdps": {0: 256, 1: 256, 2: 256, 3: 300}}
 UPLOAD = "https://data.meteogust.com/tiles/upload/"
 PUBLISHED = "https://files.meteogust.com/tiles/{model}/index.json"
 
@@ -50,7 +57,19 @@ GFS_FILTER = ("https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl?dir=%2Fgf
 MODELS = {
     "gfs": {"name": "GFS 0.25°", "credit": "NOAA NCEP, GFS (public domain)", "gust": "surface gust"},
     "ecmwf": {"name": "ECMWF 0.25°", "credit": "ECMWF open data (CC BY 4.0)", "gust": "maximum since the previous step"},
+    "icon": {"name": "ICON 13 km", "credit": "ICON, Deutscher Wetterdienst", "gust": "maximum since the previous output hour"},
+    "gdps": {"name": "GDPS 15 km", "credit": "GDPS, Environment and Climate Change Canada (Open Government Licence - Canada)",
+             "gust": "maximum in the hour before"},
 }
+# The hours the world mix reads: 3-hourly to 6 days, then 6-hourly (as ECMWF's open data).
+ICON_STEPS = list(range(0, 145, 3)) + list(range(150, 181, 6))
+GDPS_STEPS = list(range(0, 145, 3)) + list(range(150, 241, 6))
+ICON_URL = "https://opendata.dwd.de/weather/nwp/icon/grib/{hour}/{folder}/icon_global_icosahedral_{kind}_{run}{step}_{name}.grib2.bz2"
+GDPS_URL = ("https://dd.weather.gc.ca/{day}/WXO-DD/model_gdps/15km/{hour}/{step:03d}/"
+            "{day}T{hour}Z_MSC_GDPS_{name}_AGL-10m_LatLon0.15_PT{step:03d}H.grib2")
+# ICON's triangles on a regular grid: rows from 90° N down, columns from 0° E.
+ICON_GRID = {"Ni": 2880, "Nj": 1441, "latitudeOfFirstGridPointInDegrees": 90.0, "longitudeOfFirstGridPointInDegrees": 0.0,
+             "iDirectionIncrementInDegrees": 0.125, "jDirectionIncrementInDegrees": 0.125, "jScansPositively": 0}
 
 
 # MARK: The models' fields
@@ -95,11 +114,127 @@ def ecmwf_steps(run, steps):
             yield step, fields, grid
 
 
+def fetch_bytes(url, tries=4):
+    """A file, tried again on a passing failure; None when it isn't there (404)."""
+    for attempt in range(tries):
+        try:
+            request = urllib.request.Request(url, headers={"User-Agent": maplib.USER_AGENT})
+            with urllib.request.urlopen(request, timeout=180) as reply:
+                return reply.read()
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return None
+            if attempt == tries - 1:
+                raise
+        except (urllib.error.URLError, OSError):
+            if attempt == tries - 1:
+                raise
+        time.sleep(10 * (attempt + 1))
+
+
+def exists(url):
+    try:
+        request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": maplib.USER_AGENT})
+        with urllib.request.urlopen(request, timeout=60):
+            return True
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+def icon_url(run, folder, name, step=None):
+    kind = "time-invariant" if step is None else "single-level"
+    return ICON_URL.format(hour=run.strftime("%H"), folder=folder, kind=kind, run=run.strftime("%Y%m%d%H"),
+                           step="" if step is None else "_%03d" % step, name=name)
+
+
+def icon_newest_run():
+    """The newest 00/12 UTC ICON run (to 180 hours) with its last step published."""
+    now = datetime.now(timezone.utc)
+    start = now.replace(hour=now.hour // 12 * 12, minute=0, second=0, microsecond=0)
+    for back in range(3):
+        run = start - timedelta(hours=12 * back)
+        if exists(icon_url(run, "v_10m", "V_10M", ICON_STEPS[-1])):
+            return run
+    raise SystemExit("No complete ICON run found")
+
+
+def gdps_url(run, name, step):
+    return GDPS_URL.format(day=run.strftime("%Y%m%d"), hour=run.strftime("%H"), step=step, name=name)
+
+
+def gdps_newest_run():
+    """The newest 00/12 UTC GDPS run with its last step published."""
+    now = datetime.now(timezone.utc)
+    start = now.replace(hour=now.hour // 12 * 12, minute=0, second=0, microsecond=0)
+    for back in range(3):
+        run = start - timedelta(hours=12 * back)
+        if exists(gdps_url(run, "WindV", GDPS_STEPS[-1])):
+            return run
+    raise SystemExit("No complete GDPS run found")
+
+
+def grib_values(data):
+    gid = ec.codes_new_from_message(data)
+    try:
+        return ec.codes_get_values(gid)
+    finally:
+        ec.codes_release(gid)
+
+
+def icon_steps(run, steps):
+    """ICON's wind and gust at each step, its triangles' values put on ICON_GRID (the three nearest
+    cells, by distance)."""
+    from scipy.spatial import cKDTree
+    lat = np.radians(grib_values(bz2.decompress(fetch_bytes(icon_url(run, "clat", "CLAT")))))
+    lon = np.radians(grib_values(bz2.decompress(fetch_bytes(icon_url(run, "clon", "CLON")))))
+    tree = cKDTree(np.stack([np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)], axis=1))
+    glat = np.radians(90 - np.arange(ICON_GRID["Nj"]) * 0.125)
+    glon = np.radians(np.arange(ICON_GRID["Ni"]) * 0.125)
+    la, lo = np.meshgrid(glat, glon, indexing="ij")
+    points = np.stack([np.cos(la) * np.cos(lo), np.cos(la) * np.sin(lo), np.sin(la)], axis=-1).reshape(-1, 3)
+    distance, nearest = tree.query(points, k=3, workers=-1)
+    share = 1 / np.maximum(distance, 1e-9)
+    share /= share.sum(axis=1, keepdims=True)
+    shape = (ICON_GRID["Nj"], ICON_GRID["Ni"])
+
+    def regular(values):
+        return (values[nearest] * share).sum(axis=1).reshape(shape)
+
+    def fetch(step):
+        files = {}
+        for param, folder, name in (("10u", "u_10m", "U_10M"), ("10v", "v_10m", "V_10M"), ("gust", "vmax_10m", "VMAX_10M")):
+            data = fetch_bytes(icon_url(run, folder, name, step))
+            if data is not None:
+                files[param] = bz2.decompress(data)
+        return step, files
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        for step, files in pool.map(fetch, steps):
+            yield step, {param: regular(grib_values(data)) for param, data in files.items()}, ICON_GRID
+
+
+def gdps_steps(run, steps):
+    """GDPS's wind and the hour's highest gust at each step (its own 0.15° grid)."""
+    def fetch(step):
+        files = {}
+        for param, name in (("10u", "WindU"), ("10v", "WindV"), ("gust", "WindGust-Max")):
+            data = fetch_bytes(gdps_url(run, name, step))
+            if data is not None:
+                files[param] = data
+        return step, files
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        for step, files in pool.map(fetch, steps):
+            if not files:
+                yield step, {}, None
+                continue
+            fields, grid = ecmwf_map.decode(files)
+            yield step, fields, grid
+
+
 # MARK: Tiles
 
-def tile_coordinates(z, x, y):
+def tile_coordinates(z, x, y, sizes=None):
     """Latitude and longitude of each pixel centre of tile z/x/y (row 0 north)."""
-    n, size = 2 ** z, SIZES[z]
+    n, size = 2 ** z, (sizes or SIZES)[z]
     xs = (x + (np.arange(size) + 0.5) / size) / n
     ys = (y + (np.arange(size) + 0.5) / size) / n
     lon = xs * 360 - 180
@@ -111,7 +246,8 @@ class Sampler:
     """Bilinear from a global regular grid to every tile's pixels, the grid wrapped round at
     the date line (its first column again after its last)."""
 
-    def __init__(self, grid):
+    def __init__(self, grid, sizes=None):
+        self.sizes = sizes or SIZES
         self.columns, self.rows = grid["Ni"], grid["Nj"]
         lat0, lon0 = grid["latitudeOfFirstGridPointInDegrees"], grid["longitudeOfFirstGridPointInDegrees"]
         dlat = grid["jDirectionIncrementInDegrees"] * (1 if grid["jScansPositively"] else -1)
@@ -120,7 +256,7 @@ class Sampler:
         for z in ZOOMS:
             for x in range(2 ** z):
                 for y in range(2 ** z):
-                    lat, lon = tile_coordinates(z, x, y)
+                    lat, lon = tile_coordinates(z, x, y, self.sizes)
                     fi = np.mod(lon - lon0, 360) / dlon
                     fj = (lat - lat0) / dlat
                     self.tiles[(z, x, y)] = maplib.Bilinear(fi, fj, self.columns + 1, self.rows)
@@ -162,7 +298,7 @@ def pack(sample, fields):
         rgb = np.stack([np.clip(np.rint(u * 4 + 128), 0, 255), np.clip(np.rint(v * 4 + 128), 0, 255),
                         np.clip(np.rint(gust * 5), 0, 255)], axis=-1).astype(np.uint8)
         tiles[key] = png(rgb, "RGB")
-    return encode(tiles)
+    return encode(tiles, sample.sizes)
 
 
 def temp_pack(sample, fields):
@@ -248,7 +384,9 @@ def main():
     model = args[0]
     info = MODELS[model]
     local = Path(args[args.index("--local") + 1]) if "--local" in args else None
-    run = gfs_map.newest_run() if model == "gfs" else ecmwf_map.newest_run()
+    sizes = MODEL_SIZES.get(model, SIZES)
+    newest = {"gfs": gfs_map.newest_run, "ecmwf": ecmwf_map.newest_run, "icon": icon_newest_run, "gdps": gdps_newest_run}
+    run = newest[model]()
     run_name = run.strftime("%Y%m%dT%HZ")
     if "--check" in args:
         print(run_name)
@@ -256,10 +394,10 @@ def main():
     if local is None and "--force" not in args and published(model) == run_name:
         print(f"{model}: {run_name} is published already")
         return
-    steps = GFS_STEPS if model == "gfs" else ecmwf_map.STEPS
+    steps = {"gfs": GFS_STEPS, "ecmwf": ecmwf_map.STEPS, "icon": ICON_STEPS, "gdps": GDPS_STEPS}[model]
     if "--steps" in args:
         steps = [int(s) for s in args[args.index("--steps") + 1].split(",")]
-    source = gfs_steps(run, steps) if model == "gfs" else ecmwf_steps(run, steps)
+    source = {"gfs": gfs_steps, "ecmwf": ecmwf_steps, "icon": icon_steps, "gdps": gdps_steps}[model](run, steps)
     sample, land, frames, size, started = None, False, [], 0, time.time()
     # The step and precipitation before (ECMWF's is the total since the run's start).
     previous = [0, None]
@@ -276,7 +414,7 @@ def main():
             print(f"{model} step {step}: no wind, skipped")
             continue
         if sample is None:
-            sample = Sampler(grid)
+            sample = Sampler(grid, sizes)
         if not land and "lsm" in fields:
             put(f"{run_name}/land.pack", land_pack(sample, fields["lsm"]))
             land = True
@@ -314,7 +452,7 @@ def main():
     index = {
         "model": info["name"], "credit": info["credit"], "run": run.strftime("%Y-%m-%dT%H:%MZ"), "runName": run_name,
         "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
-        "tileSizes": {str(z): SIZES[z] for z in ZOOMS},
+        "tileSizes": {str(z): sizes[z] for z in ZOOMS},
         "zooms": [ZOOMS.start, ZOOMS.stop - 1], "projection": "Web Mercator tiles (z/x/y, y from the north)",
         "encoding": {"red": "wind towards the east m/s x 4 + 128", "green": "wind towards the north m/s x 4 + 128",
                      "blue": "gust m/s x 5 (" + info["gust"] + ")"},
