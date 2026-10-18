@@ -1,0 +1,54 @@
+name: Terrain and model heights
+run-name: Terrain and model heights (once)
+
+# The weather mix's heights (terrain_tiles.py, model_heights.py; the owner, 18.10.2026: the air
+# corrected from each model's ground to the real one): our terrain from Copernicus GLO-90 and each
+# model's own ground height, both from Open-Meteo's open data on AWS. Made once, by hand.
+on:
+  workflow_dispatch:
+    inputs:
+      part:
+        description: "terrain, heights or both"
+        type: choice
+        options: [both, terrain, heights]
+        default: both
+
+permissions:
+  contents: read
+
+jobs:
+  terrain:
+    if: inputs.part != 'heights'
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install ecCodes, NumPy, Pillow and omfiles
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow omfiles
+
+      - name: Make and upload the terrain tiles
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+        run: .venv/bin/python terrain_tiles.py
+
+  heights:
+    if: inputs.part != 'terrain'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install ecCodes, NumPy, Pillow, SciPy, omfiles and pyproj
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy omfiles pyproj
+
+      - name: Make and upload each model's ground height
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+        run: .venv/bin/python model_heights.py
