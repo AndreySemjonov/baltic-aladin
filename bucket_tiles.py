@@ -164,3 +164,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # Out without the libraries' clean-up: omfiles and pyproj together crashed Python's exit after the
+    # work was done ("free(): invalid pointer", 18.10.2026), the job marked failed.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
