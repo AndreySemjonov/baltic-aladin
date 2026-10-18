@@ -11,6 +11,12 @@ m/s; the point's key its latitude and longitude to 4 decimals, no trailing zeros
 writes them). The hours before the run's first are kept from the file before (a day and a half), as
 Open-Meteo's answers have the day before.
 
+The weather too (step 3, the owner, 18.10.2026): the air, rain and clouds of the models whose weather
+we make (ECMWF, ICON-EU, MET Nordic 1 km) at each spot ([air °C, rain mm an hour, cloud %, low, mid,
+high %], points/<name>.json: ecmwf-wx, icon-eu-wx, metnordic-1km-wx), and the waves at each spot (EWAM
+over Europe's seas, ECMWF's elsewhere: [height m, period s, direction °], the nearest sea pixel within
+about 10 km: points/ewam.json, points/ecmwf-waves.json).
+
     python spot_points.py [set ...] [--force] [--local DIR]
 """
 import io
@@ -43,6 +49,16 @@ SETS = {
     "icon_global": "icon", "gem_global": "gdps",
 }
 KEEP_BEFORE = 36 * 3600
+# The weather: its points file's name, its tiles' folder, the app's model key, the frames' packs.
+WEATHER = {
+    "ecmwf-wx": ("ecmwf", "ecmwf_ifs", ("temp", "rain")),
+    "icon-eu-wx": ("icon-eu-wx", "icon_eu", ("temp", "rain", "cloud")),
+    "metnordic-1km-wx": ("metnordic-1km-wx", "metno_nordic", ("temp", "rain")),
+}
+WAVES = ("ewam", "ecmwf-waves")
+# Waves: the nearest sea pixel within this many pixels at the set's finest zoom (EWAM's zoom 6 about
+# 1.3 km a pixel in the Baltic: 8 pixels about 10 km; ECMWF's zoom 3 about 15 km: 1).
+WAVE_SEARCH = {"ewam": 8, "ecmwf-waves": 1}
 
 
 def get(url, start=None, length=None, tries=4):
@@ -135,8 +151,29 @@ def place(lat, lon, z, size):
     return tx, ty, min(int((x - tx) * size), size - 1), min(int((y - ty) * size), size - 1)
 
 
-def frame_values(url, points, zooms, sizes):
-    """One hour's [east, north, gust] (or None) at each point: the finest zoom that has its tile."""
+def wind(r, g, b, a):
+    return None if a < 128 else [round((r - 128) / 4, 2), round((g - 128) / 4, 2), round(b / 5, 2)]
+
+
+def air(r, g, b, a):
+    return None if a < 128 or r == 0 else [round((r - 1) / 3 - 40, 1)]
+
+
+def rain(r, g, b, a):
+    return None if a < 128 else [round((r / 50) ** 2, 2), round(g / 2.55)]
+
+
+def clouds(r, g, b, a):
+    return None if a < 128 else [round(r / 2.55), round(g / 2.55), round(b / 2.55)]
+
+
+def waves(r, g, b, a):
+    return None if a < 128 or r == 0 else [round((r - 1) / 20, 2), round(g / 10, 1), round(b * 360 / 256)]
+
+
+def frame_values(url, points, zooms, sizes, decode=wind, search=0):
+    """One hour's values (decode(r, g, b, a), or None) at each point: the finest zoom that has its
+    tile; `search`: else the nearest pixel with a value within that many (the waves' sea)."""
     try:
         pack = PackReader(url)
     except Exception:
@@ -154,11 +191,37 @@ def frame_values(url, points, zooms, sizes):
             pixels = tiles[(z, tx, ty)]
             if pixels is None or pixels.shape[0] != size:
                 continue
-            r, g, b, a = (int(c) for c in pixels[py, px])
-            if a < 128:
-                break
-            out[k] = [round((r - 128) / 4, 2), round((g - 128) / 4, 2), round(b / 5, 2)]
+            found = decode(*(int(c) for c in pixels[py, px]))
+            for ring in range(1, search + 1):
+                if found is not None:
+                    break
+                best = None
+                for dy in range(-ring, ring + 1):
+                    for dx in range(-ring, ring + 1):
+                        if max(abs(dx), abs(dy)) != ring or not (0 <= py + dy < size and 0 <= px + dx < size):
+                            continue
+                        value = decode(*(int(c) for c in pixels[py + dy, px + dx]))
+                        if value is not None and (best is None or dx * dx + dy * dy < best[0]):
+                            best = (dx * dx + dy * dy, value)
+                found = best[1] if best else None
+            out[k] = found
             break
+    return out
+
+
+def weather_values(folder, frame, points, zooms, sizes, layers):
+    """One hour's [air, rain, cloud, low, mid, high] at each point from its temp, rain and cloud packs."""
+    parts = {}
+    for layer, decode in (("temp", air), ("rain", rain), ("cloud", clouds)):
+        if layer in layers and frame.get(layer):
+            parts[layer] = frame_values(FILES + f"tiles/{folder}/{frame[layer]}", points, zooms, sizes, decode)
+    out = {}
+    for k in points:
+        t, r, c = (parts.get(layer, {}).get(k) for layer in ("temp", "rain", "cloud"))
+        if t is None and r is None:
+            out[k] = None
+            continue
+        out[k] = [t[0] if t else None, r[0] if r else None, r[1] if r else None] + (c if c else [None, None, None])
     return out
 
 
@@ -170,9 +233,11 @@ def published(set_name):
         return None
 
 
-def make(set_name, points, force=False):
-    """The set's points file, or None when the newest run's is published for these points."""
-    index_data = get(FILES + f"tiles/{set_name}/index.json?t={int(time.time())}")
+def make(set_name, points, force=False, folder=None, values_of=None):
+    """The set's points file, or None when the newest run's is published for these points; `folder`:
+    its tiles' (when the file's name differs), `values_of(frame, zooms, sizes)`: an hour's values."""
+    folder = folder or set_name
+    index_data = get(FILES + f"tiles/{folder}/index.json?t={int(time.time())}")
     if not index_data:
         print(f"{set_name}: no index", flush=True)
         return None
@@ -186,8 +251,9 @@ def make(set_name, points, force=False):
     zooms = index.get("zooms") or [0, 6]
     sizes = {int(z): s for z, s in (index.get("tileSizes") or {}).items()}
     started = time.time()
+    values_of = values_of or (lambda f, zooms, sizes: frame_values(FILES + f"tiles/{folder}/{f['file']}", points, zooms, sizes))
     with ThreadPoolExecutor(16) as pool:
-        values = list(pool.map(lambda f: frame_values(FILES + f"tiles/{set_name}/{f['file']}", points, zooms, sizes), frames))
+        values = list(pool.map(lambda f: values_of(f, zooms, sizes), frames))
     times = [f["time"] for f in frames]
     series = {k: [v[k] for v in values] for k in points}
     # The hours before this run's first, from the file before (the day before, as Open-Meteo's).
@@ -209,20 +275,42 @@ def main():
     args = sys.argv[1:]
     local = Path(args[args.index("--local") + 1]) if "--local" in args else None
     chosen = [a for a in args if not a.startswith("--") and (local is None or a != str(local))]
-    by_set = wanted(spots())
-    for set_name in chosen or sorted(set(SETS.values())):
-        points = by_set.get(set_name)
-        if not points:
-            continue
-        result = make(set_name, points, "--force" in args or local is not None)
+    every = spots()
+    by_set = wanted(every)
+    force = "--force" in args or local is not None
+
+    def publish(name, result):
         if result is None:
-            continue
+            return
         body = json.dumps(result, separators=(",", ":")).encode()
         if local:
             local.mkdir(parents=True, exist_ok=True)
-            (local / f"{set_name}.json").write_bytes(body)
+            (local / f"{name}.json").write_bytes(body)
         else:
-            print(world_tiles.upload(f"points/{set_name}.json", body).strip(), flush=True)
+            print(world_tiles.upload(f"points/{name}.json", body).strip(), flush=True)
+
+    for set_name in sorted(set(SETS.values())):
+        if chosen and set_name not in chosen:
+            continue
+        points = by_set.get(set_name)
+        if points:
+            publish(set_name, make(set_name, points, force))
+    # The weather at the spots whose models it is; the waves at every spot.
+    for name, (folder, model, layers) in WEATHER.items():
+        if chosen and name not in chosen:
+            continue
+        points = {key(s["lat"], s["lon"]): (float(s["lat"]), float(s["lon"])) for s in every if model in s["weights"]}
+        if points:
+            publish(name, make(name, points, force, folder,
+                               lambda f, zooms, sizes, points=points, folder=folder, layers=layers:
+                               weather_values(folder, f, points, zooms, sizes, layers)))
+    sea = {key(s["lat"], s["lon"]): (float(s["lat"]), float(s["lon"])) for s in every}
+    for name in WAVES:
+        if chosen and name not in chosen:
+            continue
+        publish(name, make(name, sea, force, None,
+                           lambda f, zooms, sizes, name=name: frame_values(FILES + f"tiles/{name}/{f['file']}", sea, zooms, sizes,
+                                                                          waves, WAVE_SEARCH[name])))
 
 
 if __name__ == "__main__":
