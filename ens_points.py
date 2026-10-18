@@ -35,6 +35,9 @@ import world_tiles
 MIRRORS = ["https://storage.googleapis.com/ecmwf-open-data/", "https://data.ecmwf.int/forecasts/",
            "https://ecmwf-forecasts.s3.eu-central-1.amazonaws.com/"]
 PUBLISHED = "https://files.meteogust.com/ens/index.json"
+# The cells riders' own spots asked for (station-history /ens/want; the owner, 18.10.2026: the chance
+# to ride at every spot): each as ens/cell-<row>-<col>.json.
+WANTED = "https://data.meteogust.com/ens/wanted"
 STEPS = list(range(0, 145, 3)) + list(range(150, 361, 6))
 PARAMS = ("10u", "10v", "10fg")
 AGENT = "baltic-aladin ens_points (+https://github.com/AndreySemjonov/baltic-aladin)"
@@ -101,6 +104,14 @@ def main():
         point = (spot.get("csPoints") or {}).get("ecmwf_ifs")
         lat, lon = (float(point[0]), float(point[1])) if isinstance(point, list) and len(point) == 2 else (float(spot["lat"]), float(spot["lon"]))
         spots.append((spot["id"], lat, lon))
+    # The cells riders' own spots asked for (their grid point itself).
+    try:
+        for cell in json.loads(get(WANTED) or b"[]"):
+            row, col = (int(v) for v in cell.split("-"))
+            if 0 <= row <= 720 and 0 <= col < 1440:
+                spots.append((f"cell-{row}-{col}", 90 - row * 0.25, ((col * 0.25 + 180) % 360) - 180))
+    except Exception as error:
+        print(f"No wanted cells ({error})", flush=True)
     # The 0.25° grid's nearest point (rows north to south from 90, columns east from 0).
     cells = np.array([(int(round((90 - lat) / 0.25)), int(round((lon % 360) / 0.25)) % 1440) for _, lat, lon in spots])
     print(f"ENS {run_text}: {len(spots)} spots, {len(steps)} steps", flush=True)
