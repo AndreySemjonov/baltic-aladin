@@ -81,9 +81,11 @@ MODELS = {
     "gdps": {"name": "GDPS 15 km", "credit": "GDPS, Environment and Climate Change Canada (Open Government Licence - Canada)",
              "gust": "maximum in the hour before"},
 }
-# ICON hourly to 78 hours, then 3-hourly to 180 (as DWD gives it); GDPS hourly to 10 days.
+# ICON hourly to 78 hours, then 3-hourly to 180 (as DWD gives it); GDPS hourly to 3.5 days, then
+# 3-hourly to 10 days (the owner, 18.10.2026: it has the mix's smallest share; hourly all the way was
+# about 8 GB more to keep).
 ICON_STEPS = list(range(0, 79)) + list(range(81, 181, 3))
-GDPS_STEPS = list(range(0, 241))
+GDPS_STEPS = list(range(0, 85)) + list(range(87, 241, 3))
 ICON_URL = "https://opendata.dwd.de/weather/nwp/icon/grib/{hour}/{folder}/icon_global_icosahedral_{kind}_{run}{step}_{name}.grib2.bz2"
 GDPS_URL = ("{host}/{day}/WXO-DD/model_gdps/15km/{hour}/{step:03d}/"
             "{day}T{hour}Z_MSC_GDPS_{name}_LatLon0.15_PT{step:03d}H.grib2")
