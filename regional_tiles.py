@@ -59,6 +59,9 @@ MODEL_SETS = {
     "ICON-CH1": ("icon-ch1", "ICON-CH1 1 km", "ICON-CH1, MeteoSwiss"),
     "ICON-2I": ("icon-2i", "ICON-2I 2.2 km", "ICON-2I, ItaliaMeteo (CC BY 4.0)"),
 }
+# The 1-1.3 km models alone also at zoom 7 (about 1 km a pixel at their latitudes; zoom 6 was 1.7-2
+# km: the owner, 18.10.2026, the models' full detail on the map and at a tap).
+FINE = {"AROME", "ICON-CH1"}
 
 
 def hours_wanted(times, run, hourly=False):
@@ -449,16 +452,31 @@ def main():
         if name not in MODEL_SETS or not data:
             continue
         try:
-            model_set(name, data, sample, parts[name], [m for m in models if m["name"] == name][0], run_name, local)
+            model_set(name, data, sample, parts[name], [m for m in models if m["name"] == name][0], run_name, local,
+                      place=others[name][0])
         except Exception as error:
             print(f"{name} alone left out: {error}", flush=True)
 
 
-def model_set(name, data, sample, parts, info, run_name, local):
-    """One regional model's own tiles (tiles/<folder>/<run_name>/<time>.pack) and index."""
+def model_set(name, data, sample, parts, info, run_name, local, place=None):
+    """One regional model's own tiles (tiles/<folder>/<run_name>/<time>.pack) and index; the FINE
+    ones at zoom 7 too (the four under each zoom-6 tile it has)."""
     folder, label, credit = MODEL_SETS[name]
     started = time.time()
     keys = [key for key, (c, r, w) in parts.items() if np.any(w > 0)]
+    zooms = list(ZOOMS)
+    if name in FINE and place is not None:
+        parts = dict(parts)
+        for z, x, y in [k for k in keys if k[0] == ZOOMS.stop - 1]:
+            for dx in (0, 1):
+                for dy in (0, 1):
+                    child = (z + 1, 2 * x + dx, 2 * y + dy)
+                    lon, lat = tile_lonlat(*child)
+                    found = place(lon, lat)
+                    if np.any(found[2] > 0):
+                        parts[child] = found
+                        keys.append(child)
+        zooms.append(ZOOMS.stop)
 
     def rgb(e, n, g):
         return np.stack([np.clip(np.rint(e * 4 + 128), 0, 255), np.clip(np.rint(n * 4 + 128), 0, 255),
@@ -475,7 +493,7 @@ def model_set(name, data, sample, parts, info, run_name, local):
             alpha = np.rint(np.clip(w, 0, 1) * 255)[..., None]
             colour = rgb(np.nan_to_num(u), np.nan_to_num(v), np.nan_to_num(gg))
             tiles[key] = world_tiles.png(np.concatenate([colour, alpha], axis=-1).astype(np.uint8), "RGBA")
-        pack = world_tiles.encode(tiles, {z: SIZE for z in ZOOMS})
+        pack = world_tiles.encode(tiles, {z: SIZE for z in zooms})
         file = f"{run_name}/{t}.pack"
         if local:
             (local / folder / run_name).mkdir(parents=True, exist_ok=True)
@@ -485,7 +503,7 @@ def model_set(name, data, sample, parts, info, run_name, local):
         frames.append({"time": int(t), "file": file})
         total += len(pack)
     index = {"model": label, "credit": credit, "run": info.get("run"), "runName": run_name,
-             "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "zooms": [ZOOMS.start, ZOOMS.stop - 1],
+             "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "zooms": [zooms[0], zooms[-1]],
              "land": None, "frames": frames}
     body = json.dumps(index, separators=(",", ":")).encode()
     if local:

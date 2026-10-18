@@ -12,7 +12,7 @@ published, keeping what makes it the best at the spots:
 - speed and gust as weighted means, the direction as a weighted vector mean (weight x speed, calm
   counted as 1 m/s); the 3-hourly hours interpolated (not over a gap of more than 6 hours).
 
-Zooms 4-6 over ICON-EU's area, MET Nordic's north and DINI's west, zoom 7 where MET Nordic's 1 km tiles are;
+Zooms 4-6 over ICON-EU's area, MET Nordic's north and DINI's west, zoom 7 where the 1 km models' tiles are (MET Nordic, AROME, ICON-CH1);
 hourly from now for a day, then every 3 hours while a regional model reaches (about 60 hours; the
 app's ICON-EU and ECMWF layers take over after). Its tiles fade (alpha) where only ECMWF and GFS are. Each hour lists its models;
 the data checks (R3) as the other sets; published as tiles/mix.
@@ -529,19 +529,21 @@ def main():
         print(f"Mix {run_time:%Y%m%dT%HZ} already published")
         return
     coast = Coast()
-    # The tiles: zooms 4-6 over the box, zoom 7 where MET Nordic's 1 km tiles are.
+    # The tiles: zooms 4-6 over the box, zoom 7 where the 1 km models' tiles are (MET Nordic's; AROME's
+    # and ICON-CH1's since 18.10.2026: the models' full detail on the map and at a tap).
     keys = tiler.tiles_in_box(box, range(4, 7))
-    fine = next((m for m in models if m.name == "metnordic-1km" and m.times), None)
-    if fine:
+    south, north, west, east = box
+    seen = set()
+    for fine in (m for m in models if m.name in ("metnordic-1km", "arome", "icon-ch1") and m.times):
         top = fine.pack(fine.times[0])
-        south, north, west, east = box
         for k in top.tiles:
             z, x, y = (int(v) for v in k.split("/"))
-            if z == 7:
+            if z == 7 and (x, y) not in seen:
                 lon = (x + 0.5) / 128 * 360 - 180
                 lat = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * (y + 0.5) / 128))))
                 if south <= lat <= north and west <= lon <= east:
                     keys.append((7, x, y))
+                    seen.add((x, y))
     print(f"Mix {run_time:%Y%m%dT%HZ}: {len(keys)} tiles, {len(hours)} hours, models: "
           + ", ".join(m.label for m in models), flush=True)
     for t in hours:
