@@ -1,15 +1,18 @@
-"""Map taps' series files made here, not on our server (the owner, 18.10.2026: the server's cron made
-them beside the stations' collector, sharing its CPU, and the sets are hourly now): after a run of
-the Mix or the world mix, the files station-history reads a tapped place's hours from
-(series/<set>/<run>/v2/<z>/<x>/<y>.bin, its seriesPoint): for the world mix every tile of its finest
-zoom, for the Mix the tiles round the spots and those riders tapped in the last 7 days.
+"""The places' files made here, not on our server (the owner, 18.10.2026: the server's cron made
+them beside the stations' collector, sharing its CPU; and "why does a new place take so long"): after
+each run of a wind set, the files station-history reads a place's hours from (a map tap, a rider's
+own spot, its seriesPoint: series/<set>/<run>/v2/<z>/<x>/<y>.bin), for every tile of the set's area at
+the zoom a tap reads (SERIES_ZOOMS; the next coarser where the set has no tile at it): the map's
+hourly packs turned round, every hour of a place together, as Open-Meteo keeps its data. Then
+series/<set>/<run>/done.json and series/<set>/runs.json (this run and the one before, read while the
+next is made).
 
 A file: "MGS1", the header's length (4 bytes, little-endian), the header (JSON: {times, size,
 blocks: [[offset, length]...]}, offsets from the header's end) and the blocks: the tile in 16 x 16
 pixel blocks, row by row, each block every hour's RGBA (hour by hour, its rows top first),
 zlib-deflated; a tile with nothing in it has no blocks. Then series/<set>/<run>/done.json.
 
-    python series_tiles.py mix|mix-world [--force] [--local DIR] [--tiles N]
+    python series_tiles.py [set ...] [--force] [--local DIR] [--tiles N]   (no set: every one, each when new)
 """
 import json
 import math
@@ -26,24 +29,27 @@ import spot_points
 import world_tiles
 
 FILES = spot_points.FILES
-WANTED = "https://data.meteogust.com/series/wanted?set={set}"
 BLOCK = 16
-# The zoom a tap reads (station-history SERIES_ZOOMS): the Mix at 7 where it has it, else 6.
-ZOOMS = {"mix": 7}
+# The zoom a tap reads (station-history SERIES_ZOOMS, the same): the 1 km models and the Mix at 7,
+# the 2-2.5 km ones at 6, the others their finest.
+ZOOMS = {"mix": 7, "metnordic-1km": 7, "arome": 7, "icon-ch1": 7, "icon-d2": 6, "dini": 6, "harm-nl": 6, "icon-2i": 6,
+         "harm-fi": 6, "aladin": 6}
+SETS = ["mix", "mix-world", "metnordic-1km", "dini", "arome", "harm-nl", "icon-d2", "icon-ch1", "icon-2i", "harm-fi", "aladin",
+        "icon-eu", "ecmwf", "gfs", "icon", "gdps"]
 
 
-def tile_at(set_name, index, header, lat, lon):
-    """The tile a tap there reads: the set's zoom, else the next coarser one with a tile there."""
+def area_tiles(set_name, index, header):
+    """Every tile a tap in the set's area reads: those at its zoom, and the next coarser zoom's where
+    it has none of their four there."""
     top = index["zooms"][1]
-    z = min(top, ZOOMS.get(set_name, top))
-    while z >= index["zooms"][0]:
-        n = 2 ** z
-        x = int((lon + 180) / 360 * n)
-        y = int((1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * n)
-        if f"{z}/{x}/{y}" in header.tiles:
-            return z, x, y
-        z -= 1
-    return None
+    z = min(top, ZOOMS.get(set_name, 7 if set_name.startswith("wrf-") else top))
+    keys = {tuple(int(v) for v in k.split("/")) for k in header.tiles}
+    tiles = {k for k in keys if k[0] == z}
+    if z > index["zooms"][0]:
+        for k in keys:
+            if k[0] == z - 1 and not any((z, 2 * k[1] + dx, 2 * k[2] + dy) in tiles for dx in (0, 1) for dy in (0, 1)):
+                tiles.add(k)
+    return sorted(tiles)
 
 
 def series_file(times, size, pixels):
@@ -70,40 +76,24 @@ def series_file(times, size, pixels):
     return b"MGS1" + struct.pack("<I", len(head)) + head + b"".join(parts)
 
 
-def main():
-    args = sys.argv[1:]
-    if not args or args[0] not in ("mix", "mix-world"):
-        raise SystemExit(__doc__)
-    set_name = args[0]
-    local = Path(args[args.index("--local") + 1]) if "--local" in args else None
-    limit = int(args[args.index("--tiles") + 1]) if "--tiles" in args else None
-    index = json.loads(spot_points.get(FILES + f"tiles/{set_name}/index.json?t={int(time.time())}"))
+def make(set_name, local, limit, force):
+    index_data = spot_points.get(FILES + f"tiles/{set_name}/index.json?t={int(time.time())}")
+    if not index_data:
+        print(f"{set_name}: no index", flush=True)
+        return
+    index = json.loads(index_data)
     run = index["runName"]
-    if local is None and "--force" not in args and spot_points.get(FILES + f"series/{set_name}/{run}/done.json"):
-        print(f"{set_name} {run}: series made already")
+    if local is None and not force and spot_points.get(FILES + f"series/{set_name}/{run}/done.json"):
+        print(f"{set_name} {run}: series made already", flush=True)
         return
     frames = sorted((f for f in index["frames"] if f.get("file")), key=lambda f: f["time"])
     times = [f["time"] for f in frames]
     started = time.time()
     with ThreadPoolExecutor(16) as pool:
         headers = list(pool.map(lambda f: spot_points.PackReader(FILES + f"tiles/{set_name}/{f['file']}"), frames))
+    # The first hour's pack: the widest (regional models end sooner).
     first = headers[0]
-    if set_name == "mix-world":
-        z = index["zooms"][1]
-        tiles = sorted({tuple(int(v) for v in k.split("/")) for k in first.tiles if int(k.split("/")[0]) == z})
-    else:
-        wanted = set()
-        for spot in spot_points.spots():
-            found = tile_at(set_name, index, first, float(spot["lat"]), float(spot["lon"]))
-            if found:
-                wanted.add(found)
-        try:
-            for z, x, y in json.loads(spot_points.get(WANTED.format(set=set_name)) or b"[]"):
-                if f"{z}/{x}/{y}" in first.tiles:
-                    wanted.add((z, x, y))
-        except ValueError:
-            pass
-        tiles = sorted(wanted)
+    tiles = area_tiles(set_name, index, first)
     if limit:
         tiles = tiles[:limit]
     print(f"{set_name} {run}: {len(tiles)} tiles, {len(frames)} hours", flush=True)
@@ -139,7 +129,27 @@ def main():
         (local / f"series/{set_name}/{run}/done.json").write_bytes(done)
     else:
         world_tiles.upload(f"series/{set_name}/{run}/done.json", done)
+        # This run and the one before (station-history reads the one before while the next is made).
+        before = spot_points.get(FILES + f"series/{set_name}/runs.json?t={int(time.time())}")
+        try:
+            runs = [r for r in json.loads(before)["runs"] if r != run][:1] if before else []
+        except (ValueError, KeyError, TypeError):
+            runs = []
+        world_tiles.upload(f"series/{set_name}/runs.json", json.dumps({"runs": [run] + runs}).encode())
     print(f"{set_name} {run}: {len(tiles)} series, {total / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
+
+
+def main():
+    args = sys.argv[1:]
+    local = Path(args[args.index("--local") + 1]) if "--local" in args else None
+    limit = int(args[args.index("--tiles") + 1]) if "--tiles" in args else None
+    values = {args[i + 1] for i, a in enumerate(args[:-1]) if a in ("--local", "--tiles")}
+    chosen = [a for a in args if not a.startswith("--") and a not in values]
+    for set_name in chosen or SETS:
+        try:
+            make(set_name, local, limit, "--force" in args)
+        except Exception as error:
+            print(f"{set_name}: {error}", flush=True)
 
 
 if __name__ == "__main__":
