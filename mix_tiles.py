@@ -571,7 +571,9 @@ def main():
                 if arr.size:
                     checks[i].append(arr[::7])
         for m in models:
-            m.forget(t - MAX_GAP)
+            # Only the hours this one read stay (each pack keeps its decoded tiles, about 1 MB each:
+            # 16 models' six hours ran the runner out of memory at the tenth hour, 18.10.2026).
+            m.forget(min((ht for ht, _ in when[m.name]), default=t))
         if not tiles:
             continue
         east, north, gust = (np.concatenate(c) if c else np.zeros(0, np.float32) for c in checks)

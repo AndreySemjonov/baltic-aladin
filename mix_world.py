@@ -142,7 +142,7 @@ def main():
                 if arr.size:
                     checks[i].append(arr[::7])
         for m in models:
-            m.forget(t - mt.MAX_GAP)
+            m.forget(min((ht for ht, _ in when[m.name]), default=t))
         if not level:
             continue
         tiles = {(Z, x, y): rgba for (x, y), rgba in level.items()}
