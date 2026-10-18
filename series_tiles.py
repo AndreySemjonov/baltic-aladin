@@ -38,7 +38,7 @@ SETS = ["mix", "mix-world", "metnordic-1km", "dini", "arome", "ukmo", "icon-ch2"
         "icon-eu", "ecmwf", "gfs", "icon", "gdps",
         # The weather's and the waves' too (the owner, 18.10.2026: a place's weather and waves from our
         # files, any place): "<folder>:<layer>", named "<folder>-<layer>" (the waves their own sets).
-        "ecmwf:temp", "ecmwf:rain", "ecmwf:cloud", "icon-eu-wx:temp", "icon-eu-wx:rain", "icon-eu-wx:cloud",
+        "ecmwf:temp", "ecmwf:rain", "ecmwf:cloud", "ecmwf:sky", "icon-eu-wx:temp", "icon-eu-wx:rain", "icon-eu-wx:cloud",
         "metnordic-1km-wx:temp", "metnordic-1km-wx:rain", "gfs:temp", "gfs:rain", "icon:temp", "icon:rain",
         "gdps:temp", "gdps:rain", "ewam", "ecmwf-waves"]
 

@@ -58,7 +58,9 @@ ECMWF9_RUNS = "data_spatial/ecmwf_ifs/"
 ECMWF9_FIELDS = (("10u", "wind_u_component_10m", 0), ("10v", "wind_v_component_10m", 0), ("gust", "wind_gusts_10m", 0),
                  ("2t", "temperature_2m", 273.15), ("2d", "dew_point_2m", 273.15), ("msl", "pressure_msl", 0),
                  ("rain", "precipitation", 0), ("tcc", "cloud_cover", 0), ("low", "cloud_cover_low", 0),
-                 ("mid", "cloud_cover_mid", 0), ("high", "cloud_cover_high", 0))
+                 ("mid", "cloud_cover_mid", 0), ("high", "cloud_cover_high", 0),
+                 # The Weather tab's (the owner, 18.10.2026: off Open-Meteo): sky_pack.
+                 ("vis", "visibility", 0), ("showers", "showers", 0), ("snow", "snowfall_water_equivalent", 0), ("cape", "cape", 0))
 ECMWF9_GRID = {"Ni": 3600, "Nj": 1801, "latitudeOfFirstGridPointInDegrees": 90.0, "longitudeOfFirstGridPointInDegrees": 0.0,
                "iDirectionIncrementInDegrees": 0.1, "jDirectionIncrementInDegrees": 0.1, "jScansPositively": 0}
 UPLOAD = "https://data.meteogust.com/tiles/upload/"
@@ -202,10 +204,21 @@ def ecmwf9_steps(run, steps):
                 time.sleep(10 * (attempt + 1))
 
     before = 0
+    # The land (sky_pack's flag: a place's weather from its nearest land cell, as Open-Meteo's): where
+    # the sea ice has no value (28.5% of the world, 18.10.2026), from the run's first file.
+    land = None
     with ThreadPoolExecutor(max_workers=3) as pool:
         for step, path in pool.map(fetch, wanted):
             reader = omfiles.OmFileReader.from_path(path)
             fields = {}
+            if land is None:
+                try:
+                    ice = reader.get_child_by_name("sea_ice_thickness").read_array((slice(None), slice(None)))[0]
+                    land = regular(np.isnan(ice).astype(np.float32))
+                except Exception:
+                    land = False
+            if land is not False:
+                fields["land"] = land
             for ours, theirs, add in ECMWF9_FIELDS:
                 try:
                     values = reader.get_child_by_name(theirs).read_array((slice(None), slice(None)))[0]
@@ -216,7 +229,8 @@ def ecmwf9_steps(run, steps):
             os.unlink(path)
             # The rain over the step (an hour, then 3 and 6), as mm an hour.
             if "rain" in fields:
-                fields["rate"] = np.maximum(fields.pop("rain"), 0) / max(step - before, 1)
+                fields["rain_step"] = fields.pop("rain")
+                fields["rate"] = np.maximum(fields["rain_step"], 0) / max(step - before, 1)
             before = step
             yield step, fields, ECMWF9_GRID
 
@@ -494,6 +508,30 @@ def cloud_pack(sample, fields):
     return encode(tiles, sample.sizes)
 
 
+def sky_pack(sample, fields):
+    """The rest of a place's weather (ECMWF 9 km's; the owner, 18.10.2026: the Weather tab off
+    Open-Meteo), RGBA: red the relative humidity % x 2.54 + 1, green the visibility
+    sqrt(min(m, 40 km) / 40 km) x 254 + 1 (0 = unknown), blue CAPE J/kg / 20, alpha 128 + the
+    snow's share of the precipitation x 31, + 32 when showers are most of it, + 64 on land (alpha
+    128 or more: the series' "has a value")."""
+    tiles = {}
+    for key in sample.tiles:
+        celsius = sample(key, fields["2t"]) - 273.15
+        dew = sample(key, fields["2d"]) - 273.15
+        humidity = np.clip(np.exp(17.625 * dew / (243.04 + dew)) / np.exp(17.625 * celsius / (243.04 + celsius)), 0, 1)
+        visibility = np.clip(np.nan_to_num(sample(key, fields["vis"]), nan=40000), 0, 40000)
+        rain = np.maximum(np.nan_to_num(sample(key, fields["rain_step"])), 0) if "rain_step" in fields else np.zeros_like(celsius)
+        wet = rain > 0.01
+        snow = np.where(wet, np.clip(np.nan_to_num(sample(key, fields["snow"])) / np.maximum(rain, 1e-6), 0, 1), 0) if "snow" in fields else 0 * rain
+        showers = np.where(wet, np.nan_to_num(sample(key, fields["showers"])) / np.maximum(rain, 1e-6) >= 0.5, False) if "showers" in fields else wet & False
+        cape = np.clip(np.nan_to_num(sample(key, fields["cape"])) / 20, 0, 255) if "cape" in fields else 0 * rain
+        land = sample(key, fields["land"]) >= 0.5 if "land" in fields else wet & False
+        rgba = np.stack([np.where(np.isfinite(humidity), np.rint(humidity * 254) + 1, 0), np.rint(np.sqrt(visibility / 40000) * 254) + 1,
+                         np.rint(cape), 128 + np.rint(snow * 31) + np.where(showers, 32, 0) + np.where(land, 64, 0)], axis=-1)
+        tiles[key] = png(np.clip(rgba, 0, 255).astype(np.uint8), "RGBA")
+    return encode(tiles, sample.sizes)
+
+
 def land_pack(sample, mask):
     """The run's land (0 sea - 255 land) as grey tiles, once (it doesn't change with the hours)."""
     return encode({key: png(np.clip(np.rint(np.nan_to_num(sample(key, mask)) * 255), 0, 255).astype(np.uint8), "L")
@@ -647,6 +685,15 @@ def main():
                 size += len(extra)
             except (urllib.error.URLError, OSError) as error:
                 print(f"{model} step {step}: clouds not uploaded ({error})")
+        # The rest of a place's weather (ECMWF 9 km's: humidity, visibility, thunder, snow, showers).
+        if "vis" in fields and "2d" in fields:
+            extra = sky_pack(sample, fields)
+            try:
+                put(f"{run_name}/{t}-sky.pack", extra)
+                frame["sky"] = f"{run_name}/{t}-sky.pack"
+                size += len(extra)
+            except (urllib.error.URLError, OSError) as error:
+                print(f"{model} step {step}: sky not uploaded ({error})")
         frames.append(frame)
     if not frames:
         raise SystemExit(f"{model}: no frames")
