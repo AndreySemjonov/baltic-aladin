@@ -112,8 +112,9 @@ def main():
                 spots.append((f"cell-{row}-{col}", 90 - row * 0.25, ((col * 0.25 + 180) % 360) - 180))
     except Exception as error:
         print(f"No wanted cells ({error})", flush=True)
-    # The 0.25° grid's nearest point (rows north to south from 90, columns east from 0).
-    cells = np.array([(int(round((90 - lat) / 0.25)), int(round((lon % 360) / 0.25)) % 1440) for _, lat, lon in spots])
+    # The 0.25° grid's nearest point: rows north to south from 90, columns east from 180 W (the files'
+    # first point is at 180°: read from 0° every spot's members were the Pacific's, 18.10.2026).
+    cells = np.array([(int(round((90 - lat) / 0.25)), int(round(((lon + 180) % 360) / 0.25)) % 1440) for _, lat, lon in spots])
     print(f"ENS {run_text}: {len(spots)} spots, {len(steps)} steps", flush=True)
     # values[param][step] = array [members, spots]
     values = {p: {} for p in PARAMS}
