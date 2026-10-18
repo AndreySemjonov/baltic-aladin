@@ -35,7 +35,12 @@ BLOCK = 16
 ZOOMS = {"mix": 7, "metnordic-1km": 7, "arome": 7, "icon-ch1": 7, "icon-d2": 6, "dini": 6, "harm-nl": 6, "icon-2i": 6,
          "harm-fi": 6, "aladin": 6}
 SETS = ["mix", "mix-world", "metnordic-1km", "dini", "arome", "harm-nl", "icon-d2", "icon-ch1", "icon-2i", "harm-fi", "aladin",
-        "icon-eu", "ecmwf", "gfs", "icon", "gdps"]
+        "icon-eu", "ecmwf", "gfs", "icon", "gdps",
+        # The weather's and the waves' too (the owner, 18.10.2026: a place's weather and waves from our
+        # files, any place): "<folder>:<layer>", named "<folder>-<layer>" (the waves their own sets).
+        "ecmwf:temp", "ecmwf:rain", "icon-eu-wx:temp", "icon-eu-wx:rain", "icon-eu-wx:cloud",
+        "metnordic-1km-wx:temp", "metnordic-1km-wx:rain", "gfs:temp", "gfs:rain", "icon:temp", "icon:rain",
+        "gdps:temp", "gdps:rain", "ewam", "ecmwf-waves"]
 
 
 def area_tiles(set_name, index, header):
@@ -76,8 +81,11 @@ def series_file(times, size, pixels):
     return b"MGS1" + struct.pack("<I", len(head)) + head + b"".join(parts)
 
 
-def make(set_name, local, limit, force):
-    index_data = spot_points.get(FILES + f"tiles/{set_name}/index.json?t={int(time.time())}")
+def make(spec, local, limit, force):
+    # A wind set, or "<folder>:<layer>" (a weather layer's packs: the frames' "temp", "rain", "cloud").
+    folder, layer = spec.split(":", 1) if ":" in spec else (spec, "file")
+    set_name = folder if layer == "file" else f"{folder}-{layer}"
+    index_data = spot_points.get(FILES + f"tiles/{folder}/index.json?t={int(time.time())}")
     if not index_data:
         print(f"{set_name}: no index", flush=True)
         return
@@ -86,11 +94,14 @@ def make(set_name, local, limit, force):
     if local is None and not force and spot_points.get(FILES + f"series/{set_name}/{run}/done.json"):
         print(f"{set_name} {run}: series made already", flush=True)
         return
-    frames = sorted((f for f in index["frames"] if f.get("file")), key=lambda f: f["time"])
+    frames = sorted((f for f in index["frames"] if f.get(layer)), key=lambda f: f["time"])
+    if not frames:
+        print(f"{set_name} {run}: no {layer} packs", flush=True)
+        return
     times = [f["time"] for f in frames]
     started = time.time()
     with ThreadPoolExecutor(16) as pool:
-        headers = list(pool.map(lambda f: spot_points.PackReader(FILES + f"tiles/{set_name}/{f['file']}"), frames))
+        headers = list(pool.map(lambda f: spot_points.PackReader(FILES + f"tiles/{folder}/{f[layer]}"), frames))
     # The first hour's pack: the widest (regional models end sooner).
     first = headers[0]
     tiles = area_tiles(set_name, index, first)
