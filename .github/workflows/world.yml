@@ -15,6 +15,10 @@ on:
         description: "Make the newest runs again even if published"
         type: boolean
         default: false
+      only:
+        description: "Only this model (gfs, ecmwf, icon-eu, ecmwf-waves, ewam, icon, gdps); empty: all"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -58,7 +62,9 @@ jobs:
         env:
           INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
           FORCE: ${{ inputs.force }}
+          ONLY: ${{ inputs.only }}
         run: |
+          if [ -n "$ONLY" ] && [ "$ONLY" != "${{ matrix.model }}" ]; then echo "only $ONLY: ${{ matrix.model }} left out"; exit 0; fi
           script="world_tiles.py ${{ matrix.model }}"
           if [ "${{ matrix.model }}" = "icon-eu" ]; then script="iconeu_tiles.py"; fi
           if [ "${{ matrix.model }}" = "ecmwf-waves" ]; then script="waves_tiles.py ecmwf"; fi
