@@ -9,7 +9,7 @@ for its first 2-3 days):
   grid in km, as the app's SpotWeights; the owner, 18.10.2026: the formula everywhere else);
 - a coarse model's land pulled back to the coastline (our coastline tiles), the direction a
   weighted vector mean, the 3- and 6-hourly hours interpolated (not over more than 6 hours);
-- the hours from now every 3 hours to 6 days, then every 6 hours to 14 days (as the spot page);
+- the hours from now every hour to 5 days, every 3 hours to 6, then every 6 hours to 14 days;
 - made at zoom 4 (about 10 km a pixel at the equator, 5 km in the Baltic), zooms 3-0 from it two
   by two; published as tiles/mix-world when any of its models has a new run.
 
@@ -110,9 +110,12 @@ def main():
             return
     # Every model counts where it has data, the global ones too (mix_tiles fades where only they are).
     mt.GLOBAL = set()
-    now = int(time.time()) // (3 * 3600) * (3 * 3600)
+    # Hourly to 5 days (GFS, GDPS, and ICON and ICON-EU to 78 hours are hourly; the owner, 18.10.2026:
+    # the models' full resolution), 3-hourly to 6 days, then 6-hourly (UTC 00, 06, 12, 18).
+    now = int(time.time()) // 3600 * 3600
     last = min(max(m.times[-1] for m in models if m.times), now + DAYS * 86400)
-    hours = [t for t in range(now, last + 1, 3 * 3600) if t - now < 6 * 86400 or (t - now) % (6 * 3600) == 0]
+    hours = [t for t in range(now, last + 1, 3600)
+             if t - now < 5 * 86400 or (t - now < 6 * 86400 and t % (3 * 3600) == 0) or t % (6 * 3600) == 0]
     if limit:
         hours = hours[:limit]
     run_time = datetime.fromtimestamp(max(m.run for m in models if m.run), timezone.utc)

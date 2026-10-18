@@ -49,7 +49,9 @@ MODEL_SIZES = {"icon": {0: 256, 1: 256, 2: 256, 3: 360}, "gdps": {0: 256, 1: 256
 UPLOAD = "https://data.meteogust.com/tiles/upload/"
 PUBLISHED = "https://files.meteogust.com/tiles/{model}/index.json"
 
-GFS_STEPS = list(range(0, 385, 3))
+# Every hour each model gives (the owner, 18.10.2026: "full resolution of all models"): GFS hourly
+# to 5 days, then 3-hourly to 16.
+GFS_STEPS = list(range(0, 121)) + list(range(123, 385, 3))
 GFS_FILTER = ("https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl?dir=%2Fgfs.{day}%2F{hour}%2Fatmos"
               "&file=gfs.t{hour}z.pgrb2.0p25.f{step:03d}&var_UGRD=on&var_VGRD=on&var_GUST=on&var_LAND=on"
               "&lev_10_m_above_ground=on&lev_surface=on")
@@ -61,9 +63,9 @@ MODELS = {
     "gdps": {"name": "GDPS 15 km", "credit": "GDPS, Environment and Climate Change Canada (Open Government Licence - Canada)",
              "gust": "maximum in the hour before"},
 }
-# The hours the world mix reads: 3-hourly to 6 days, then 6-hourly (as ECMWF's open data).
-ICON_STEPS = list(range(0, 145, 3)) + list(range(150, 181, 6))
-GDPS_STEPS = list(range(0, 145, 3)) + list(range(150, 241, 6))
+# ICON hourly to 78 hours, then 3-hourly to 180 (as DWD gives it); GDPS hourly to 10 days.
+ICON_STEPS = list(range(0, 79)) + list(range(81, 181, 3))
+GDPS_STEPS = list(range(0, 241))
 ICON_URL = "https://opendata.dwd.de/weather/nwp/icon/grib/{hour}/{folder}/icon_global_icosahedral_{kind}_{run}{step}_{name}.grib2.bz2"
 GDPS_URL = ("{host}/{day}/WXO-DD/model_gdps/15km/{hour}/{step:03d}/"
             "{day}T{hour}Z_MSC_GDPS_{name}_AGL-10m_LatLon0.15_PT{step:03d}H.grib2")

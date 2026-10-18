@@ -518,9 +518,9 @@ def main():
         print("Freshness: " + ", ".join(f"{k} {v:.2f}" for k, v in sorted(FRESH.items(), key=lambda kv: -kv[1])), flush=True)
     now = int(time.time()) // 3600 * 3600
     last = max(m.times[-1] for m in regional if m.times)
-    # Hourly for the first day, then every 3 hours (as MET Nordic's 1 km tiles; the app goes
-    # smoothly between them): about 0.65 GB a run.
-    hours = [t for t in range(now, last + 1, 3600) if t - now < 24 * 3600 or (t - now) % (3 * 3600) == 0]
+    # Every hour (the owner, 18.10.2026: the models' full resolution; the regional models' tiles are
+    # hourly over their whole range): about 1 GB a run.
+    hours = list(range(now, last + 1, 3600))
     if limit:
         hours = hours[:limit]
     run_time = datetime.fromtimestamp(now, timezone.utc)
