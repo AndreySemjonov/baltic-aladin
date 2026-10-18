@@ -358,11 +358,17 @@ def gdps_steps(run, steps):
         for param, name in (("10u", "WindU_AGL-10m"), ("10v", "WindV_AGL-10m"), ("gust", "WindGust-Max_AGL-10m"),
                             ("2t", "AirTemp_AGL-2m"), ("2d", "DewPoint_AGL-2m"), ("msl", "Pressure_MSL"),
                             ("rate", "Precip-Accum1h_Sfc"), ("tcc", "TotalCloudCover_Sfc")):
-            data = fetch_bytes(gdps_url(run, name, step))
+            # Canada's servers reset connections now and then (18.10.2026: the whole run failed on
+            # one file): a file that keeps failing leaves its field out, the hour without it.
+            try:
+                data = fetch_bytes(gdps_url(run, name, step))
+            except (urllib.error.URLError, OSError) as error:
+                print(f"GDPS +{step} h {name}: {error}", flush=True)
+                data = None
             if data is not None:
                 files[param] = data
         return step, files
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    with ThreadPoolExecutor(max_workers=2) as pool:
         for step, files in pool.map(fetch, steps):
             if not files:
                 yield step, {}, None
