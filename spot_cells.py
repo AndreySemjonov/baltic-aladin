@@ -175,6 +175,11 @@ class SpotCells:
         dlat = grid["jDirectionIncrementInDegrees"] * (1 if grid["jScansPositively"] else -1)
         dlon = grid["iDirectionIncrementInDegrees"]
         wraps = abs(cols * dlon - 360) < 1.5 * dlon
+        # A regional grid's first longitude east of 180 (GRIB's 0-360: ICON-EU's 336.5 for 23.5 W) as
+        # -180..180, else every spot fell off its west edge (the owner, 18.10.2026: ICON-EU's spot
+        # file had only the run before's hours).
+        if not wraps and lon0 > 180:
+            lon0 -= 360
 
         def nearest(lat, lon):
             j = int(round((lat - lat0) / dlat))
