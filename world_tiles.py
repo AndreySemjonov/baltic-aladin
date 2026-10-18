@@ -575,6 +575,16 @@ def main():
         else:
             upload(f"{model}/{name}", data)
 
+    # The spots' values from the model's own cells as each hour goes by (spot_cells.py; the owner,
+    # 18.10.2026); the tiles go on without them if they fail.
+    import spot_cells
+    try:
+        cells = spot_cells.SpotCells(model, {"gfs": "gfs_global", "ecmwf": "ecmwf_ifs", "icon": "icon_global",
+                                             "gdps": "gem_global"}[model], weather=f"{model}-wx")
+    except Exception as error:
+        print(f"{model}: the spots' cells left out ({error})", flush=True)
+        cells = None
+
     for step, fields, grid in source:
         if "10u" not in fields or "10v" not in fields:
             print(f"{model} step {step}: no wind, skipped")
@@ -608,6 +618,12 @@ def main():
             previous[0], previous[1] = step, fields["tp"]
         elif "rate" in fields:
             rate = fields["rate"]
+        if cells is not None:
+            try:
+                cells.add_regular(t, grid, fields, rate)
+            except Exception as error:
+                print(f"{model} step {step}: the spots' cells left out ({error})", flush=True)
+                cells = None
         if rate is not None:
             extra = rain_pack(sample, fields, rate)
             try:
@@ -645,6 +661,11 @@ def main():
     else:
         print(upload(f"{model}/index.json", body).strip())
         print(f"{model} {run_name}: {len(frames)} packs, {size / 1e6:.0f} MB, {time.time() - started:.0f} s")
+    if cells is not None:
+        try:
+            cells.publish(run_name, str(local / "points") if local else None)
+        except Exception as error:
+            print(f"{model}: the spots' cells not published ({error})", flush=True)
 
 
 if __name__ == "__main__":

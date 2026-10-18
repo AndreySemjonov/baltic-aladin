@@ -101,6 +101,13 @@ def main():
                        | set(key for key, _, _ in STEER if steer.wanted))
     start, started = int(run_time.timestamp()), time.time()
     placement = sample = box = steer_placement = None
+    # The spots' values from ICON-EU's own cells (spot_cells.py; the owner, 18.10.2026).
+    import spot_cells
+    try:
+        cells = spot_cells.SpotCells("icon-eu", "icon_eu", weather="icon-eu-wx")
+    except Exception as error:
+        print(f"ICON-EU: the spots' cells left out ({error})", flush=True)
+        cells = None
     totals = {}
     for k in range(0, len(steps), 6):
         chunk = steps[k:k + 6]
@@ -130,6 +137,8 @@ def main():
                 gust = fields.get("VMAX_10M", np.hypot(u, v))
                 if wind.checked("ICON-EU", t, quality.wind(u, v, gust)):
                     wind.put(t, tiler.pack(placement, sample, lambda at: tiler.wind_rgb(at(u), at(v), at(gust))))
+                if cells is not None:
+                    cells.add_regular(t, grid, {"10u": u, "10v": v, "gust": gust})
             if not weather.wanted:
                 continue
             if "TOT_PREC" in fields:
@@ -147,6 +156,10 @@ def main():
             cloud = fields["CLCT"] / 100
             if not weather.checked("ICON-EU", t, quality.weather(air, rain)):
                 continue
+            if cells is not None:
+                layers = {name: fields[key] for name, key in (("low", "CLCL"), ("mid", "CLCM"), ("high", "CLCH")) if key in fields}
+                cells.add_regular(t, grid, {"10u": u, "10v": v, "gust": fields.get("VMAX_10M", np.hypot(u, v)),
+                                            "2t": fields["T_2M"], "tcc": fields["CLCT"], **layers}, rain)
             weather.put(t, tiler.pack(placement, sample, lambda at: tiler.temp_rgb(at(air), at(feels), at(hpa))), "temp")
             weather.put(t, tiler.pack(placement, sample, lambda at: tiler.rain_rgb(at(rain), at(cloud))), "rain")
             if {"CLCL", "CLCM", "CLCH"} <= fields.keys():
@@ -165,6 +178,11 @@ def main():
         weather.finish(area=area)
     if steer.wanted and steer.frames:
         steer.finish(area=area)
+    if cells is not None:
+        try:
+            cells.publish((wind if wind.wanted else weather).folder, local and local + "/points")
+        except Exception as error:
+            print(f"ICON-EU: the spots' cells not published ({error})", flush=True)
     print(f"ICON-EU {run}: done in {time.time() - started:.0f} s")
 
 

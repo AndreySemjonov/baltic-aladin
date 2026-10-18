@@ -93,6 +93,15 @@ def main():
     regional_tiles.STRIDE = 1
     started = time.time()
     placement = tiler.Placement(tiler.tiles_in_box(BOX, ZOOMS), place)
+    # The spots' wind (or air, rain, clouds) from MET Nordic's own 1 km cells (spot_cells.py; the
+    # owner, 18.10.2026).
+    import spot_cells
+    try:
+        cells = spot_cells.SpotCells(None if weather else "metnordic-1km", "metno_nordic",
+                                     weather="metnordic-1km-wx" if weather else None)
+    except Exception as error:
+        print(f"MET Nordic: the spots' cells left out ({error})", flush=True)
+        cells = None
     print(f"MET Nordic {run_time:%Y%m%dT%HZ}: {len(placement.parts)} tiles, {len(steps)} hours", flush=True)
     # Eight hours at a time (each field about 130 MB for 8 hours at every cell).
     for k in range(0, len(steps), 8):
@@ -113,6 +122,8 @@ def main():
                 cloud = np.clip(np.nan_to_num(fields["cloud"][s]), 0, 1)
                 if not out.checked("MET Nordic", t, quality.weather(air, rain)):
                     continue
+                if cells is not None:
+                    cells.add_placed(t, place, sample, None, None, None, air=air, rain=rain, cloud=cloud)
                 valid = lambda at: np.isfinite(at(raw))  # noqa: E731
                 out.put(t, tiler.pack(placement, sample, lambda at: tiler.temp_rgb(at(np.nan_to_num(air)), at(feels), at(hpa)), valid), "temp")
                 out.put(t, tiler.pack(placement, sample, lambda at: tiler.rain_rgb(at(rain), at(cloud)), valid), "rain")
@@ -125,10 +136,17 @@ def main():
             raw = fields["speed"][s]
             if not out.checked("MET Nordic", int(times[s]), quality.wind(east, north, gust)):
                 continue
+            if cells is not None:
+                cells.add_placed(int(times[s]), place, sample, east, north, gust)
             out.put(int(times[s]), tiler.pack(placement, sample, lambda at: tiler.wind_rgb(at(east), at(north), at(gust)),
                                               valid=lambda at: np.isfinite(at(raw))))
         print(f"  {len(out.frames)} hours, {out.bytes / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
     out.finish()
+    if cells is not None:
+        try:
+            cells.publish(out.folder, local and local + "/points")
+        except Exception as error:
+            print(f"MET Nordic: the spots' cells not published ({error})", flush=True)
 
 
 if __name__ == "__main__":

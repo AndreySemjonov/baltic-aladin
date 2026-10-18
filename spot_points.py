@@ -293,15 +293,17 @@ def main():
         else:
             print(world_tiles.upload(f"points/{name}.json", body).strip(), flush=True)
 
+    # The wind and the weather come from the models' own cells since 18.10.2026 (spot_cells.py, in
+    # each tile builder); from the tiles here only when asked by name (and the waves always).
     for set_name in sorted(set(SETS.values())):
-        if chosen and set_name not in chosen:
+        if set_name not in chosen:
             continue
         points = by_set.get(set_name)
         if points:
             publish(set_name, make(set_name, points, force))
     # The weather at the spots whose models it is; the waves at every spot.
     for name, (folder, model, layers) in WEATHER.items():
-        if chosen and name not in chosen:
+        if name not in chosen:
             continue
         points = {key(s["lat"], s["lon"]): (float(s["lat"]), float(s["lon"])) for s in every if model in s["weights"]}
         if points:

@@ -482,9 +482,20 @@ def model_set(name, data, sample, parts, info, run_name, local, place=None):
         return np.stack([np.clip(np.rint(e * 4 + 128), 0, 255), np.clip(np.rint(n * 4 + 128), 0, 255),
                          np.clip(np.rint(g * 5), 0, 255)], axis=-1)
 
+    # The spots' wind from the model's own cells (spot_cells.py; the owner, 18.10.2026).
+    import spot_cells
+    keys = {"ICON-D2": "icon_d2", "HARMONIE DINI": "dmi_harmonie_arome_europe", "HARM-NL": "knmi_harmonie_arome_netherlands",
+            "AROME": "meteofrance_arome_france_hd", "ICON-CH1": "meteoswiss_icon_ch1", "ICON-2I": "italia_meteo_arpae_icon_2i"}
+    try:
+        cells = spot_cells.SpotCells(folder, keys[name]) if place is not None and name in keys else None
+    except Exception as error:
+        print(f"{label}: the spots' cells left out ({error})", flush=True)
+        cells = None
     frames, total = [], 0
     for t in sorted(data):
         e, n, g = data[t]
+        if cells is not None:
+            cells.add_placed(t, place, sample, e, n, g)
         tiles = {}
         for key in keys:
             c, r, w = parts[key]
@@ -511,6 +522,11 @@ def model_set(name, data, sample, parts, info, run_name, local, place=None):
     else:
         world_tiles.upload(f"{folder}/index.json", body)
     print(f"{label} alone: {len(keys)} tiles, {len(frames)} hours, {total / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
+    if cells is not None:
+        try:
+            cells.publish(run_name, str(local / "points") if local else None)
+        except Exception as error:
+            print(f"{label}: the spots' cells not published ({error})", flush=True)
 
 
 if __name__ == "__main__":
