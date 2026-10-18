@@ -269,7 +269,20 @@ class SpotCells:
         if self.cells is None:
             from scipy.spatial import cKDTree
             tree = cKDTree(np.column_stack([lats, lons]))
-            wind = {k: int(tree.query([lat, lon])[1]) for k, (lat, lon) in self.wind_points.items()}
+            # The wind's point as Open-Meteo picks it on a reduced Gaussian grid (checked on its
+            # answers, 18.10.2026: Ragaciems' and two Estonian spots' points were a row off, 0.3-2 m/s):
+            # the row of latitude nearest the place, then the point of that row nearest in longitude.
+            breaks = np.flatnonzero(np.diff(lats)) + 1
+            starts = np.concatenate([[0], breaks])
+            ends = np.concatenate([breaks, [len(lats)]])
+            row_lats = lats[starts]
+
+            def row_first(lat, lon):
+                j = int(np.argmin(np.abs(row_lats - lat)))
+                a, b = int(starts[j]), int(ends[j])
+                d = np.abs(((lons[a:b] - lon) + 180) % 360 - 180)
+                return a + int(np.argmin(d))
+            wind = {k: row_first(lat, lon) for k, (lat, lon) in self.wind_points.items()}
             air = {}
             if self.weather_name:
                 try:
