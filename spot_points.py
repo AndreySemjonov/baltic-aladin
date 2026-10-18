@@ -54,6 +54,10 @@ WEATHER = {
     "ecmwf-wx": ("ecmwf", "ecmwf_ifs", ("temp", "rain")),
     "icon-eu-wx": ("icon-eu-wx", "icon_eu", ("temp", "rain", "cloud")),
     "metnordic-1km-wx": ("metnordic-1km-wx", "metno_nordic", ("temp", "rain")),
+    # The world's other models (world_tiles.py since 18.10.2026).
+    "gfs-wx": ("gfs", "gfs_global", ("temp", "rain")),
+    "icon-wx": ("icon", "icon_global", ("temp", "rain")),
+    "gdps-wx": ("gdps", "gem_global", ("temp", "rain")),
 }
 WAVES = ("ewam", "ecmwf-waves")
 # Waves: the nearest sea pixel within this many pixels at the set's finest zoom (EWAM's zoom 6 about

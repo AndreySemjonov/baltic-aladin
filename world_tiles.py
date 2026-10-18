@@ -54,7 +54,9 @@ PUBLISHED = "https://files.meteogust.com/tiles/{model}/index.json"
 GFS_STEPS = list(range(0, 121)) + list(range(123, 385, 3))
 GFS_FILTER = ("https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl?dir=%2Fgfs.{day}%2F{hour}%2Fatmos"
               "&file=gfs.t{hour}z.pgrb2.0p25.f{step:03d}&var_UGRD=on&var_VGRD=on&var_GUST=on&var_LAND=on"
-              "&lev_10_m_above_ground=on&lev_surface=on")
+              "&var_TMP=on&var_DPT=on&var_PRATE=on&var_TCDC=on&var_PRMSL=on"
+              "&lev_10_m_above_ground=on&lev_surface=on&lev_2_m_above_ground=on&lev_entire_atmosphere=on"
+              "&lev_mean_sea_level=on")
 
 MODELS = {
     "gfs": {"name": "GFS 0.25°", "credit": "NOAA NCEP, GFS (public domain)", "gust": "surface gust"},
@@ -68,7 +70,7 @@ ICON_STEPS = list(range(0, 79)) + list(range(81, 181, 3))
 GDPS_STEPS = list(range(0, 241))
 ICON_URL = "https://opendata.dwd.de/weather/nwp/icon/grib/{hour}/{folder}/icon_global_icosahedral_{kind}_{run}{step}_{name}.grib2.bz2"
 GDPS_URL = ("{host}/{day}/WXO-DD/model_gdps/15km/{hour}/{step:03d}/"
-            "{day}T{hour}Z_MSC_GDPS_{name}_AGL-10m_LatLon0.15_PT{step:03d}H.grib2")
+            "{day}T{hour}Z_MSC_GDPS_{name}_LatLon0.15_PT{step:03d}H.grib2")
 # Canada's high-performance mirror first (its main datamart timed out from GitHub's runners,
 # 18.10.2026), the datamart itself after.
 GDPS_HOSTS = ["https://hpfx.collab.science.gc.ca", "https://dd.weather.gc.ca"]
@@ -95,6 +97,12 @@ def gfs_steps(run, steps):
     with ThreadPoolExecutor(max_workers=3) as pool:
         for step, data in pool.map(fetch, steps):
             fields, grid = gfs_map.decode(data)
+            # The weather as the others name it (the spots' air, rain and clouds: the owner,
+            # 18.10.2026, step 3): sea-level pressure, the rain rate an hour (kg/m²/s), the cloud.
+            if "prmsl" in fields:
+                fields["msl"] = fields.pop("prmsl")
+            if "prate" in fields:
+                fields["rate"] = np.maximum(fields.pop("prate"), 0) * 3600
             yield step, fields, grid
 
 
@@ -175,7 +183,7 @@ def gdps_newest_run():
     for back in range(3):
         run = start - timedelta(hours=12 * back)
         for host in GDPS_HOSTS:
-            if exists(gdps_url(run, "WindV", GDPS_STEPS[-1], host)):
+            if exists(gdps_url(run, "WindV_AGL-10m", GDPS_STEPS[-1], host)):
                 gdps_host[0] = host
                 print(f"GDPS from {host}", flush=True)
                 return run
@@ -211,21 +219,30 @@ def icon_steps(run, steps):
 
     def fetch(step):
         files = {}
-        for param, folder, name in (("10u", "u_10m", "U_10M"), ("10v", "v_10m", "V_10M"), ("gust", "vmax_10m", "VMAX_10M")):
+        for param, folder, name in (("10u", "u_10m", "U_10M"), ("10v", "v_10m", "V_10M"), ("gust", "vmax_10m", "VMAX_10M"),
+                                    ("2t", "t_2m", "T_2M"), ("2d", "td_2m", "TD_2M"), ("tp", "tot_prec", "TOT_PREC"),
+                                    ("tcc", "clct", "CLCT"), ("msl", "pmsl", "PMSL")):
             data = fetch_bytes(icon_url(run, folder, name, step))
             if data is not None:
                 files[param] = bz2.decompress(data)
         return step, files
     with ThreadPoolExecutor(max_workers=3) as pool:
         for step, files in pool.map(fetch, steps):
-            yield step, {param: regular(grib_values(data)) for param, data in files.items()}, ICON_GRID
+            fields = {param: regular(grib_values(data)) for param, data in files.items()}
+            # The rain so far in metres (as ECMWF's), each step's from the one before.
+            if "tp" in fields:
+                fields["tp"] = fields["tp"] / 1000
+            yield step, fields, ICON_GRID
 
 
 def gdps_steps(run, steps):
-    """GDPS's wind and the hour's highest gust at each step (its own 0.15° grid)."""
+    """GDPS's wind and the hour's highest gust at each step (its own 0.15° grid); the air, dew point,
+    sea-level pressure, the hour's rain (mm, as the rate) and the cloud."""
     def fetch(step):
         files = {}
-        for param, name in (("10u", "WindU"), ("10v", "WindV"), ("gust", "WindGust-Max")):
+        for param, name in (("10u", "WindU_AGL-10m"), ("10v", "WindV_AGL-10m"), ("gust", "WindGust-Max_AGL-10m"),
+                            ("2t", "AirTemp_AGL-2m"), ("2d", "DewPoint_AGL-2m"), ("msl", "Pressure_MSL"),
+                            ("rate", "Precip-Accum1h_Sfc"), ("tcc", "TotalCloudCover_Sfc")):
             data = fetch_bytes(gdps_url(run, name, step))
             if data is not None:
                 files[param] = data
@@ -444,10 +461,14 @@ def main():
                 size += len(extra)
             except (urllib.error.URLError, OSError) as error:
                 print(f"{model} step {step}: temperature not uploaded ({error})")
+        rate = None
         if "tp" in fields:
             hours = step - previous[0] if previous[1] is not None else 0
             rate = (fields["tp"] - previous[1]) * 1000 / hours if hours > 0 else np.zeros_like(fields["tp"])
             previous[0], previous[1] = step, fields["tp"]
+        elif "rate" in fields:
+            rate = fields["rate"]
+        if rate is not None:
             extra = rain_pack(sample, fields, rate)
             try:
                 put(f"{run_name}/{t}-rain.pack", extra)
