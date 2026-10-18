@@ -380,9 +380,11 @@ class SpotCells:
 
     # MARK: Publishing
 
-    def publish(self, run_name, local=None):
+    def publish(self, run_name, local=None, keep_after=False):
         """The wind's and the weather's files (each with the hours before this run's first from the
-        file before, a day and a half, as Open-Meteo's answers have the day before)."""
+        file before, a day and a half, as Open-Meteo's answers have the day before; with
+        `keep_after`, also its hours after this run's last: a short run, ECMWF's 06/18 UTC 90 hours,
+        over the long one's, as Open-Meteo keeps its time series)."""
         if self.failed:
             return
         for name, rows in ((self.set_name, self.wind), (self.weather_name, self.air)):
@@ -400,6 +402,13 @@ class SpotCells:
                         old = before.get("points", {}).get(k)
                         series[k] = ([old[i] for i in keep] if old else [None] * len(keep)) + series[k]
                     times = old_times + times
+            if before and times and keep_after:
+                later = [i for i, t in enumerate(before.get("times", [])) if t > times[-1]]
+                if later:
+                    for k in series:
+                        old = before.get("points", {}).get(k)
+                        series[k] = series[k] + ([old[i] for i in later] if old else [None] * len(later))
+                    times = times + [before["times"][i] for i in later]
             body = json.dumps({"set": name, "run": run_name, "source": "grid",
                                "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
                                "times": times, "points": series}, separators=(",", ":")).encode()

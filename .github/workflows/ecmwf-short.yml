@@ -1,0 +1,53 @@
+name: ECMWF short runs at the spots
+run-name: ECMWF 06/18 UTC at the spots
+
+# ECMWF's 06 and 18 UTC runs (90 hours) at the spots over the long run's (ecmwf_short_points.py; the
+# owner, 18.10.2026: as Open-Meteo's time series), every hour, each run once.
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Make the newest run again"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ecmwf-short
+  cancel-in-progress: false
+
+jobs:
+  points:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Python version (for the package cache)
+        id: python
+        run: echo "version=$(python3 -c 'import sys; print(sys.version.split()[0])')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the installed packages
+        id: venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: world-venv-${{ runner.os }}-py${{ steps.python.outputs.version }}-eccodes-numpy-pillow-scipy-omfiles-v3
+
+      - name: Install ecCodes, NumPy, Pillow, SciPy and omfiles
+        if: steps.venv.outputs.cache-hit != 'true'
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy omfiles
+
+      - name: The spots' ECMWF short run
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          if [ "$FORCE" = "true" ]; then .venv/bin/python ecmwf_short_points.py --force; else .venv/bin/python ecmwf_short_points.py; fi
