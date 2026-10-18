@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One WRF run on the home PC "Tower" (the owner, 18.10.2026: two a day, by Windows' Task Scheduler,
 # for a week's test before the Mac mini): the newest code, wrf_poc/local.sh with the faster settings
-# tested on the laptop (the adaptive time step; the 1 km box all 48 hours: the Tower has 12 cores),
+# tested on the laptop (the adaptive time step; the 1 km box from the riding light ahead, daylight.py),
 # then its tiles to GitHub (the release asset wrf-local/<region>-tiles.tgz) and wrf-publish.yml to put
 # them on our file store. One run at a time; each run's log in /root/wrf-logs.
 #
@@ -25,7 +25,7 @@ service docker start > /dev/null 2>&1 || true
 git -C "$HERE" pull -q --rebase --autostash || log "git pull failed: the code as it was"
 
 # The terrain data on drive D: when there is one (tower_setup.sh).
-export ADAPTIVE=1 WRF_WORK=/root/wrf-work/$REGION WRF_GEOG=${WRF_GEOG:-$([ -d /mnt/d/meteogust/geog ] && echo /mnt/d/meteogust/geog || echo /root/geog)}
+export ADAPTIVE=1 DAYLIGHT=${DAYLIGHT:-1} WRF_WORK=/root/wrf-work/$REGION WRF_GEOG=${WRF_GEOG:-$([ -d /mnt/d/meteogust/geog ] && echo /mnt/d/meteogust/geog || echo /root/geog)}
 started=$(date +%s)
 log "WRF $REGION, $HOURS hours, on $(nproc) cores"
 if ! bash "$HERE/wrf_poc/local.sh" "$REGION" "$HOURS"; then
