@@ -1,0 +1,61 @@
+name: Open data tiles
+run-name: Open data tiles (ICON-CH2, HARMONIE Europe, AROME 2.5 km)
+
+# Europe's last models the spot pages read from Open-Meteo (bucket_tiles.py; the owner, 18.10.2026):
+# from Open-Meteo's open data on AWS, each set's newest run at its hours as our wind tiles and the
+# spots' values from its own cells; checked every hour, a run published already skipped in a second.
+on:
+  schedule:
+    - cron: "50 * * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Make the newest runs again even if published"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  tiles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        set: [icon-ch2, knmi-eu, arome25]
+    concurrency:
+      group: bucket-${{ matrix.set }}
+      cancel-in-progress: false
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Python version (for the package cache)
+        id: python
+        run: echo "version=$(python3 -c 'import sys; print(sys.version.split()[0])')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the installed packages
+        id: venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: bucket-venv-${{ runner.os }}-py${{ steps.python.outputs.version }}-eccodes-numpy-pillow-scipy-omfiles-pyproj-v1
+
+      - name: Install ecCodes, NumPy, Pillow, SciPy, omfiles and pyproj
+        if: steps.venv.outputs.cache-hit != 'true'
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy omfiles pyproj
+
+      - name: Make and upload the ${{ matrix.set }} tiles
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          if [ "$FORCE" = "true" ]; then
+            .venv/bin/python bucket_tiles.py ${{ matrix.set }} --force
+          else
+            .venv/bin/python bucket_tiles.py ${{ matrix.set }}
+          fi

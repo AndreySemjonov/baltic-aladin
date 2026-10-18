@@ -55,6 +55,10 @@ MODELS = [
     ("aladin", "ALADIN", 1 / 2.3, 3.5),
     # The UK Met Office's UKV (ukmo_tiles.py, 18.10.2026).
     ("ukmo", "UKV", 1 / 2.0, 3.0),
+    # Europe's last models from Open-Meteo's open data (bucket_tiles.py, 18.10.2026).
+    ("icon-ch2", "ICON-CH2", 1 / 2.1, 3.2),
+    ("arome25", "AROME-FR", 1 / 2.5, 3.75),
+    ("knmi-eu", "HARM-EU", 1 / 5.0, 8.0),
     ("icon-eu", "ICON-EU", 1 / 7.0, 10.0),
     ("ecmwf", "ECMWF", 1 / 9.0, 25.0),
     ("gfs", "GFS", 1 / 13.0, 25.0),
@@ -112,7 +116,7 @@ MARGIN = 40
 MAX_GAP = 6 * 3600
 CREDIT = ("MET Nordic, MET Norway; HARMONIE DINI, DMI; HARMONIE, FMI; ALADIN, ČHMÚ; AROME, Météo-France (Etalab 2.0); "
           "ICON-D2 and ICON-EU, DWD; ICON-CH1, MeteoSwiss; HARMONIE-AROME, KNMI; ICON-2I, ItaliaMeteo; "
-          "ECMWF open data (CC BY 4.0); GFS, NOAA; UKV, Met Office")
+          "ECMWF open data (CC BY 4.0); GFS, NOAA; UKV, Met Office; ICON-CH2, MeteoSwiss; HARMONIE-AROME Europe, KNMI")
 
 
 def get(url, tries=3):
@@ -354,11 +358,11 @@ _tile_weights = {}
 # without tiles (UKV, ICON 13 km, GDPS, HARMONIE 5 km, ...) leave their share to the others.
 CATALOG = "https://data.meteogust.com/spots/catalog"
 KEYS = {"dmi_harmonie_arome_europe": "HARM-DK", "metno_nordic": "MET Nordic", "fmi": "HARM-FI", "aladin": "ALADIN",
-        "meteofrance_arome_france_hd": "AROME", "meteofrance_arome_france": "AROME", "icon_d2": "ICON-D2",
-        "meteoswiss_icon_ch1": "ICON-CH1", "meteoswiss_icon_ch2": "ICON-CH1", "italia_meteo_arpae_icon_2i": "ICON-2I",
+        "meteofrance_arome_france_hd": "AROME", "meteofrance_arome_france": "AROME-FR", "icon_d2": "ICON-D2",
+        "meteoswiss_icon_ch1": "ICON-CH1", "meteoswiss_icon_ch2": "ICON-CH2", "italia_meteo_arpae_icon_2i": "ICON-2I",
         "knmi_harmonie_arome_netherlands": "HARM-NL", "icon_eu": "ICON-EU", "ecmwf_ifs": "ECMWF", "gfs_global": "GFS",
         # The world mix's (mix_world.py; not in this one).
-        "icon_global": "ICON", "gem_global": "GDPS", "ukmo_uk_deterministic_2km": "UKV"}
+        "icon_global": "ICON", "gem_global": "GDPS", "ukmo_uk_deterministic_2km": "UKV", "knmi_harmonie_arome_europe": "HARM-EU"}
 # Copied weights (a rider's spot took its nearest spot's) aren't a place's own: left out.
 COPIED = ("nearest built-in spot", "default", "map's weights")
 
