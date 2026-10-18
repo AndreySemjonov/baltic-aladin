@@ -51,7 +51,7 @@ SETS = {
 KEEP_BEFORE = 36 * 3600
 # The weather: its points file's name, its tiles' folder, the app's model key, the frames' packs.
 WEATHER = {
-    "ecmwf-wx": ("ecmwf", "ecmwf_ifs", ("temp", "rain")),
+    "ecmwf-wx": ("ecmwf", "ecmwf_ifs", ("temp", "rain", "cloud")),
     "icon-eu-wx": ("icon-eu-wx", "icon_eu", ("temp", "rain", "cloud")),
     "metnordic-1km-wx": ("metnordic-1km-wx", "metno_nordic", ("temp", "rain")),
     # The world's other models (world_tiles.py since 18.10.2026).

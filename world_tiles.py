@@ -45,7 +45,22 @@ ZOOMS = range(0, 4)
 # round the world, 0.25°): more pixels there only made the packs bigger (5 MB an hour).
 SIZES = {0: 256, 1: 256, 2: 256, 3: 180}
 # ICON's 0.125° and GDPS's 0.15°: zoom 3 at their own detail too (2880 and 2400 columns).
-MODEL_SIZES = {"icon": {0: 256, 1: 256, 2: 256, 3: 360}, "gdps": {0: 256, 1: 256, 2: 256, 3: 300}}
+MODEL_SIZES = {"icon": {0: 256, 1: 256, 2: 256, 3: 360}, "gdps": {0: 256, 1: 256, 2: 256, 3: 300},
+               # ECMWF at 9 km (0.1°: 3600 columns round the world, zoom 4 at 225 pixels) since 18.10.2026;
+               # zooms 0-3 at the usual 256 for the map's wide views.
+               "ecmwf": {0: 256, 1: 256, 2: 256, 3: 256, 4: 225}}
+# ECMWF IFS at its full 9 km (the owner, 18.10.2026: ECMWF's own free files are 0.25°, about 25 km):
+# Open-Meteo's open data on AWS (CC BY 4.0; not its API), one file an hour with every variable on
+# ECMWF's O1280 grid; the 00 and 12 UTC runs (to 15 days). ECMWF's own 0.25° files when it fails.
+ECMWF9 = "https://openmeteo.s3.amazonaws.com/"
+ECMWF9_RUNS = "data_spatial/ecmwf_ifs/"
+# Its variables: our names, theirs, how to make them ours (°C to K as ECMWF's files).
+ECMWF9_FIELDS = (("10u", "wind_u_component_10m", 0), ("10v", "wind_v_component_10m", 0), ("gust", "wind_gusts_10m", 0),
+                 ("2t", "temperature_2m", 273.15), ("2d", "dew_point_2m", 273.15), ("msl", "pressure_msl", 0),
+                 ("rain", "precipitation", 0), ("tcc", "cloud_cover", 0), ("low", "cloud_cover_low", 0),
+                 ("mid", "cloud_cover_mid", 0), ("high", "cloud_cover_high", 0))
+ECMWF9_GRID = {"Ni": 3600, "Nj": 1801, "latitudeOfFirstGridPointInDegrees": 90.0, "longitudeOfFirstGridPointInDegrees": 0.0,
+               "iDirectionIncrementInDegrees": 0.1, "jDirectionIncrementInDegrees": 0.1, "jScansPositively": 0}
 UPLOAD = "https://data.meteogust.com/tiles/upload/"
 PUBLISHED = "https://files.meteogust.com/tiles/{model}/index.json"
 
@@ -60,7 +75,8 @@ GFS_FILTER = ("https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl?dir=%2Fgf
 
 MODELS = {
     "gfs": {"name": "GFS 0.25°", "credit": "NOAA NCEP, GFS (public domain)", "gust": "surface gust"},
-    "ecmwf": {"name": "ECMWF 0.25°", "credit": "ECMWF open data (CC BY 4.0)", "gust": "maximum since the previous step"},
+    "ecmwf": {"name": "ECMWF 9 km", "credit": "ECMWF IFS (CC BY 4.0), via Open-Meteo's open data on AWS (CC BY 4.0)",
+              "gust": "maximum in the hour before"},
     "icon": {"name": "ICON 13 km", "credit": "ICON, Deutscher Wetterdienst", "gust": "maximum since the previous output hour"},
     "gdps": {"name": "GDPS 15 km", "credit": "GDPS, Environment and Climate Change Canada (Open Government Licence - Canada)",
              "gust": "maximum in the hour before"},
@@ -104,6 +120,103 @@ def gfs_steps(run, steps):
             if "prate" in fields:
                 fields["rate"] = np.maximum(fields.pop("prate"), 0) * 3600
             yield step, fields, grid
+
+
+def s3_list(prefix):
+    """The keys under a prefix of Open-Meteo's open data (its public listing)."""
+    keys, token = [], None
+    while True:
+        url = ECMWF9 + "?list-type=2&prefix=" + prefix + ("&continuation-token=" + urllib.request.quote(token) if token else "")
+        text = fetch_bytes(url).decode()
+        keys += [k.split("</Key>")[0] for k in text.split("<Key>")[1:]]
+        token = text.split("<NextContinuationToken>")[1].split("<")[0] if "<NextContinuationToken>" in text else None
+        if not token:
+            return keys
+
+
+def ecmwf9_newest_run():
+    """The newest 00/12 UTC run with all its hours there (145 or more files)."""
+    now = datetime.now(timezone.utc)
+    start = now.replace(hour=now.hour // 12 * 12, minute=0, second=0, microsecond=0)
+    for back in range(3):
+        run = start - timedelta(hours=12 * back)
+        files = [k for k in s3_list(ECMWF9_RUNS + run.strftime("%Y/%m/%d/%H%MZ/")) if k.endswith(".om")]
+        if len(files) >= 145:
+            return run
+    raise SystemExit("No complete ECMWF 9 km run found")
+
+
+def ecmwf9_steps(run, steps):
+    """ECMWF's fields at each hour of the run, its O1280 grid put on ECMWF9_GRID (the four nearest
+    points, by distance); the rain the step's, as a rate an hour."""
+    import tempfile
+    import omfiles
+    from scipy.spatial import cKDTree
+    # O1280: 2560 Gaussian latitudes, north first; row i has 20 + 4i points to the equator, then back.
+    x, _ = np.polynomial.legendre.leggauss(2560)
+    lats = np.degrees(np.arcsin(x))[::-1]
+    counts = np.array([20 + 4 * i for i in range(1280)] + [20 + 4 * (2559 - i) for i in range(1280, 2560)])
+    la = np.radians(np.repeat(lats, counts))
+    lo = np.radians(np.concatenate([np.arange(n) * 360.0 / n for n in counts]))
+    tree = cKDTree(np.stack([np.cos(la) * np.cos(lo), np.cos(la) * np.sin(lo), np.sin(la)], axis=1))
+    glat = np.radians(90 - np.arange(ECMWF9_GRID["Nj"]) * 0.1)
+    glon = np.radians(np.arange(ECMWF9_GRID["Ni"]) * 0.1)
+    gl, go = np.meshgrid(glat, glon, indexing="ij")
+    points = np.stack([np.cos(gl) * np.cos(go), np.cos(gl) * np.sin(go), np.sin(gl)], axis=-1).reshape(-1, 3)
+    distance, nearest = tree.query(points, k=4, workers=-1)
+    share = (1 / np.maximum(distance, 1e-9)).astype(np.float32)
+    share /= share.sum(axis=1, keepdims=True)
+    shape = (ECMWF9_GRID["Nj"], ECMWF9_GRID["Ni"])
+    del tree, points, gl, go
+
+    def regular(values):
+        return (values[nearest] * share).sum(axis=1).reshape(shape)
+
+    folder = ECMWF9_RUNS + run.strftime("%Y/%m/%d/%H%MZ/")
+    files = {}
+    for key in s3_list(folder):
+        name = key.rsplit("/", 1)[-1]
+        if name.endswith(".om"):
+            valid = datetime.strptime(name[:-3], "%Y-%m-%dT%H%M").replace(tzinfo=timezone.utc)
+            files[int((valid - run).total_seconds() // 3600)] = key
+    wanted = [s for s in steps if s in files] if steps is not None else sorted(files)
+
+    def fetch(step):
+        handle = tempfile.NamedTemporaryFile(suffix=".om", delete=False)
+        handle.close()
+        for attempt in range(4):
+            try:
+                request = urllib.request.Request(ECMWF9 + files[step], headers={"User-Agent": maplib.USER_AGENT})
+                with urllib.request.urlopen(request, timeout=600) as reply, open(handle.name, "wb") as out:
+                    while True:
+                        block = reply.read(1 << 22)
+                        if not block:
+                            break
+                        out.write(block)
+                return step, handle.name
+            except (urllib.error.URLError, OSError):
+                if attempt == 3:
+                    raise
+                time.sleep(10 * (attempt + 1))
+
+    before = 0
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        for step, path in pool.map(fetch, wanted):
+            reader = omfiles.OmFileReader.from_path(path)
+            fields = {}
+            for ours, theirs, add in ECMWF9_FIELDS:
+                try:
+                    values = reader.get_child_by_name(theirs).read_array((slice(None), slice(None)))[0]
+                except Exception:
+                    continue
+                fields[ours] = regular(np.nan_to_num(values.astype(np.float32))) + add
+            reader.close()
+            os.unlink(path)
+            # The rain over the step (an hour, then 3 and 6), as mm an hour.
+            if "rain" in fields:
+                fields["rate"] = np.maximum(fields.pop("rain"), 0) / max(step - before, 1)
+            before = step
+            yield step, fields, ECMWF9_GRID
 
 
 def ecmwf_steps(run, steps):
@@ -279,7 +392,8 @@ class Sampler:
         dlat = grid["jDirectionIncrementInDegrees"] * (1 if grid["jScansPositively"] else -1)
         dlon = grid["iDirectionIncrementInDegrees"]
         self.tiles = {}
-        for z in ZOOMS:
+        # The zooms its sizes name (ECMWF 9 km's go to 4).
+        for z in sorted(self.sizes):
             for x in range(2 ** z):
                 for y in range(2 ** z):
                     lat, lon = tile_coordinates(z, x, y, self.sizes)
@@ -345,7 +459,7 @@ def temp_pack(sample, fields):
         rgb = np.stack([temp_map.encode(celsius), temp_map.encode(feels),
                         np.where(np.isfinite(hpa), np.clip(np.rint((hpa - 940) * 2), 1, 255), 0)], axis=-1).astype(np.uint8)
         tiles[key] = png(rgb, "RGB")
-    return encode(tiles)
+    return encode(tiles, sample.sizes)
 
 
 def rain_pack(sample, fields, rate):
@@ -359,7 +473,17 @@ def rain_pack(sample, fields, rate):
         rgb = np.stack([np.clip(np.rint(np.sqrt(mm) * 50), 0, 255), np.clip(np.rint(cloud * 255), 0, 255),
                         np.zeros_like(mm)], axis=-1).astype(np.uint8)
         tiles[key] = png(rgb, "RGB")
-    return encode(tiles)
+    return encode(tiles, sample.sizes)
+
+
+def cloud_pack(sample, fields):
+    """The clouds' layers as the regional sets' (tiler.cloud_rgb): low, mid, high (%) x 2.55."""
+    tiles = {}
+    for key in sample.tiles:
+        rgb = np.stack([np.clip(np.rint(np.nan_to_num(sample(key, fields[layer])) * 2.55), 0, 255) for layer in ("low", "mid", "high")],
+                       axis=-1).astype(np.uint8)
+        tiles[key] = png(rgb, "RGB")
+    return encode(tiles, sample.sizes)
 
 
 def land_pack(sample, mask):
@@ -412,8 +536,20 @@ def main():
     local = Path(args[args.index("--local") + 1]) if "--local" in args else None
     sizes = MODEL_SIZES.get(model, SIZES)
     newest = {"gfs": gfs_map.newest_run, "ecmwf": ecmwf_map.newest_run, "icon": icon_newest_run, "gdps": gdps_newest_run}
-    run = newest[model]()
-    run_name = run.strftime("%Y%m%dT%HZ")
+    # ECMWF at 9 km from Open-Meteo's open data; its own 0.25° files when that can't be read.
+    nine = model == "ecmwf" and "--open-data" not in args
+    if nine:
+        try:
+            run = ecmwf9_newest_run()
+        except BaseException as error:
+            print(f"ECMWF 9 km: {error}; ECMWF's own 0.25° files instead", flush=True)
+            nine = False
+    if not nine:
+        if model == "ecmwf":
+            sizes = SIZES
+            info = {"name": "ECMWF 0.25°", "credit": "ECMWF open data (CC BY 4.0)", "gust": "maximum since the previous step"}
+        run = newest[model]()
+    run_name = run.strftime("%Y%m%dT%HZ") + ("-9km" if nine else "")
     if "--check" in args:
         print(run_name)
         return
@@ -421,9 +557,11 @@ def main():
         print(f"{model}: {run_name} is published already")
         return
     steps = {"gfs": GFS_STEPS, "ecmwf": ecmwf_map.STEPS, "icon": ICON_STEPS, "gdps": GDPS_STEPS}[model]
+    if nine:
+        steps = None
     if "--steps" in args:
         steps = [int(s) for s in args[args.index("--steps") + 1].split(",")]
-    source = {"gfs": gfs_steps, "ecmwf": ecmwf_steps, "icon": icon_steps, "gdps": gdps_steps}[model](run, steps)
+    source = (ecmwf9_steps if nine else {"gfs": gfs_steps, "ecmwf": ecmwf_steps, "icon": icon_steps, "gdps": gdps_steps}[model])(run, steps)
     sample, land, frames, size, started = None, False, [], 0, time.time()
     # The step and precipitation before (ECMWF's is the total since the run's start).
     previous = [0, None]
@@ -476,14 +614,23 @@ def main():
                 size += len(extra)
             except (urllib.error.URLError, OSError) as error:
                 print(f"{model} step {step}: rain not uploaded ({error})")
+        # The clouds' layers (ECMWF 9 km's), as the regional sets' cloud packs.
+        if "low" in fields:
+            extra = cloud_pack(sample, fields)
+            try:
+                put(f"{run_name}/{t}-cloud.pack", extra)
+                frame["cloud"] = f"{run_name}/{t}-cloud.pack"
+                size += len(extra)
+            except (urllib.error.URLError, OSError) as error:
+                print(f"{model} step {step}: clouds not uploaded ({error})")
         frames.append(frame)
     if not frames:
         raise SystemExit(f"{model}: no frames")
     index = {
         "model": info["name"], "credit": info["credit"], "run": run.strftime("%Y-%m-%dT%H:%MZ"), "runName": run_name,
         "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
-        "tileSizes": {str(z): sizes[z] for z in ZOOMS},
-        "zooms": [ZOOMS.start, ZOOMS.stop - 1], "projection": "Web Mercator tiles (z/x/y, y from the north)",
+        "tileSizes": {str(z): sizes[z] for z in sorted(sizes)},
+        "zooms": [min(sizes), max(sizes)], "projection": "Web Mercator tiles (z/x/y, y from the north)",
         "encoding": {"red": "wind towards the east m/s x 4 + 128", "green": "wind towards the north m/s x 4 + 128",
                      "blue": "gust m/s x 5 (" + info["gust"] + ")"},
         "land": f"{run_name}/land.pack" if land else None,
