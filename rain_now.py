@@ -38,6 +38,10 @@ import world_tiles
 FILES = "https://files.meteogust.com/tiles/"
 Z = 6
 SETS = ["metnordic-1km-wx", "metnordic-wx", "icon-eu-wx", "ecmwf"]
+# Our weather mixes (weather_mix.py: the rain's weighted median in red, as the sets'), measured against
+# the radar beside them but not part of the composite (the owner, 18.10.2026: does the mix beat the
+# single models before the Weather tab reads it). Every 3 hours (the mix's frames).
+MEASURED_ONLY = ["mix-wx", "mix-world-wx"]
 # A day of hours (the first ones the radar's, then the forecast moved and trimmed, then the sets
 # weighted by their skill; the owner, 15.10.2026: the models that matched the radar lately count more).
 HOURS = 24
@@ -506,6 +510,11 @@ def main():
         got = blend_field(domain, t0 - lead * 3600, t0)
         if got is not None:
             checked.append(Fixed(f"rain-now+{lead}", None, got))
+    for name in MEASURED_ONLY:
+        try:
+            checked.append(Forecast(name))
+        except Exception as error:
+            print(f"{name}: not read ({error})", flush=True)
     skill = measure(radar_hour, sets, domain, t0, checked, weights)
     for name, row in skill.items():
         print(f"  {name}: lead {row.get('leadHours')} h, wet 0.1 radar {row['wet0.1']['radar']:.3f} model {row['wet0.1']['model']:.3f}, "
