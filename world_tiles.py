@@ -311,6 +311,80 @@ def icon_newest_run():
     raise SystemExit("No complete ICON run found")
 
 
+# ICON from Open-Meteo's open data (the owner, 18.10.2026: its spot values the same as Open-Meteo's
+# ICON; DWD's own lat/lon files read 0.3-0.6 m/s off theirs, built from the triangles another way):
+# its regular 0.125° grid (rows south to north from 90 S, columns from 180 W), every run (00 and 12
+# to 180 hours, 06 and 18 to 120), one file an hour with every variable. DWD's own files when it fails.
+ICON_OM_RUNS = "data_spatial/dwd_icon/"
+ICON_OM_GRID = {"Ni": 2879, "Nj": 1441, "latitudeOfFirstGridPointInDegrees": -90.0, "longitudeOfFirstGridPointInDegrees": -180.0,
+                "iDirectionIncrementInDegrees": 0.125, "jDirectionIncrementInDegrees": 0.125, "jScansPositively": 1}
+ICON_OM_FIELDS = (("10u", "wind_u_component_10m", 0, 1), ("10v", "wind_v_component_10m", 0, 1), ("gust", "wind_gusts_10m", 0, 1),
+                  ("2t", "temperature_2m", 273.15, 1), ("rh", "relative_humidity_2m", 0, 1), ("msl", "pressure_msl", 0, 100),
+                  ("rain", "precipitation", 0, 1), ("tcc", "cloud_cover", 0, 1), ("low", "cloud_cover_low", 0, 1),
+                  ("mid", "cloud_cover_mid", 0, 1), ("high", "cloud_cover_high", 0, 1))
+
+
+def icon_om_newest_run():
+    """The newest ICON run in Open-Meteo's open data with all its hours (00/12: 113 files, 06/18: 93)."""
+    now = datetime.now(timezone.utc)
+    start = now.replace(hour=now.hour // 6 * 6, minute=0, second=0, microsecond=0)
+    for back in range(5):
+        run = start - timedelta(hours=6 * back)
+        keys = [k for k in s3_list(ICON_OM_RUNS + run.strftime("%Y/%m/%d/%H%MZ/")) if k.endswith(".om") and "_" not in k.rsplit("/", 1)[-1]]
+        if len(keys) >= (113 if run.hour % 12 == 0 else 93):
+            return run, sorted(keys)
+    raise SystemExit("No complete ICON run in the open data")
+
+
+def icon_om_steps(run, keys):
+    """ICON's fields at each hour of the run from the open data's files, on ICON_OM_GRID."""
+    import tempfile
+    import omfiles
+
+    def fetch(key):
+        handle = tempfile.NamedTemporaryFile(suffix=".om", delete=False)
+        handle.close()
+        for attempt in range(4):
+            try:
+                request = urllib.request.Request(ECMWF9 + key, headers={"User-Agent": maplib.USER_AGENT})
+                with urllib.request.urlopen(request, timeout=600) as reply, open(handle.name, "wb") as out:
+                    while True:
+                        block = reply.read(1 << 22)
+                        if not block:
+                            break
+                        out.write(block)
+                return key, handle.name
+            except (urllib.error.URLError, OSError):
+                if attempt == 3:
+                    raise
+                time.sleep(10 * (attempt + 1))
+
+    before = 0
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        for key, path in pool.map(fetch, keys):
+            valid = datetime.strptime(key.rsplit("/", 1)[-1][:-3], "%Y-%m-%dT%H%M").replace(tzinfo=timezone.utc)
+            step = int((valid - run).total_seconds() // 3600)
+            reader = omfiles.OmFileReader.from_path(path)
+            fields = {}
+            for ours, theirs, add, scale in ICON_OM_FIELDS:
+                try:
+                    values = reader.get_child_by_name(theirs).read_array((slice(None), slice(None)))
+                except Exception:
+                    continue
+                fields[ours] = np.nan_to_num(values.astype(np.float32)) * scale + add
+            reader.close()
+            os.unlink(path)
+            # The dew point from the humidity (temp_pack's feels-like), the rain over the step an hour.
+            if "rh" in fields and "2t" in fields:
+                c = fields["2t"] - 273.15
+                g = np.log(np.clip(fields.pop("rh"), 1, 100) / 100) + 17.625 * c / (243.04 + c)
+                fields["2d"] = 243.04 * g / (17.625 - g) + 273.15
+            if "rain" in fields:
+                fields["rate"] = np.maximum(fields.pop("rain"), 0) / max(step - before, 1) if step > 0 else np.zeros_like(fields["10u"])
+            before = step
+            yield step, fields, ICON_OM_GRID
+
+
 def gdps_url(run, name, step, host=None):
     return GDPS_URL.format(host=host or gdps_host[0], day=run.strftime("%Y%m%d"), hour=run.strftime("%H"), step=step, name=name)
 
@@ -600,12 +674,18 @@ def main():
         except BaseException as error:
             print(f"ECMWF 9 km: {error}; ECMWF's own 0.25° files instead", flush=True)
             nine = False
-    if not nine:
+    icon_om = None
+    if model == "icon" and "--dwd" not in args:
+        try:
+            run, icon_om = icon_om_newest_run()
+        except BaseException as error:
+            print(f"ICON open data: {error}; DWD's own files instead", flush=True)
+    if not nine and icon_om is None:
         if model == "ecmwf":
             sizes = SIZES
             info = {"name": "ECMWF 0.25°", "credit": "ECMWF open data (CC BY 4.0)", "gust": "maximum since the previous step"}
         run = newest[model]()
-    run_name = run.strftime("%Y%m%dT%HZ") + ("-9km" if nine else "")
+    run_name = run.strftime("%Y%m%dT%HZ") + ("-9km" if nine else "-od" if icon_om else "")
     if "--check" in args:
         print(run_name)
         return
@@ -617,7 +697,14 @@ def main():
         steps = None
     if "--steps" in args:
         steps = [int(s) for s in args[args.index("--steps") + 1].split(",")]
-    source = (ecmwf9_steps if nine else {"gfs": gfs_steps, "ecmwf": ecmwf_steps, "icon": icon_steps, "gdps": gdps_steps}[model])(run, steps)
+    if icon_om is not None:
+        keys = icon_om
+        if "--steps" in args:
+            keys = [k for k in keys if int((datetime.strptime(k.rsplit("/", 1)[-1][:-3], "%Y-%m-%dT%H%M").replace(tzinfo=timezone.utc)
+                                            - run).total_seconds() // 3600) in steps]
+        source = icon_om_steps(run, keys)
+    else:
+        source = (ecmwf9_steps if nine else {"gfs": gfs_steps, "ecmwf": ecmwf_steps, "icon": icon_steps, "gdps": gdps_steps}[model])(run, steps)
     sample, land, frames, size, started = None, False, [], 0, time.time()
     # The step and precipitation before (ECMWF's is the total since the run's start).
     previous = [0, None]

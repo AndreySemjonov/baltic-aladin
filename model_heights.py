@@ -58,7 +58,7 @@ def fetch(url):
             time.sleep(10 * (attempt + 1))
 
 
-def read_hsurf(model):
+def read_hsurf(model, raw=False):
     import omfiles
     handle = tempfile.NamedTemporaryFile(suffix=".om", delete=False)
     handle.close()
@@ -67,8 +67,9 @@ def read_hsurf(model):
     values = reader.read_array(tuple(slice(None) for _ in reader.shape)).astype(np.float32)
     reader.close()
     os.unlink(handle.name)
-    # The sea 0; off the model's own area (ICON-D2's corners) no value.
-    values[np.isfinite(values) & (values < -500)] = 0
+    # The sea 0 (raw: -999 as Open-Meteo has it); off the model's own area (ICON-D2's corners) no value.
+    if not raw:
+        values[np.isfinite(values) & (values < -500)] = 0
     return values
 
 

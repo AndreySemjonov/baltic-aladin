@@ -4,7 +4,8 @@ pixels blend a cell with its neighbours, at the coast land into the sea's wind a
 air; Open-Meteo reads the model's own cell): while a model's run is made into tiles, each spot's wind
 from the cell nearest its point for that model (its csPoints: Open-Meteo's cell_selection=nearest)
 and its air, rain and clouds from the nearest cell whose centre is on land (cell_selection=land; our
-coastline tiles say where land is), written as spot_points.py's files (points/<set>.json: [east,
+coastline tiles say where land is; the model's own ground where we have it, as Open-Meteo), the air
+moved from the cell's ground to the spot's (our terrain; 6.5 °C a km, as Open-Meteo), written as spot_points.py's files (points/<set>.json: [east,
 north, gust] m/s; points/<set>-wx.json: [air °C, rain mm an hour, cloud %, low, mid, high]).
 
     cells = SpotCells("ecmwf", "ecmwf_ifs", weather="ecmwf-wx")
@@ -29,6 +30,50 @@ COAST = "https://files.meteogust.com/tiles/coast/"
 LAND_ZOOM = 9
 # How far round the nearest cell a land cell is looked for (cells each way).
 LAND_RINGS = 3
+LAPSE = 0.0065
+TERRAIN = "https://files.meteogust.com/tiles/terrain/"
+# The app's model keys -> Open-Meteo's names for their ground (model_heights.py).
+GROUND_NAMES = {"ecmwf_ifs": "ecmwf_ifs", "gfs_global": "ncep_gfs025", "icon_global": "dwd_icon", "gem_global": "cmc_gem_gdps",
+                "icon_eu": "dwd_icon_eu", "metno_nordic": "metno_nordic_pp", "dmi_harmonie_arome_europe": "dmi_harmonie_arome_europe",
+                "meteofrance_arome_france_hd": "meteofrance_arome_france_hd", "icon_d2": "dwd_icon_d2",
+                "knmi_harmonie_arome_netherlands": "knmi_harmonie_arome_netherlands", "meteoswiss_icon_ch1": "meteoswiss_icon_ch1",
+                "italia_meteo_arpae_icon_2i": "italia_meteo_arpae_icon_2i", "ukmo_uk_deterministic_2km": "ukmo_uk_deterministic_2km",
+                "meteoswiss_icon_ch2": "meteoswiss_icon_ch2", "meteofrance_arome_france": "meteofrance_arome_france0025",
+                "knmi_harmonie_arome_europe": "knmi_harmonie_arome_europe"}
+
+_terrain = {}
+
+
+def place_height(lat, lon, z=9):
+    """Our terrain's mean height (m) at a place (tiles/terrain, zoom 9: about 150 m), 0 at sea; None
+    without the terrain."""
+    try:
+        if "index" not in _terrain:
+            _terrain["index"] = set(json.loads(spot_points.get(TERRAIN + "index.json"))["packs"])
+        n = 2 ** z
+        x = (lon + 180) / 360 * n * 256
+        y = (1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * n * 256
+        tx, ty = int(x // 256), int(y // 256)
+        f = 2 ** (z - 5)
+        name = f"{tx // f}-{ty // f}"
+        if name not in _terrain["index"]:
+            return 0.0
+        if name not in _terrain:
+            data = spot_points.get(TERRAIN + f"5-{name}.pack")
+            k = int.from_bytes(data[4:8], "little")
+            _terrain[name] = (json.loads(data[8:8 + k])["tiles"], 8 + k, data)
+        tiles, start, data = _terrain[name]
+        r = tiles.get(f"{z}/{tx}/{ty}")
+        if r is None:
+            return 0.0
+        tile = np.asarray(Image.open(io.BytesIO(data[start + r[0]:start + r[0] + r[1]])).convert("RGBA"))
+        p = tile[min(int(y) - ty * 256, 255), min(int(x) - tx * 256, 255)]
+        return float(int(p[0]) * 256 + int(p[1]) - 1000)
+    except Exception as error:
+        if "failed" not in _terrain:
+            print(f"No terrain for the spots' air ({error})", flush=True)
+            _terrain["failed"] = True
+        return None
 
 
 class Coast:
@@ -82,6 +127,45 @@ class SpotCells:
         self.cells = None
         self.wind, self.air = {}, {}
         self.failed = False
+        # Each spot's air shift (°C): from its cell's ground to the spot's own height.
+        self.shift = {}
+        self._ground = None
+
+    def ground(self):
+        """The model's own ground (Open-Meteo's HSURF as it is: the sea -999) and its grid (None for
+        ECMWF's own points), once; None without."""
+        if self._ground is None:
+            try:
+                import model_heights
+                name = GROUND_NAMES.get(self.model_key, self.model_key)
+                values = model_heights.read_hsurf(name, raw=True)
+                spec = model_heights.MODELS[name]
+                self._ground = (values, None if spec["kind"] == "o1280" else model_heights.Grid(name, spec, values.shape))
+            except Exception as error:
+                print(f"{self.set_name}: no ground ({error})", flush=True)
+                self._ground = False
+        return self._ground or None
+
+    def ground_at(self, lat, lon):
+        """The model's ground at its grid point nearest a place: (height m, on land), None unknown."""
+        g = self.ground()
+        if not g or g[1] is None:
+            return None
+        values, grid = g
+        col, row, on = grid.place(np.array([lon]), np.array([lat]))
+        if not bool(np.ravel(on)[0]):
+            return None
+        j = min(max(int(round(float(np.ravel(row)[0]))), 0), values.shape[0] - 1)
+        i = int(round(float(np.ravel(col)[0]))) % values.shape[1]
+        v = float(values[j, i])
+        if not math.isfinite(v):
+            return None
+        return (max(v, 0.0) if v > -500 else 0.0), v > -500
+
+    def set_shift(self, key, lat, lon, cell_height):
+        """The air's shift at a spot from its cell's ground (m) to the spot's own height."""
+        here = place_height(lat, lon)
+        self.shift[key] = LAPSE * (cell_height - here) if cell_height is not None and here is not None else 0.0
 
     # MARK: Regular grids (ECMWF, GFS, ICON, GDPS, ICON-EU)
 
@@ -121,9 +205,14 @@ class SpotCells:
                             continue
                         clat, clon = centre(j, i)
                         d = (clat - lat) ** 2 + ((clon - lon) * math.cos(math.radians(lat))) ** 2
-                        if (best is None or d < best[0]) and self.coast.is_land(clat, clon):
+                        if best is not None and d >= best[0]:
+                            continue
+                        own = self.ground_at(clat, clon)
+                        if (own[1] if own is not None else self.coast.is_land(clat, clon)):
                             best = (d, (j, i))
                 air[k] = best[1] if best else cell
+                own = self.ground_at(*centre(*air[k]))
+                self.set_shift(k, lat, lon, own[0] if own is not None else None)
         return wind, air
 
     def _add_regular(self, t, grid, fields, rate=None):
@@ -157,7 +246,7 @@ class SpotCells:
             return round(float(values[cell]) * scales[name])
         weather = {}
         for k, cell in air_cells.items():
-            air = float(fields["2t"][cell]) - 273.15
+            air = float(fields["2t"][cell]) - 273.15 + self.shift.get(k, 0.0)
             weather[k] = [round(air, 1), None if rate is None else round(max(float(rate[cell]), 0), 2),
                           percent("tcc", cell), percent("low", cell), percent("mid", cell), percent("high", cell)]
         self.air[int(t)] = weather
@@ -184,10 +273,14 @@ class SpotCells:
                 except Exception as error:
                     print(f"{self.set_name}: no ground for the land ({error})", flush=True)
                     ground = None
+                raw = self.ground()
                 for k, (lat, lon) in self.air_points.items():
                     _, near = tree.query([lat, lon], k=4)
                     land = [int(i) for i in near if ground is not None and ground[i] != 0]
                     air[k] = land[0] if land else int(near[0])
+                    if raw:
+                        v = float(raw[0].ravel()[air[k]])
+                        self.set_shift(k, lat, lon, max(v, 0.0) if v > -500 else 0.0)
             self.cells = (wind, air)
         wind_cells, air_cells = self.cells
         u, v, gust = values.get("10u"), values.get("10v"), values.get("gust")
@@ -205,7 +298,7 @@ class SpotCells:
 
         def percent(name, i):
             return round(float(values[name][i]) * scales[name]) if name in values else None
-        self.air[int(t)] = {k: [round(float(values["2t"][i]) - 273.15, 1),
+        self.air[int(t)] = {k: [round(float(values["2t"][i]) - 273.15 + self.shift.get(k, 0.0), 1),
                                 None if "rate" not in values else round(max(float(values["rate"][i]), 0), 2),
                                 percent("tcc", i), percent("low", i), percent("mid", i), percent("high", i)]
                             for k, i in air_cells.items()}
@@ -234,6 +327,10 @@ class SpotCells:
                     out[k] = (np.array([round(col)], dtype=float), np.array([round(row)], dtype=float)) if inside else None
                 return out
             self.cells = (cell_of(self.wind_points), cell_of(self.air_points))
+            if self.weather_name:
+                for k, (lat, lon) in self.air_points.items():
+                    own = self.ground_at(lat, lon)
+                    self.set_shift(k, lat, lon, own[0] if own is not None else None)
         wind_cells, air_cells = self.cells
 
         def at(values, cell):
@@ -251,7 +348,7 @@ class SpotCells:
             row[k] = [round(e, 2), round(n, 2), round(max(g if g is not None else speed, speed), 2)]
         self.wind[int(t)] = row
         if air is not None and self.weather_name:
-            self.air[int(t)] = {k: [None if at(air, c) is None else round(at(air, c), 1),
+            self.air[int(t)] = {k: [None if at(air, c) is None else round(at(air, c) + self.shift.get(k, 0.0), 1),
                                     None if at(rain, c) is None else round(max(at(rain, c), 0), 2),
                                     None if at(cloud, c) is None else round(at(cloud, c) * (100 if at(cloud, c) <= 1.5 else 1)),
                                     None, None, None] for k, c in air_cells.items()}
