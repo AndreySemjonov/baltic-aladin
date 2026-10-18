@@ -161,7 +161,9 @@ $ADAPT
 /
 EOF
 
-NP=$(nproc)
+# WRF_CORES: fewer processes than threads (the Tower's i7-12700K: 8 fast cores with two threads each
+# and 4 slow ones; WRF waits on its slowest piece, 18.10.2026).
+NP=${WRF_CORES:-$(nproc)}
 MPI=$(command -v mpirun || command -v mpiexec || find / -name mpirun -not -path "/proc/*" 2>/dev/null | head -1 || true)
 export OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 log "$NP cores, MPI: ${MPI:-none}"
