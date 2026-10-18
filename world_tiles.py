@@ -720,6 +720,9 @@ def main():
     # 18.10.2026); the tiles go on without them if they fail.
     import spot_cells
     try:
+        # GFS's spots from its 0.13° grid (gfs013_points.py), as Open-Meteo's; the others' here.
+        if model == "gfs":
+            raise RuntimeError("GFS's spots come from gfs013_points.py")
         cells = spot_cells.SpotCells(model, {"gfs": "gfs_global", "ecmwf": "ecmwf_ifs", "icon": "icon_global",
                                              "gdps": "gem_global"}[model], weather=f"{model}-wx")
     except Exception as error:

@@ -34,6 +34,8 @@ ROTATED_EU = "+proj=ob_tran +o_proj=longlat +o_lat_p=-35 +o_lon_p=0 +lon_0=-188 
 MODELS = {
     "ecmwf_ifs": {"kind": "o1280", "zooms": range(0, 6)},
     "ncep_gfs025": {"kind": "latlon", "zooms": range(0, 5)},
+    # GFS's 0.13° grid: Open-Meteo's gfs_global wind and the spots' GFS (gfs013_points.py).
+    "ncep_gfs013": {"kind": "latlon", "zooms": range(0, 5)},
     "dwd_icon": {"kind": "latlon", "zooms": range(0, 6)},
     "cmc_gem_gdps": {"kind": "latlon", "zooms": range(0, 5)},
     "dwd_icon_eu": {"kind": "latlon", "zooms": range(2, 7)},

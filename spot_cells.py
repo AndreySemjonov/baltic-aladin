@@ -33,7 +33,7 @@ LAND_RINGS = 3
 LAPSE = 0.0065
 TERRAIN = "https://files.meteogust.com/tiles/terrain/"
 # The app's model keys -> Open-Meteo's names for their ground (model_heights.py).
-GROUND_NAMES = {"ecmwf_ifs": "ecmwf_ifs", "gfs_global": "ncep_gfs025", "icon_global": "dwd_icon", "gem_global": "cmc_gem_gdps",
+GROUND_NAMES = {"ecmwf_ifs": "ecmwf_ifs", "gfs_global": "ncep_gfs013", "icon_global": "dwd_icon", "gem_global": "cmc_gem_gdps",
                 "icon_eu": "dwd_icon_eu", "metno_nordic": "metno_nordic_pp", "dmi_harmonie_arome_europe": "dmi_harmonie_arome_europe",
                 "meteofrance_arome_france_hd": "meteofrance_arome_france_hd", "icon_d2": "dwd_icon_d2",
                 "knmi_harmonie_arome_netherlands": "knmi_harmonie_arome_netherlands", "meteoswiss_icon_ch1": "meteoswiss_icon_ch1",
