@@ -1,6 +1,7 @@
 """The 1 km box's hours from the riding light (the owner, 17-18.10.2026: the nights don't need it,
 and the 1 km box is about 88% of the computing): from the first sunrise in the run to its last
-sunset at the region's spot (POINT_LAT, POINT_LON), widened to the met_em files' 3-hour steps.
+sunset at the region's spot (POINT_LAT, POINT_LON), widened to the met_em files' 3-hour steps, the
+box started SPINUP before sunrise (17.10.2026 on the laptop: a fresh 1 km box's first hour was wrong).
 A day already over when the run is ready (READY_HOURS from now, default 4: the Tower's 48 hours)
 is left to the 3 km box. WRF starts and ends a box once per run, so a night between two days stays in.
 Prints D3_FROM=<h> D3_TO=<h> (hours from the run's start) for local.sh.
@@ -13,6 +14,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 STEP = 3
+SPINUP = timedelta(hours=2)
 
 
 def sun(day, lat, lon):
@@ -50,7 +52,7 @@ def main():
     if not light:
         print(f"D3_FROM=0 D3_TO={hours}")
         return
-    first = max((light[0][0] - start).total_seconds() / 3600, 0)
+    first = max((light[0][0] - SPINUP - start).total_seconds() / 3600, 0)
     last = min((light[-1][1] - start).total_seconds() / 3600, hours)
     first = int(first // STEP * STEP)
     last = min(int(-(-last // STEP) * STEP), hours)
