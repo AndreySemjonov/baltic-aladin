@@ -31,10 +31,12 @@ fi
 
 log "the WRF container"
 docker pull -q ncar/iwrf:latest > /dev/null
-log "the terrain data (about 30 GB, once)"
-if [ ! -d /root/geog/WPS_GEOG ]; then
-  mkdir -p /root/geog
-  curl -sSL https://www2.mmm.ucar.edu/wrf/src/wps_files/geog_high_res_mandatory.tar.gz | tar -xz -C /root/geog
+# The terrain data on drive D: (the Tower's C:, where WSL's own disk grows, was 92% full).
+GEOG=${WRF_GEOG:-$([ -d /mnt/d ] && echo /mnt/d/meteogust/geog || echo /root/geog)}
+log "the terrain data (about 30 GB, once) in $GEOG"
+if [ ! -d "$GEOG/WPS_GEOG" ]; then
+  mkdir -p "$GEOG"
+  curl -sSL https://www2.mmm.ucar.edu/wrf/src/wps_files/geog_high_res_mandatory.tar.gz | tar -xz -C "$GEOG"
 fi
 mkdir -p /root/wrf-logs
 log "ready: run 'gh auth login' once, then a test: bash /root/baltic-aladin/wrf_poc/tower.sh tarifa 6"

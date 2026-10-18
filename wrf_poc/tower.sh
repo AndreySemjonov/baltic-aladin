@@ -24,7 +24,8 @@ fi
 service docker start > /dev/null 2>&1 || true
 git -C "$HERE" pull -q --rebase --autostash || log "git pull failed: the code as it was"
 
-export ADAPTIVE=1 WRF_WORK=/root/wrf-work/$REGION WRF_GEOG=/root/geog
+# The terrain data on drive D: when there is one (tower_setup.sh).
+export ADAPTIVE=1 WRF_WORK=/root/wrf-work/$REGION WRF_GEOG=${WRF_GEOG:-$([ -d /mnt/d/meteogust/geog ] && echo /mnt/d/meteogust/geog || echo /root/geog)}
 started=$(date +%s)
 log "WRF $REGION, $HOURS hours, on $(nproc) cores"
 if ! bash "$HERE/wrf_poc/local.sh" "$REGION" "$HOURS"; then
