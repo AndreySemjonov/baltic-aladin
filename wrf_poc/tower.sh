@@ -25,6 +25,9 @@ service docker start > /dev/null 2>&1 || true
 git -C "$HERE" pull -q --rebase --autostash || log "git pull failed: the code as it was"
 
 # The terrain data on drive D: when there is one (tower_setup.sh).
+# 8 processes: the fastest on the Tower (18.10.2026, 3 hours at 1 km: 8 740 s, 12 810 s, 20 about 900 s;
+# its 8 fast cores, the slower ones and the second threads held the others back).
+export WRF_CORES=${WRF_CORES:-8}
 export ADAPTIVE=1 DAYLIGHT=${DAYLIGHT:-1} WRF_WORK=/root/wrf-work/$REGION WRF_GEOG=${WRF_GEOG:-$([ -d /mnt/d/meteogust/geog ] && echo /mnt/d/meteogust/geog || echo /root/geog)}
 started=$(date +%s)
 log "WRF $REGION, $HOURS hours, on $(nproc) cores"
