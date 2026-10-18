@@ -49,6 +49,9 @@ SIZE = 256
 MARGIN = 16
 MAX_GAP = 6 * 3600
 LAPSE = 0.0065
+# The air's weights (mix_tile): MET Nordic's boost; the ground's gap that weighs a model e times less (m).
+TEMP_BOOST = {"metnordic-1km-wx": 4.0}
+HEIGHT_SCALE = 300.0
 NEAR_KM = 10
 WET = 0.1
 # Set, label, resolution (km), its ground height's model (tiles/heights/<model>.pack).
@@ -404,8 +407,14 @@ def mix_tile(models, t, terrain, z, x, y, ensembles=(), lead=0.0):
             values, weight = got_t
             mg = m.ground(z, px0, py0, w, h)
             shift = LAPSE * (mg - ground) if mg is not None and ground is not None else 0
+            # The air's weight (the owner, 18.10.2026, checked against Open-Meteo at 13 places): MET
+            # Nordic's counted TEMP_BOOST times (corrected with thousands of stations' readings: the
+            # mix had pulled Riga 0.5 and Oslo 0.7 °C off it), and a model whose own ground is far from
+            # ours less, halving about every 200 m (a coarse model's air moved down a valley 6.5 °C a
+            # km made Innsbruck's autumn nights 2 °C warm; the fine Alpine models lead there).
+            gap = np.abs(mg - ground) if mg is not None and ground is not None else 0
             ok = np.isfinite(values["air"])
-            wt = np.where(ok, m.weight * weight, 0)
+            wt = np.where(ok, m.weight * TEMP_BOOST.get(m.name, 1.0) * np.maximum(np.exp(-gap / HEIGHT_SCALE), 0.01) * weight, 0)
             tw += wt
             tsum += wt * np.nan_to_num(values["air"] + shift)
             fsum += wt * np.nan_to_num(values["feels"] + shift)
