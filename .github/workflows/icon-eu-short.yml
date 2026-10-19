@@ -1,0 +1,51 @@
+name: ICON-EU short runs at the spots
+run-name: ICON-EU 03/09/15/21 UTC at the spots
+
+# ICON-EU's 03, 09, 15 and 21 UTC runs (51 hours) at the spots over the main run's (iconeu_short_points.py;
+# the owner, 19.10.2026: fresher ICON-EU four times a day), every hour (helper-trigger), each run once.
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Make the newest run again"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: icon-eu-short
+  cancel-in-progress: false
+
+jobs:
+  points:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Python version (for the package cache)
+        id: python
+        run: echo "version=$(python3 -c 'import sys; print(sys.version.split()[0])')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the installed packages
+        id: venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: world-venv-${{ runner.os }}-py${{ steps.python.outputs.version }}-eccodes-numpy-pillow-scipy-omfiles-v3
+
+      - name: Install ecCodes, NumPy, Pillow, SciPy and omfiles
+        if: steps.venv.outputs.cache-hit != 'true'
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy omfiles
+
+      - name: The spots' ICON-EU short run
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          if [ "$FORCE" = "true" ]; then .venv/bin/python iconeu_short_points.py --force; else .venv/bin/python iconeu_short_points.py; fi
