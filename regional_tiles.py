@@ -459,6 +459,7 @@ def main():
                                   place=place)
             except Exception as error:
                 print(f"{name} weather alone left out: {error}", flush=True)
+        finished()
         return
     # Each model alone: its tiles where it counts (its weight as the alpha: the app draws the
     # world's model under it), at this run's hours it has. One failing leaves the others.
@@ -470,6 +471,17 @@ def main():
                       place=others[name][0])
         except Exception as error:
             print(f"{name} alone left out: {error}", flush=True)
+    finished()
+
+
+def finished():
+    """Out at once, everything published: freeing the models' arrays as main() returned crashed
+    Python ("double free or corruption", 19.10.2026: the weather run failed 4 times in 5 after its
+    last model), before the exit below could run."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    import os
+    os._exit(0)
 
 
 # The models' keys in the apps (Open-Meteo's names).
