@@ -34,6 +34,10 @@ BLOCK = 16
 # the 2-2.5 km ones at 6, the others their finest.
 ZOOMS = {"mix": 7, "metnordic-1km": 7, "arome": 7, "icon-ch1": 7, "icon-d2": 6, "dini": 6, "harm-nl": 6, "icon-2i": 6,
          "harm-fi": 6, "aladin": 6, "ukmo": 6, "icon-ch2": 6, "arome25": 6}
+# The regional models' weather a zoom under their finest (about 2.5 km: enough for air and rain;
+# station-history's layerAt reads the finest or the one under it).
+ZOOMS.update({f"{folder}-{layer}": 5 for folder in ("dini-wx", "harm-nl-wx", "icon-d2-wx", "arome-wx", "icon-ch1-wx", "icon-2i-wx")
+              for layer in ("temp", "rain")})
 SETS = ["mix", "mix-world", "metnordic-1km", "dini", "arome", "ukmo", "icon-ch2", "arome25", "knmi-eu", "harm-nl", "icon-d2", "icon-ch1", "icon-2i", "harm-fi", "aladin",
         "icon-eu", "ecmwf", "gfs", "icon", "gdps",
         # The weather's and the waves' too (the owner, 18.10.2026: a place's weather and waves from our
@@ -42,6 +46,10 @@ SETS = ["mix", "mix-world", "metnordic-1km", "dini", "arome", "ukmo", "icon-ch2"
         "ecmwf:temp", "ecmwf:rain", "ecmwf:cloud", "ecmwf:sky", "icon-eu-wx:temp", "icon-eu-wx:rain", "icon-eu-wx:cloud",
         "metnordic-1km-wx:temp", "metnordic-1km-wx:rain", "gfs:temp", "gfs:rain", "icon:temp", "icon:rain",
         "gdps:temp", "gdps:rain", "ewam", "ecmwf-waves",
+        # The regional models' air and rain too (the owner, 19.10.2026: riders' own spots and taps with
+        # every model's weather, as the catalog spots), at zoom 5 (WEATHER_ZOOM).
+        "dini-wx:temp", "dini-wx:rain", "harm-nl-wx:temp", "harm-nl-wx:rain", "icon-d2-wx:temp", "icon-d2-wx:rain",
+        "arome-wx:temp", "arome-wx:rain", "icon-ch1-wx:temp", "icon-ch1-wx:rain", "icon-2i-wx:temp", "icon-2i-wx:rain",
         # The sea's level and temperature (station-history /sea; the owner, 18.10.2026: off Open-Meteo).
         "sea", "sea-world"]
 
