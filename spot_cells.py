@@ -109,6 +109,14 @@ class Coast:
         return self.known[key]
 
 
+def run_time(name):
+    """A points file's run as a time: "20261018T06Z-9km" -> 2026-10-18 06 UTC; None when it doesn't say."""
+    try:
+        return datetime.strptime(str(name)[:12], "%Y%m%dT%HZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
 class SpotCells:
     def __init__(self, set_name, model_key, weather=None):
         self.set_name, self.model_key, self.weather_name = set_name, model_key, weather
@@ -418,6 +426,28 @@ class SpotCells:
             keys = sorted({k for r in rows.values() for k in r})
             series = {k: [rows[t].get(k) for t in times] for k in keys}
             before = None if local else spot_points.published(name)
+            # Never an older run over a newer one (19.10.2026: a late rerun of ECMWF's 12Z put it
+            # back over the 18Z short run at the spots): the older run only adds its hours after
+            # the newer one's last, the file keeping the newer run's name.
+            mine, theirs = run_time(run_name), run_time(before.get("run")) if before else None
+            if before and mine and theirs and theirs > mine:
+                old_times = before.get("times", [])
+                later = [i for i, t in enumerate(times) if not old_times or t > old_times[-1]]
+                if not later:
+                    print(f"{name}: {before.get('run')} is newer than {run_name}, kept", flush=True)
+                    continue
+                merged = {}
+                for k in set(before.get("points", {})) | set(series):
+                    old = before.get("points", {}).get(k) or [None] * len(old_times)
+                    new = series.get(k)
+                    merged[k] = old + ([new[i] for i in later] if new else [None] * len(later))
+                body = json.dumps({"set": name, "run": before.get("run"), "source": "grid",
+                                   "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
+                                   "times": old_times + [times[i] for i in later], "points": merged},
+                                  separators=(",", ":")).encode()
+                world_tiles.upload(f"points/{name}.json", body)
+                print(f"{name}: {before.get('run')} kept, {len(later)} later hours from {run_name}", flush=True)
+                continue
             if before and times:
                 keep = [i for i, t in enumerate(before.get("times", [])) if times[0] - spot_points.KEEP_BEFORE <= t < times[0]]
                 if keep:

@@ -251,6 +251,12 @@ def make(set_name, points, force=False, folder=None, values_of=None):
     if not force and before and before.get("run") == run and set(points) <= set(before.get("points", {})):
         print(f"{set_name}: {run} published already", flush=True)
         return None
+    # Never an older run over a newer one (19.10.2026, as spot_cells.py).
+    import spot_cells
+    mine, theirs = spot_cells.run_time(run), spot_cells.run_time(before.get("run")) if before else None
+    if not force and mine and theirs and theirs > mine:
+        print(f"{set_name}: {before.get('run')} is newer than {run}, kept", flush=True)
+        return None
     frames = sorted((f for f in index["frames"] if f.get("file")), key=lambda f: f["time"])
     zooms = index.get("zooms") or [0, 6]
     sizes = {int(z): s for z, s in (index.get("tileSizes") or {}).items()}
