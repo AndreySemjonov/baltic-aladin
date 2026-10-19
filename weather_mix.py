@@ -671,7 +671,10 @@ def main():
         out.frames[t]["models"] = [m.label for m in models if m.label in used]
         print(f"  {datetime.fromtimestamp(t, timezone.utc):%d %H:%M}: {len(levels['temp'])} tiles, "
               f"{', '.join(out.frames[t]['models'])}, {time.time() - started:.0f} s", flush=True)
-    out.finish(weights={m.label: round(m.weight, 4) for m in models}, inputs=inputs)
+    # The ensembles that came in, of those asked (station-history's admin checks: all six were left out
+    # unseen for days, 19.10.2026).
+    out.finish(weights={m.label: round(m.weight, 4) for m in models}, inputs=inputs,
+               ensembles={"used": [e.name for e in ensembles], "asked": len(ENSEMBLES)})
     if spot_rain:
         spot_rain.publish(local)
     print(f"{spec['name']} done in {time.time() - started:.0f} s")
