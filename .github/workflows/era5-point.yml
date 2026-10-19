@@ -1,0 +1,64 @@
+name: ERA5 point
+run-name: ERA5 wind at ${{ inputs.lat }}, ${{ inputs.lon }}
+
+# Ten years of hourly wind at one place for a spot's best months (era5_point.py; the owner,
+# 19.10.2026: off Open-Meteo's archive API, for its licence): ERA5 from Open-Meteo's open data on
+# AWS, started by the admin panel's "Compute from history" when the cell isn't kept yet.
+on:
+  workflow_dispatch:
+    inputs:
+      lat:
+        description: "Latitude"
+        required: true
+      lon:
+        description: "Longitude"
+        required: true
+      zone:
+        description: "The place's time zone (Europe/Riga)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: era5-point-${{ inputs.lat }}-${{ inputs.lon }}
+  cancel-in-progress: false
+
+jobs:
+  era5:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Python version (for the package cache)
+        id: python
+        run: echo "version=$(python3 -c 'import sys; print(sys.version.split()[0])')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the installed packages
+        id: venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: era5-venv-${{ runner.os }}-py${{ steps.python.outputs.version }}-numpy-omfiles-s3fs-v1
+
+      - name: Install NumPy, omfiles and s3fs
+        if: steps.venv.outputs.cache-hit != 'true'
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet numpy omfiles s3fs
+
+      - name: Read and upload the wind
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          LAT: ${{ inputs.lat }}
+          LON: ${{ inputs.lon }}
+          ZONE: ${{ inputs.zone }}
+        run: |
+          if [ -n "$ZONE" ]; then
+            .venv/bin/python era5_point.py "$LAT" "$LON" --zone "$ZONE"
+          else
+            .venv/bin/python era5_point.py "$LAT" "$LON"
+          fi
