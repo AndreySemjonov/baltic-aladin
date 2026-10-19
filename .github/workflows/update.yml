@@ -23,8 +23,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
   group: aladin
@@ -34,8 +32,6 @@ jobs:
   update:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    environment:
-      name: github-pages
     steps:
       - name: Check out
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -194,23 +190,12 @@ jobs:
           # On a clash over the same status files, this run's (newer) versions win.
           git pull --rebase -X theirs -q && git push
 
-      - name: Upload the site
-        id: upload
-        if: steps.due.outputs.deploy == 'true'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-
-      - name: Publish on GitHub Pages
+      # The phones' data files on our file store (publish_files.py; the owner, 16.10.2026: GitHub
+      # Pages' traffic is capped): files.meteogust.com/helper/. GitHub Pages no longer (19.10.2026:
+      # every phone reads the file store, and the repo moves to an organization without Pages).
+      - name: Publish on our file store
         id: publish
         if: steps.due.outputs.deploy == 'true'
-        uses: actions/deploy-pages@v4
-
-      # The phones' small data files on our file store too (publish_files.py; the owner, 16.10.2026:
-      # GitHub Pages' traffic is capped): files.meteogust.com/helper/. A failure never fails the run.
-      - name: Copy the phones' data files to our file store
-        if: steps.due.outputs.deploy == 'true'
-        continue-on-error: true
         env:
           INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
         run: python3 publish_files.py site
@@ -227,7 +212,7 @@ jobs:
           DEPLOY: ${{ steps.due.outputs.deploy }}
           FORCE: ${{ inputs.map }}
           EVENT: ${{ github.event_name }}
-          OUTCOMES: aladin=${{ steps.aladin.outcome }} nemo=${{ steps.nemo.outcome }} gauges=${{ steps.gauges.outcome }} due=${{ steps.due.outcome }} build=${{ steps.build.outcome }} commit=${{ steps.commit.outcome }} upload=${{ steps.upload.outcome }} publish=${{ steps.publish.outcome }}
+          OUTCOMES: aladin=${{ steps.aladin.outcome }} nemo=${{ steps.nemo.outcome }} gauges=${{ steps.gauges.outcome }} due=${{ steps.due.outcome }} build=${{ steps.build.outcome }} commit=${{ steps.commit.outcome }} publish=${{ steps.publish.outcome }}
           CHANGED: aladin=${{ steps.aladin.outputs.changed }} nemo=${{ steps.nemo.outputs.changed }} gauges=${{ steps.gauges.outputs.changed }}
         run: |
           if [ -z "$INGEST_TOKEN" ]; then echo "No ADMIN_INGEST_TOKEN secret: no report"; exit 0; fi
@@ -270,4 +255,4 @@ jobs:
           PY
           curl -s -m 20 -o /dev/null -w "Report sent: HTTP %{http_code}\n" -X POST \
             -H "authorization: Bearer $INGEST_TOKEN" -H "content-type: application/json" \
-            --data @report.json https://station-history.andrejs-semjonovs.workers.dev/ingest || echo "Report not sent"
+            --data @report.json https://data.meteogust.com/ingest || echo "Report not sent"
