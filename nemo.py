@@ -16,6 +16,7 @@ import math
 import re
 import sys
 import tempfile
+import time
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -70,12 +71,12 @@ def download(item, path):
 
 
 def coast_published(run):
-    """Whether the live site has this run's coast points and water map (they aren't kept in git)."""
-    site = "https://andreysemjonov.github.io/baltic-aladin/"
+    """Whether our file store has this run's coast points and water map (they aren't kept in git)."""
+    site = "https://files.meteogust.com/helper/"
     run_time = datetime.strptime(run, "%Y%m%d%H").strftime("%Y-%m-%dT%H:%MZ")
     try:
         for path, wanted in (("nemo-coast.json", run), ("water/map.json", run_time)):
-            with urllib.request.urlopen(urllib.request.Request(site + path, headers={"User-Agent": USER_AGENT}),
+            with urllib.request.urlopen(urllib.request.Request(site + path + f"?t={int(time.time())}", headers={"User-Agent": USER_AGENT}),
                                         timeout=60) as reply:
                 published = json.load(reply)
                 # A water map from before its hours' ranges were written is made again.
@@ -106,7 +107,7 @@ def sea_cell(lat, lon, lats, lons, sea):
 def published_water_run():
     """The live water map's run (YYYY-MM-DDTHH:MMZ), or None."""
     try:
-        request = urllib.request.Request("https://andreysemjonov.github.io/baltic-aladin/water/map.json",
+        request = urllib.request.Request(f"https://files.meteogust.com/helper/water/map.json?t={int(time.time())}",
                                          headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(request, timeout=60) as reply:
             return json.load(reply).get("run")

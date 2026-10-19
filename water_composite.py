@@ -49,7 +49,7 @@ import world_tiles
 from waves_tiles import filled, regular_grid
 
 # The Baltic water picture (W2): its frames, decoded here as the app read them.
-PICTURE = "https://andreysemjonov.github.io/baltic-aladin/water/"
+PICTURE = "https://files.meteogust.com/helper/water/"
 USER_AGENT = {"User-Agent": "MeteoGust seas (data.meteogust.com)"}
 
 # Each model's datasets for the level, the temperature and the current (the same dataset may serve

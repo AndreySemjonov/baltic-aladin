@@ -159,7 +159,7 @@ jobs:
           # The sea ice beside it (Copernicus): this run's frames, else the published ones.
           if [ -d ice-site ]; then cp -r ice-site site/ice; else .venv/bin/python carry.py site/ice ice || echo "No ice map yet"; fi
           # The coast points (about 1 MB, not in git): this run's, else the live ones.
-          if [ -f nemo-coast.json ]; then cp nemo-coast.json site/; else curl -sf -o site/nemo-coast.json https://andreysemjonov.github.io/baltic-aladin/nemo-coast.json || echo "No NEMO coast points yet"; fi
+          if [ -f nemo-coast.json ]; then cp nemo-coast.json site/; else curl -sf -o site/nemo-coast.json https://files.meteogust.com/helper/nemo-coast.json || echo "No NEMO coast points yet"; fi
           if [ -f docs/ee-gauges.json ]; then cp docs/ee-gauges.json site/; fi
           if [ -f docs/gauges.json ]; then cp docs/gauges.json site/; fi
           python3 - <<'PY'

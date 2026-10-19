@@ -1,5 +1,5 @@
-"""Copy a published map (map.json and its frames) from the live site into a new site build,
-so a deploy that doesn't rebuild that map keeps it (GitHub Pages replaces the whole site).
+"""Copy a published map (map.json and its frames) from our file store (files.meteogust.com/helper,
+what publish_files.py uploads) into a new site build, so a run that doesn't rebuild that map keeps it.
 
     python carry.py site/icon-eu icon-eu
 """
@@ -9,7 +9,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-SITE = "https://andreysemjonov.github.io/baltic-aladin/"
+SITE = "https://files.meteogust.com/helper/"
 USER_AGENT = "baltic-aladin (https://github.com/AndreySemjonov/baltic-aladin)"
 
 
