@@ -30,6 +30,21 @@ COAST = "https://files.meteogust.com/tiles/coast/"
 LAND_ZOOM = 9
 # How far round the nearest cell a land cell is looked for (cells each way).
 LAND_RINGS = 3
+# Rain within NEAR_KM of a spot counts half in the spot page's chance (weather_mix.py's rule; the
+# owner, 19.10.2026): each model's heaviest rain over a lattice round the spot, every NEAR_STEP km.
+NEAR_KM, NEAR_STEP = 10, 5
+
+
+def near_lattice(lat, lon):
+    """The places within NEAR_KM of (lat, lon), NEAR_STEP km apart, the spot itself first."""
+    out = []
+    steps = range(-NEAR_KM // NEAR_STEP, NEAR_KM // NEAR_STEP + 1)
+    for dy in steps:
+        for dx in steps:
+            if math.hypot(dx, dy) * NEAR_STEP <= NEAR_KM + 1e-9:
+                out.append((lat + dy * NEAR_STEP / 111.2, lon + dx * NEAR_STEP / (111.2 * max(math.cos(math.radians(lat)), 0.2))))
+    out.sort(key=lambda p: (p[0] - lat) ** 2 + (p[1] - lon) ** 2)
+    return out
 LAPSE = 0.0065
 TERRAIN = "https://files.meteogust.com/tiles/terrain/"
 # The app's model keys -> Open-Meteo's names for their ground (model_heights.py).
@@ -120,6 +135,8 @@ def run_time(name):
 class SpotCells:
     def __init__(self, set_name, model_key, weather=None):
         self.set_name, self.model_key, self.weather_name = set_name, model_key, weather
+        # Each weather point's cells round it (near_lattice), for the rain near the spot.
+        self.near = {}
         spots = [s for s in spot_points.spots() if model_key in s["weights"]]
         # Wind at each spot's point for this model and at the spot itself ("Sea wind" off); the
         # weather at the spot.
@@ -224,6 +241,7 @@ class SpotCells:
                         if (own[1] if own is not None else self.coast.is_land(clat, clon)):
                             best = (d, (j, i))
                 air[k] = best[1] if best else cell
+                self.near[k] = sorted({c for c in (nearest(a, b) for a, b in near_lattice(lat, lon)) if c is not None})
                 own = self.ground_at(*centre(*air[k]))
                 self.set_shift(k, lat, lon, own[0] if own is not None else None)
         return wind, air
@@ -260,8 +278,11 @@ class SpotCells:
         weather = {}
         for k, cell in air_cells.items():
             air = float(fields["2t"][cell]) - 273.15 + self.shift.get(k, 0.0)
+            near = [float(rate[c]) for c in self.near.get(k, [])] if rate is not None else []
+            near = [x for x in near if math.isfinite(x)]
             weather[k] = [round(air, 1), None if rate is None else round(max(float(rate[cell]), 0), 2),
-                          percent("tcc", cell), percent("low", cell), percent("mid", cell), percent("high", cell)]
+                          percent("tcc", cell), percent("low", cell), percent("mid", cell), percent("high", cell),
+                          round(max(max(near), 0), 2) if near else None]
         self.air[int(t)] = weather
 
     # MARK: A model's own points, not on a grid (ECMWF's O1280)
@@ -315,6 +336,7 @@ class SpotCells:
                     _, near = tree.query([lat, lon], k=4)
                     land = [int(i) for i in near if ground is not None and ground[i] != 0]
                     air[k] = land[0] if land else int(near[0])
+                    self.near[k] = sorted({int(tree.query([a, b])[1]) for a, b in near_lattice(lat, lon)})
                     if raw:
                         v = float(raw[0].ravel()[air[k]])
                         self.set_shift(k, lat, lon, max(v, 0.0) if v > -500 else 0.0)
@@ -335,9 +357,14 @@ class SpotCells:
 
         def percent(name, i):
             return round(float(values[name][i]) * scales[name]) if name in values else None
+        def near_rain(k):
+            if "rate" not in values or not self.near.get(k):
+                return None
+            found = [float(values["rate"][j]) for j in self.near[k] if math.isfinite(float(values["rate"][j]))]
+            return round(max(max(found), 0), 2) if found else None
         self.air[int(t)] = {k: [round(float(values["2t"][i]) - 273.15 + self.shift.get(k, 0.0), 1),
                                 None if "rate" not in values else round(max(float(values["rate"][i]), 0), 2),
-                                percent("tcc", i), percent("low", i), percent("mid", i), percent("high", i)]
+                                percent("tcc", i), percent("low", i), percent("mid", i), percent("high", i), near_rain(k)]
                             for k, i in air_cells.items()}
 
     def add_native(self, *args, **kwargs):
@@ -366,6 +393,9 @@ class SpotCells:
             self.cells = (cell_of(self.wind_points), cell_of(self.air_points))
             if self.weather_name:
                 for k, (lat, lon) in self.air_points.items():
+                    lattice = cell_of({i: p for i, p in enumerate(near_lattice(lat, lon))})
+                    self.near[k] = [c for c in lattice.values() if c is not None]
+                for k, (lat, lon) in self.air_points.items():
                     own = self.ground_at(lat, lon)
                     self.set_shift(k, lat, lon, own[0] if own is not None else None)
         wind_cells, air_cells = self.cells
@@ -385,10 +415,13 @@ class SpotCells:
             row[k] = [round(e, 2), round(n, 2), round(max(g if g is not None else speed, speed), 2)]
         self.wind[int(t)] = row
         if air is not None and self.weather_name:
+            def near_rain(k):
+                found = [x for x in (at(rain, c) for c in self.near.get(k, [])) if x is not None]
+                return round(max(max(found), 0), 2) if found else None
             self.air[int(t)] = {k: [None if at(air, c) is None else round(at(air, c) + self.shift.get(k, 0.0), 1),
                                     None if at(rain, c) is None else round(max(at(rain, c), 0), 2),
                                     None if at(cloud, c) is None else round(at(cloud, c) * (100 if at(cloud, c) <= 1.5 else 1)),
-                                    None, None, None] for k, c in air_cells.items()}
+                                    None, None, None, near_rain(k)] for k, c in air_cells.items()}
 
     # MARK: Safe to call from the tile builders: a failure stops the spots' cells, never the tiles.
 
