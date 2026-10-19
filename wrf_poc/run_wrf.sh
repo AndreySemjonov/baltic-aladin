@@ -63,6 +63,10 @@ if [ "${ADAPTIVE:-0}" = "1" ]; then
  adaptation_domain = 1,"
   log "adaptive time steps"
 fi
+# The boundary layer (the owner, 19.10.2026: our wind too strong over the land round Tarifa, the calm
+# valleys and the lee missing): YSU with its surface layer (revised MM5) and topo_wind=1 (Jimenez and
+# Dudhia 2012: the hills a 1 km grid smooths away slow the wind in the valleys and on flat land and speed
+# it up on the tops; needs VAR_SSO, from geogrid's mandatory data) instead of the CONUS suite's MYJ.
 cat > namelist.input <<EOF
 &time_control
  run_days = 0,
@@ -118,8 +122,9 @@ $ADAPT
  cu_physics = -1, 0, 0,
  ra_lw_physics = -1, -1, -1,
  ra_sw_physics = -1, -1, -1,
- bl_pbl_physics = -1, -1, -1,
- sf_sfclay_physics = -1, -1, -1,
+ bl_pbl_physics = 1, 1, 1,
+ sf_sfclay_physics = 1, 1, 1,
+ topo_wind = 1, 1, 1,
  sf_surface_physics = -1, -1, -1,
  radt = 9, 9, 9,
  bldt = 0, 0, 0,
