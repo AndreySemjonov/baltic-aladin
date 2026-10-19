@@ -540,9 +540,18 @@ def model_weather_set(name, data, sample, parts, info, run_name, local, place=No
     print(f"{label} air and rain: {len(keys)} tiles, {len(frames)} hours, {total / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
     if cells is not None:
         try:
-            cells.publish(run_name, str(local / "points") if local else None)
+            cells.publish(own_run_name(info, run_name), str(local / "points") if local else None)
         except Exception as error:
             print(f"{label}: the spots' weather not published ({error})", flush=True)
+
+
+def own_run_name(info, run_name):
+    """A regional model's own run as a points file names it ("2026-10-18T12:00Z" -> "20261018T12Z"; 19.10.2026:
+    its spots' file had MET Nordic's run name, ICON-2I's 12Z called 23Z); the job's when it doesn't say."""
+    try:
+        return datetime.strptime(str(info.get("run")), "%Y-%m-%dT%H:%MZ").strftime("%Y%m%dT%HZ")
+    except (TypeError, ValueError):
+        return run_name
 
 
 def model_set(name, data, sample, parts, info, run_name, local, place=None):
@@ -610,7 +619,7 @@ def model_set(name, data, sample, parts, info, run_name, local, place=None):
     print(f"{label} alone: {len(keys)} tiles, {len(frames)} hours, {total / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
     if cells is not None:
         try:
-            cells.publish(run_name, str(local / "points") if local else None)
+            cells.publish(own_run_name(info, run_name), str(local / "points") if local else None)
         except Exception as error:
             print(f"{label}: the spots' cells not published ({error})", flush=True)
 
