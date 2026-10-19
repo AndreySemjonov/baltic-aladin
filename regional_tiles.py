@@ -237,6 +237,10 @@ def main():
     models = [{"name": "MET Nordic", "run": datetime.fromtimestamp(run, timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
                "hours": len(steps)}]
     wanted_times = [int(times[s]) for s in steps]
+    # The other models up to 30 hours past MET Nordic's last hour, each to its own run's end (19.10.2026:
+    # cut to MET Nordic's hours, ICON-2I lost 18 of its 72, HARM-NL 5 of 60); the blend uses MET
+    # Nordic's hours only, each model's own set and spots all of its own.
+    model_times = wanted_times + ([wanted_times[-1] + k * 3600 for k in range(1, 31)] if wanted_times and not limit else [])
     wind_set = which == "wind"
 
     report = quality.Report(model)
@@ -270,13 +274,13 @@ def main():
             raise RuntimeError("no complete run")
         icon_time = int(run_time.timestamp())
         if wind_set:
-            hours = sorted({round((t - icon_time) / 3600) for t in wanted_times} & set(range(icond2.LAST + 1)))
+            hours = sorted({round((t - icon_time) / 3600) for t in model_times} & set(range(icond2.LAST + 1)))
             icon = {name: icond2.fields(run_time, var, hours)
                     for name, var in (("u", "u_10m"), ("v", "v_10m"), ("gust", "vmax_10m"))}
             data = {icon_time + k * 3600: (icon["u"][k], icon["v"][k], icon["gust"][k]) for k in hours}
             weights = icond2.weight_grid(next(iter(icon["u"].values())))
         else:
-            data = icond2.weather(run_time, wanted_times)
+            data = icond2.weather(run_time, model_times)
             weights = icond2.weight_grid(next(iter(data.values()))["air"])
 
         def place(lon, lat):
@@ -287,7 +291,7 @@ def main():
     def module(model):
         def make():
             instance = model()
-            data = instance.winds(wanted_times) if wind_set else instance.weather(wanted_times)
+            data = instance.winds(model_times) if wind_set else instance.weather(model_times)
             return instance.place, data, instance.sample, instance.run
         return make
 
