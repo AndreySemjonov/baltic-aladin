@@ -269,20 +269,31 @@ class SpotCells:
         if self.cells is None:
             from scipy.spatial import cKDTree
             tree = cKDTree(np.column_stack([lats, lons]))
-            # The wind's point as Open-Meteo picks it on a reduced Gaussian grid (checked on its
-            # answers, 18.10.2026: Ragaciems' and two Estonian spots' points were a row off, 0.3-2 m/s):
-            # the row of latitude nearest the place, then the point of that row nearest in longitude.
+            # The wind's point as Open-Meteo picks it on ECMWF's reduced Gaussian grid (its answers at 88
+            # of 88 places, 19.10.2026; plain distance missed 6, the nearest row 33): a row guessed as if
+            # the rows were evenly spaced (180 / (2 x 1280 + 0.5) degrees), that row and the next, in each
+            # the two points either side in longitude; the nearest of those four by plain degrees.
             breaks = np.flatnonzero(np.diff(lats)) + 1
             starts = np.concatenate([[0], breaks])
             ends = np.concatenate([breaks, [len(lats)]])
             row_lats = lats[starts]
+            half = len(row_lats) // 2
+            step = 180 / (2 * half + 0.5)
 
-            def row_first(lat, lon):
-                j = int(np.argmin(np.abs(row_lats - lat)))
-                a, b = int(starts[j]), int(ends[j])
-                d = np.abs(((lons[a:b] - lon) + 180) % 360 - 180)
-                return a + int(np.argmin(d))
-            wind = {k: row_first(lat, lon) for k, (lat, lon) in self.wind_points.items()}
+            def open_meteo_point(lat, lon):
+                y0 = int(math.floor(half - 1 - (lat - step / 2) / step))
+                best = None
+                for y in (y0, y0 + 1):
+                    if not 0 <= y < len(row_lats):
+                        continue
+                    a, n = int(starts[y]), int(ends[y] - starts[y])
+                    first = int(math.floor((lon % 360) / 360 * n))
+                    for i in (first % n, (first + 1) % n):
+                        d = (row_lats[y] - lat) ** 2 + (((lons[a + i] - lon) + 180) % 360 - 180) ** 2
+                        if best is None or d < best[0]:
+                            best = (d, a + i)
+                return best[1] if best else int(tree.query([lat, lon])[1])
+            wind = {k: open_meteo_point(lat, lon) for k, (lat, lon) in self.wind_points.items()}
             air = {}
             if self.weather_name:
                 try:
