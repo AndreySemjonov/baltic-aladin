@@ -151,3 +151,9 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # Out without the libraries' clean-up: their exit crashed Python after the work was published
+    # ("double free or corruption", 18.10.2026), failing every other run and the workflow's next step.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    import os
+    os._exit(0)
