@@ -35,6 +35,7 @@ import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import numpy as np
 from scipy import ndimage
@@ -183,6 +184,55 @@ class EnsembleChance:
         chance = model_heights.bilinear(values, col, row, wrap).reshape(lon.shape)
         on = on & np.isfinite(chance)
         return np.clip(np.nan_to_num(chance) / 100, 0, 1), on
+
+
+class SpotRain:
+    """The ensembles' weighted chance of rain (%) at every spot (the catalog's and the riders' public
+    ones, spot_points.spots), hour by hour: points/ens-rain.json {set, run, updated, times, models,
+    points: {"lat,lon": [chance or null, ...]}} (the spot's own place, spot_points.key)."""
+
+    def __init__(self, ensembles):
+        import spot_points
+        self.ensembles = ensembles
+        places = {spot_points.key(s["lat"], s["lon"]): (float(s["lat"]), float(s["lon"])) for s in spot_points.spots()}
+        self.keys = sorted(places)
+        self.lat = np.array([places[k][0] for k in self.keys], np.float64)
+        self.lon = np.array([places[k][1] for k in self.keys], np.float64)
+        self.times, self.values = [], []
+
+    def add(self, t):
+        if not self.keys:
+            return
+        total, weights = np.zeros(len(self.keys), np.float32), np.zeros(len(self.keys), np.float32)
+        for e in self.ensembles:
+            try:
+                got = e.at(t, self.lon, self.lat, key="spots")
+            except Exception as error:
+                print(f"{e.name} at the spots: left out ({error})", flush=True)
+                got = None
+            if got is None:
+                continue
+            value, on = got
+            total += e.weight * on * value
+            weights += e.weight * on
+        self.times.append(int(t))
+        self.values.append(np.where(weights > 0, np.round(100 * total / np.maximum(weights, 1e-9)), np.nan))
+
+    def publish(self, local=None):
+        if not self.times:
+            return
+        grid = np.array(self.values)
+        points = {k: [None if np.isnan(v) else int(v) for v in grid[:, i]] for i, k in enumerate(self.keys)}
+        body = json.dumps({"set": "ens-rain", "run": datetime.fromtimestamp(self.times[0], timezone.utc).strftime("%Y%m%dT%HZ"),
+                           "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "times": self.times,
+                           "models": [e.name for e in self.ensembles], "points": points}, separators=(",", ":")).encode()
+        if local:
+            Path(local).mkdir(parents=True, exist_ok=True)
+            (Path(local) / "ens-rain.json").write_bytes(body)
+        else:
+            import world_tiles
+            world_tiles.upload("points/ens-rain.json", body)
+        print(f"ens-rain: {len(self.keys)} spots, {len(self.times)} hours", flush=True)
 
 
 def get(url):
@@ -565,6 +615,9 @@ def main():
             print(f"{name}: {ensembles[-1].run}, {len(ensembles[-1].times)} steps", flush=True)
         except Exception as error:
             print(f"{name}: no chance of rain ({error})", flush=True)
+    # The ensembles' own chance at the spots (the owner, 19.10.2026: the spot page's chance of rain as
+    # the Weather tab's), each hour the world's mix makes, from the same files: points/ens-rain.json.
+    spot_rain = SpotRain(ensembles) if args[0] == "world" and ensembles else None
     top = spec["zoom"]
     zooms = range(top - 2, top + 1) if args[0] == "europe" else range(0, top + 1)
     keys = tiler.tiles_in_box(mt.BOX, [top]) if args[0] == "europe" else [(top, x, y) for x in range(2 ** top) for y in range(2 ** top)]
@@ -580,6 +633,8 @@ def main():
             results = list(pool.map(lambda key: (key, mix_tile(models, t, terrain, *key, ensembles=ensembles, lead=(t - now) / 3600)), keys))
         for m in models:
             m.forget(set(needed[m]))
+        if spot_rain:
+            spot_rain.add(t)
         levels = {"temp": {}, "rain": {}}
         used, airs, rains = set(), [], []
         for key, result in results:
@@ -617,6 +672,8 @@ def main():
         print(f"  {datetime.fromtimestamp(t, timezone.utc):%d %H:%M}: {len(levels['temp'])} tiles, "
               f"{', '.join(out.frames[t]['models'])}, {time.time() - started:.0f} s", flush=True)
     out.finish(weights={m.label: round(m.weight, 4) for m in models}, inputs=inputs)
+    if spot_rain:
+        spot_rain.publish(local)
     print(f"{spec['name']} done in {time.time() - started:.0f} s")
 
 
