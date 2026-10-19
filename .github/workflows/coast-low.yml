@@ -1,0 +1,29 @@
+name: Coastline far out
+run-name: The coastline's zooms 2-4 (low.pack)
+
+# The coastline far out (coast_low.py; the owner, 19.10.2026: the whole world's land darker as it is
+# closer in): zooms 2-4 made from the published zoom-5 tiles into tiles/coast/<folder>/low.pack.
+# Run by hand after the coastline changes (coast-world.yml, coast-osm.yml).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  low:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install NumPy and Pillow
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy
+
+      - name: Make and upload the coastline far out
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+        run: .venv/bin/python -W ignore coast_low.py
