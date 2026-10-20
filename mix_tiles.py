@@ -44,6 +44,9 @@ MODELS = [
     # (the owner, 17.10.2026: one rule everywhere): 1 / the model's resolution in km (MET Nordic as
     # 2.5 km, its real resolution); its run freshness left out. Near the catalog's spots, their own
     # weights (weight_points).
+    # Our own WRF 1 km round Tarifa (wrf_poc; the owner, 20.10.2026: "lets add WRF tarifa into our
+    # model mix", at the 1/km rule like the others).
+    ("wrf-tarifa", "WRF", 1 / 1.0, 1.5),
     ("metnordic-1km", "MET Nordic", 1 / 2.5, 1.5),
     ("dini", "HARM-DK", 1 / 2.0, 3.0),
     ("harm-fi", "HARM-FI", 1 / 2.5, 3.75),
@@ -70,7 +73,7 @@ APP_GRIDS = {"dmi_harmonie_arome_europe": 2, "metno_nordic": 2.5, "aladin": 2.3,
              "knmi_harmonie_arome_netherlands": 2, "ukmo_uk_deterministic_2km": 2, "icon_d2": 2.2, "meteoswiss_icon_ch1": 1,
              "meteoswiss_icon_ch2": 2.1, "italia_meteo_arpae_icon_2i": 2.2, "meteofrance_arome_france": 2.5, "ncep_hrrr_conus": 3,
              "gem_hrdps_continental": 2.5, "knmi_harmonie_arome_europe": 5, "icon_eu": 7, "ecmwf_ifs": 9, "gfs_global": 13,
-             "icon_global": 13 / 0.9, "gem_global": 15 / 0.7}
+             "icon_global": 13 / 0.9, "gem_global": 15 / 0.7, "wrf_tarifa": 1}
 KIND_TOTAL = sum(1 / km for km in APP_GRIDS.values())
 MODELS = [(name, label, weight / KIND_TOTAL, km) for name, label, weight, km in MODELS]
 GLOBAL = {"ecmwf", "gfs"}
@@ -116,7 +119,8 @@ MARGIN = 40
 MAX_GAP = 6 * 3600
 CREDIT = ("MET Nordic, MET Norway; HARMONIE DINI, DMI; HARMONIE, FMI; ALADIN, ČHMÚ; AROME, Météo-France (Etalab 2.0); "
           "ICON-D2 and ICON-EU, DWD; ICON-CH1, MeteoSwiss; HARMONIE-AROME, KNMI; ICON-2I, ItaliaMeteo; "
-          "ECMWF open data (CC BY 4.0); GFS, NOAA; UKV, Met Office; ICON-CH2, MeteoSwiss; HARMONIE-AROME Europe, KNMI")
+          "ECMWF open data (CC BY 4.0); GFS, NOAA; UKV, Met Office; ICON-CH2, MeteoSwiss; HARMONIE-AROME Europe, KNMI; "
+          "WRF 1 km Tarifa, MeteoGust's own model (WRF of NCAR, from GFS)")
 
 
 def get(url, tries=3):
@@ -361,6 +365,7 @@ KEYS = {"dmi_harmonie_arome_europe": "HARM-DK", "metno_nordic": "MET Nordic", "f
         "meteofrance_arome_france_hd": "AROME", "meteofrance_arome_france": "AROME-FR", "icon_d2": "ICON-D2",
         "meteoswiss_icon_ch1": "ICON-CH1", "meteoswiss_icon_ch2": "ICON-CH2", "italia_meteo_arpae_icon_2i": "ICON-2I",
         "knmi_harmonie_arome_netherlands": "HARM-NL", "icon_eu": "ICON-EU", "ecmwf_ifs": "ECMWF", "gfs_global": "GFS",
+        "wrf_tarifa": "WRF",
         # The world mix's (mix_world.py; not in this one).
         "icon_global": "ICON", "gem_global": "GDPS", "ukmo_uk_deterministic_2km": "UKV", "knmi_harmonie_arome_europe": "HARM-EU"}
 # Copied weights (a rider's spot took its nearest spot's) aren't a place's own: left out.
@@ -536,11 +541,12 @@ def main():
         return
     coast = Coast()
     # The tiles: zooms 4-6 over the box, zoom 7 where the 1 km models' tiles are (MET Nordic's; AROME's
-    # and ICON-CH1's since 18.10.2026: the models' full detail on the map and at a tap).
+    # and ICON-CH1's since 18.10.2026: the models' full detail on the map and at a tap; our WRF's
+    # round Tarifa since 20.10.2026).
     keys = tiler.tiles_in_box(box, range(4, 7))
     south, north, west, east = box
     seen = set()
-    for fine in (m for m in models if m.name in ("metnordic-1km", "arome", "icon-ch1") and m.times):
+    for fine in (m for m in models if m.name in ("metnordic-1km", "arome", "icon-ch1", "wrf-tarifa") and m.times):
         top = fine.pack(fine.times[0])
         for k in top.tiles:
             z, x, y = (int(v) for v in k.split("/"))
