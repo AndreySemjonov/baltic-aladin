@@ -156,7 +156,9 @@ def place(lat, lon, z, size):
 
 
 def wind(r, g, b, a):
-    return None if a < 128 else [round((r - 128) / 4, 2), round((g - 128) / 4, 2), round(b / 5, 2)]
+    # Up to the model's faded edge (the owner, 21.10.2026: ICON-2I and ICON-CH2 empty at Leucate, at
+    # their areas' edges; station-history's point series the same).
+    return None if a < 8 else [round((r - 128) / 4, 2), round((g - 128) / 4, 2), round(b / 5, 2)]
 
 
 def air(r, g, b, a):
