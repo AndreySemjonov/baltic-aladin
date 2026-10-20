@@ -1,6 +1,6 @@
 """A WRF run's wind at a few points (the owner, 17.10.2026: check our WRF against the airports'
 reports, which are measured by the rules, not against beach stations that read off): every hour the
-10 m wind (m/s), the direction it comes from (°) and the gust (the hour's strongest 10 m wind) from
+10 m wind (m/s), the direction it comes from (°) and the gust (from the boundary layer, gust.py) from
 the finest box that covers the point, into <work>/points.json, uploaded as
 tiles/wrf-<region>/points/<run>.json (directly with INGEST_TOKEN, else with the packed tiles).
 
@@ -15,6 +15,11 @@ from pathlib import Path
 
 import numpy as np
 from netCDF4 import Dataset
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from wrf_poc import gust as gusts  # noqa: E402
+
+_GUSTS = {}
 
 # name: (lat, lon, kind); airports by their ICAO code (their reports: station-history's METARs).
 POINTS = {
@@ -42,7 +47,10 @@ def series(path, lat, lon):
         u, v = np.asarray(data["U10"][:, j, i]), np.asarray(data["V10"][:, j, i])
         cosa, sina = float(data["COSALPHA"][0, j, i]), float(data["SINALPHA"][0, j, i])
         east, north = u * cosa - v * sina, v * cosa + u * sina
-        gust = np.asarray(data["WSPD10MAX"][:, j, i]) if "WSPD10MAX" in data.variables else np.hypot(east, north)
+        # The whole grid's gusts once a file (every point reads them).
+        if path not in _GUSTS:
+            _GUSTS[path] = gusts.all_hours(data)
+        gust = _GUSTS[path][:, j, i]
         times = [int(datetime.strptime("".join(c.decode() for c in t), "%Y-%m-%d_%H:%M:%S").replace(tzinfo=timezone.utc).timestamp())
                  for t in data["Times"][:]]
     speed = np.hypot(east, north)
