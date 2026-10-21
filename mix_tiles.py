@@ -634,8 +634,24 @@ def main():
                     old_pack, todo = None, keys
         # The packs of this hour read side by side first.
         needed = [(m, ht) for m in models for ht, _ in when[m.name] if ht not in m.packs]
+
+        def read(job):
+            try:
+                job[0].pack(job[1])
+            except Exception as error:
+                return job[0], error
         with ThreadPoolExecutor(8) as pool:
-            list(pool.map(lambda job: job[0].pack(job[1]), needed))
+            failed = [f for f in pool.map(read, needed) if f]
+        if failed:
+            # A model republished while this run went (40 minutes on GitHub) and its older folder was cleaned
+            # away (21.10.2026: the whole Mix failed on that 404 at its last hours): left out of this hour,
+            # the hour made whole without it.
+            for m, error in failed:
+                print(f"  {datetime.fromtimestamp(t, timezone.utc):%d %H:%M}: {m.label} left out ({error})", flush=True)
+                when[m.name] = []
+                src[m.name] = NONE
+            code = "".join(src[m.name] for m in models)
+            todo, old_pack, old_models = keys, None, []
         tiles, used, checks = {}, set(old_models), ([], [], [])
         with ThreadPoolExecutor(4) as pool:
             results = list(pool.map(lambda key: (key, mix_tile(models, when, coast, *key)), todo))
