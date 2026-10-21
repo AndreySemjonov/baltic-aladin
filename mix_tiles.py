@@ -550,6 +550,30 @@ def mix_tile(models, hours, coast, z, x, y):
     return rgba, used, (ue[alpha > 0.5], un[alpha > 0.5], g[alpha > 0.5])
 
 
+def memory_report(models, coast, label):
+    """The process's memory and each cache's (the owner, 21.10.2026: the Mix needs ~10 GB, too much beside WRF and for
+    the Mac mini's 16 GB; measured before cutting)."""
+    def size(x):
+        if isinstance(x, np.ndarray):
+            return x.nbytes
+        if isinstance(x, dict):
+            return sum(size(v) for v in x.values())
+        if isinstance(x, (list, tuple)):
+            return sum(size(v) for v in x)
+        return 0
+    try:
+        with open("/proc/self/status") as f:
+            rss = next((int(line.split()[1]) // 1024 for line in f if line.startswith("VmRSS")), 0)
+    except OSError:
+        rss = 0
+    raw = sum(len(p.data) for m in models for p in m.packs.values())
+    decoded = sum(v.nbytes for m in models for p in m.packs.values() for v in p.cache.values() if v is not None)
+    coast_packs = sum(len(p.data) + sum(v.nbytes for v in p.cache.values() if v is not None) for p in coast.cache.values() if p)
+    print(f"  memory {label}: process {rss} MB; models' packs {raw / 1e6:.0f} MB read, {decoded / 1e6:.0f} MB decoded; "
+          f"coast packs {coast_packs / 1e6:.0f} MB, blocks {size(coast.blocks) / 1e6:.0f} MB; fills {size(_fills) / 1e6:.0f} MB "
+          f"({len(_fills)}); weights {size(_tile_weights) / 1e6:.0f} MB ({len(_tile_weights)})", flush=True)
+
+
 def main():
     args = sys.argv[1:]
     local = args[args.index("--local") + 1] if "--local" in args else None
@@ -701,10 +725,13 @@ def main():
         out.frames[t]["models"] = [m.label for m in models if m.label in used]
         out.frames[t]["src"] = code
         out.frames[t]["made"] = round(time.time())
+        if (partial + whole) % 10 == 1:
+            memory_report(models, coast, f"after {partial + whole} hours made")
         print(f"  {datetime.fromtimestamp(t, timezone.utc):%d %H:%M}: {len(results)} of {len(tiles)} tiles made, "
               f"{', '.join(out.frames[t]['models'])}, {time.time() - started:.0f} s", flush=True)
     out.finish(weights={m.label: m.weight for m in models}, freshness={k: round(v, 3) for k, v in FRESH.items()},
                srcModels=[m.name for m in models], srcWeights=weights_mark)
+    memory_report(models, coast, "at the end")
     print(f"Mix done in {time.time() - started:.0f} s: {kept} hours kept as published, {far} far hours kept (remade every {FAR_EVERY // 3600} h), {partial} in part, {whole} whole")
 
 
