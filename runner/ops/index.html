@@ -235,6 +235,30 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 .heat span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .heat i { height: 13px; border-radius: 2px; display: block }
 .job { border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; display: flex; gap: 8px; flex-wrap: wrap }
+
+.subtabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px }
+.wgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 10px }
+.wgrid label { display: grid; grid-template-columns: 1fr 64px; gap: 6px; align-items: center; font-size: 13px; color: var(--muted) }
+.wgrid input, .editor input, .editor select, .editor textarea, .form select, .btns select { font: 14px var(--body); padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); min-width: 0 }
+.editor textarea { width: 100%; resize: vertical }
+.egrid { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 12px }
+@media (max-width: 1050px) { .egrid { grid-template-columns: minmax(0, 1fr) } }
+.egroup { display: grid; gap: 8px; align-content: start; border: 1px solid var(--line); border-radius: 8px; padding: 12px }
+.egroup.wide { grid-column: 1 / -1 }
+.egroup h3 { font: 600 12px var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 }
+.egroup label { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted) }
+label.row { display: inline-flex !important; gap: 6px; align-items: center; color: var(--ink) !important; font-size: 13.5px !important }
+.ticks { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center }
+.ticks > span { font: 600 12px var(--display); color: var(--muted); width: 100%; text-transform: uppercase; letter-spacing: .06em }
+.photos { display: flex; flex-wrap: wrap; gap: 10px }
+.ph { width: 180px; display: grid; gap: 6px }
+.ph img { width: 180px; height: 120px; object-fit: cover; border-radius: 6px; background: var(--line) }
+.ph.add { height: 120px; border: 2px dashed var(--line); border-radius: 6px; display: grid; place-items: center; cursor: pointer; color: var(--accent); font-weight: 600 }
+.ebar { margin-top: 14px; align-items: center }
+.form.four { grid-template-columns: repeat(4, minmax(0, 1fr)) }
+@media (max-width: 760px) { .form.four { grid-template-columns: 1fr 1fr } }
+.avatar { width: 22px; height: 22px; border-radius: 50%; vertical-align: middle; object-fit: cover }
+.st.unknown { background: var(--line); color: var(--muted) }
 </style>
 <div id="app"><main class="wrap"><p class="empty">Connecting to the Tower…</p></main></div>
 <script type="module">
@@ -1044,6 +1068,327 @@ function Costs({ ad, now }) {
   </div>`;
 }
 
+// MARK: Native editors (the owner, 21.10.2026: "native screens for the deep editors... make it"): spots and their
+// info, weights and photos; weight points; riders' and devices' roles; features; finding and adding stations.
+// Every change goes through admin's own routes (the contracts of tools/admin/worker.js).
+
+const WEIGHT_MODELS = [["dmi_harmonie_arome_europe", "HARM-DK 2 km"], ["metno_nordic", "MET Nordic 1 km"], ["aladin", "ALADIN 2.3 km"], ["fmi", "HARM-FI 2.5 km"],
+  ["meteofrance_arome_france_hd", "AROME-FR 1.5 km"], ["knmi_harmonie_arome_netherlands", "HARM-NL 2 km"], ["ukmo_uk_deterministic_2km", "UKV 2 km"],
+  ["icon_d2", "ICON-D2 2.2 km"], ["meteoswiss_icon_ch1", "ICON-CH1 1 km"], ["meteoswiss_icon_ch2", "ICON-CH2 2 km"], ["italia_meteo_arpae_icon_2i", "ICON-2I 2.2 km"],
+  ["meteofrance_arome_france", "AROME-FR 2.5 km"], ["ncep_hrrr_conus", "HRRR 3 km"], ["gem_hrdps_continental", "HRDPS 2.5 km"],
+  ["knmi_harmonie_arome_europe", "HARMONIE 5 km"], ["icon_eu", "ICON 7 km"], ["ecmwf_ifs", "ECMWF 9 km"], ["gfs_global", "GFS 13 km"],
+  ["icon_global", "ICON 13 km"], ["gem_global", "GDPS 15 km"], ["wrf_tarifa", "WRF 1 km (ours, Tarifa)"]];
+const INFO_TICKS = { sports: ["kite", "wing", "windsurf", "sup", "surf", "snowkite"], levels: ["beginner", "intermediate", "expert"],
+  water: ["flat", "chop", "smallWaves", "bigWaves"], beach: ["sand", "stones", "grass"],
+  hazards: ["nets", "rocks", "piers", "shipping", "current", "sandbar"], amenities: ["parking", "toilet", "shower", "food", "school", "rental", "shop"] };
+const ROLES = ["basic", "plus", "tester", "admin"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// A POST whose answer is shown as it came (admin answers some refusals with HTTP 200 and {error}, a far move with
+// {far:true}): {status, data}.
+async function adminPostRaw(path, body) {
+  const r = await fetch("/admin/api/" + path, { method: "POST", headers: { "content-type": "application/json", "x-shorewind-admin": "1" }, body: JSON.stringify(body) });
+  let data = {};
+  try { data = await r.json(); } catch (e) { data = { error: `HTTP ${r.status}` }; }
+  return { status: r.status, data };
+}
+
+function Saved({ msg }) {
+  if (!msg) return null;
+  return html`<span class="whytxt" style=${msg.startsWith("✓") ? "color:var(--ok)" : "color:var(--bad)"}>${msg}</span>`;
+}
+
+// One box per model, in %; only the ratios count (admin makes them add up to 1).
+function WeightsGrid({ value, onChange }) {
+  const v = value || {};
+  return html`<div class="wgrid">${WEIGHT_MODELS.map(([k, label]) => html`<label><span>${label}</span>
+    <input inputmode="decimal" value=${v[k] ? String(Math.round(v[k] * 1000) / 10) : ""} placeholder="–"
+      onChange=${(e) => { const n = parseFloat(String(e.target.value).replace(",", ".")); const next = { ...v }; if (n > 0) next[k] = n / 100; else delete next[k]; onChange(next); }}/></label>`)}</div>`;
+}
+
+async function toJpeg(file) {
+  const img = await createImageBitmap(file);
+  const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+  const c = document.createElement("canvas");
+  c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  for (const q of [0.86, 0.76, 0.66, 0.56]) {
+    const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", q));
+    if (blob && blob.size < 1550 * 1024) return { blob, w: c.width, h: c.height };
+  }
+  throw new Error("The photo stays over 1.6 MB");
+}
+
+function SpotEdit({ code, onClose, onSaved }) {
+  const [s, setS] = useState(null);
+  const [err, setErr] = useState("");
+  const [msg, setMsg] = useState("");
+  const [uploaded, setUploaded] = useState([]);
+  const load = async () => { try { setS(await adminGet("spots/info?code=" + encodeURIComponent(code))); } catch (e) { setErr(String(e.message || e)); } };
+  useEffect(() => { load(); }, [code]);
+  if (err) return html`<div class="panel"><p class="whytxt" style="color:var(--bad)">${err}</p><button class="btn" onClick=${onClose}>Close</button></div>`;
+  if (!s) return html`<div class="panel"><p class="empty">Reading the spot…</p></div>`;
+  if (s.error) return html`<div class="panel"><p class="whytxt">${s.error}</p><button class="btn" onClick=${onClose}>Close</button></div>`;
+  const info = s.info || {};
+  const set = (k, v) => setS({ ...s, info: { ...info, [k]: v } });
+  const tick = (group, val) => { const now = new Set(info[group] || []); now.has(val) ? now.delete(val) : now.add(val); set(group, [...now]); };
+  const photos = info.photos || [];
+  const save = async (publish) => {
+    setMsg("…");
+    const { data } = await adminPostRaw("spots", { action: "info", code, info, publish, kiteable: s.kiteable || "", best: s.best || "", offshore: s.offshore || "", photosLoaded: uploaded });
+    setMsg(data.error ? data.error : publish ? "✓ published" : "✓ draft saved");
+    if (!data.error) { setUploaded([]); onSaved && onSaved(); }
+  };
+  const saveWeights = async () => {
+    setMsg("…");
+    const { data } = await adminPostRaw("spots", { action: "weights", code, weights: s.weights || {}, source: s.weightsSource || "" });
+    setMsg(data.error ? data.error : "✓ weights saved");
+    if (!data.error) setS({ ...s, weights: data.weights });
+  };
+  const move = async (far) => {
+    const lat = parseFloat(s.newLat ?? s.lat), lon = parseFloat(s.newLon ?? s.lon);
+    const { data } = await adminPostRaw("spots", { action: "move", code, lat, lon, far: far === true });
+    if (data.far && !far) { setS({ ...s, askFar: data.error }); return; }
+    setMsg(data.error ? data.error : `✓ moved ${Math.round(data.distance)} m`);
+    if (!data.error) { setS({ ...s, lat, lon, askFar: null }); onSaved && onSaved(); }
+  };
+  const upload = async (e) => {
+    const files = [...e.target.files];
+    for (const f of files) {
+      try {
+        setMsg("resizing " + f.name + "…");
+        const { blob, w, h } = await toJpeg(f);
+        const r = await fetch("/admin/api/spots/photo?code=" + encodeURIComponent(code), { method: "POST", headers: { "content-type": "image/jpeg", "x-shorewind-admin": "1" }, body: blob });
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error || "not stored");
+        info.photos = [...(info.photos || []), { url: d.url, w, h }];
+        setUploaded((u) => [...u, d.url]);
+        setS({ ...s, info: { ...info } });
+        setMsg("✓ photo added (save or publish to keep it)");
+      } catch (x) { setMsg(String(x.message || x)); }
+    }
+    e.target.value = "";
+  };
+  const movePhoto = (i, d) => { const p = [...photos]; const [x] = p.splice(i, 1); p.splice(Math.max(0, Math.min(p.length, i + d)), 0, x); set("photos", p); };
+  return html`<div class="panel editor">
+    <div class="dhead"><b>${s.name}</b><span class="whytxt">${s.id} · ${s.code}</span>${s.draft ? html`<span class="st wait">draft</span>` : null}${s.published ? html`<span class="st ok">published</span>` : null}
+      <span style="margin-left:auto" class="btns"><a class="btn" href=${"/admin/#spots"} title="Rules, map pins and zones are drawn there">Map pins, zones, rules ↗</a><button class="btn" onClick=${onClose}>Close</button></span></div>
+    <div class="egrid">
+      <div class="egroup"><h3>Wind</h3>
+        <label>Kiteable directions<input value=${s.kiteable || ""} placeholder="185-355, 20-60" onInput=${(e) => setS({ ...s, kiteable: e.target.value })}/></label>
+        <label>Best<input value=${s.best || ""} placeholder="200-260" onInput=${(e) => setS({ ...s, best: e.target.value })}/></label>
+        <label>Offshore (dangerous)<input value=${s.offshore || ""} placeholder="20-110" onInput=${(e) => setS({ ...s, offshore: e.target.value })}/></label>
+        <p class="whytxt">Sectors in degrees the wind comes from, "from-to", comma between.</p></div>
+      <div class="egroup"><h3>About</h3><textarea rows="6" maxlength="2000" value=${info.about || ""} onInput=${(e) => set("about", e.target.value)}></textarea>
+        <label>Crowds<select value=${info.crowds || ""} onChange=${(e) => set("crowds", e.target.value || undefined)}><option value="">–</option><option value="quiet">quiet</option><option value="medium">medium</option><option value="busy">busy</option></select></label>
+        <label class="row"><input type="checkbox" checked=${!!info.standing} onChange=${(e) => set("standing", e.target.checked)}/> Standing depth</label>
+        ${info.standing ? html`<label>Standing note<input maxlength="80" value=${info.standingNote || ""} onInput=${(e) => set("standingNote", e.target.value)}/></label>` : null}
+        <label class="row"><input type="checkbox" checked=${!!info.bigLaunch} onChange=${(e) => set("bigLaunch", e.target.checked || undefined)}/> Big launch area</label>
+        <label class="row"><input type="checkbox" checked=${!!info.levelMatters} onChange=${(e) => set("levelMatters", e.target.checked || undefined)}/> Level matters</label>
+        <label>Hazard note<input maxlength="500" value=${info.hazardNote || ""} onInput=${(e) => set("hazardNote", e.target.value)}/></label></div>
+      <div class="egroup"><h3>Ticks</h3>${Object.entries(INFO_TICKS).map(([g, vals]) => html`<div class="ticks"><span>${g}</span>${vals.map((v) => html`<label class="row"><input type="checkbox" checked=${(info[g] || []).includes(v)} onChange=${() => tick(g, v)}/> ${v}</label>`)}</div>`)}
+        <div class="ticks"><span>good months</span>${MONTHS.map((m, i) => html`<label class="row"><input type="checkbox" checked=${(info.goodMonths || []).includes(i + 1)} onChange=${() => { const g = new Set(info.goodMonths || []); g.has(i + 1) ? g.delete(i + 1) : g.add(i + 1); set("goodMonths", [...g].sort((a, b) => a - b)); }}/> ${m}</label>`)}</div>
+        <p class="whytxt">Kept as they are: ${(info.rules || []).length} rules, ${(info.pins || []).length} map pins, ${(info.zones || []).length} zones${info.months ? ", the months' wind" : ""}.</p></div>
+      <div class="egroup wide"><h3>Photos · the first is the cover</h3><div class="photos">${photos.map((p, i) => html`<div class="ph">
+          <img src=${p.url} alt="" loading="lazy"/>
+          <input placeholder="credit" maxlength="60" value=${p.credit || ""} onInput=${(e) => { const q = [...photos]; q[i] = { ...p, credit: e.target.value }; set("photos", q); }}/>
+          <div class="btns"><button class="btn" onClick=${() => movePhoto(i, -1)} disabled=${i === 0}>←</button><button class="btn" onClick=${() => movePhoto(i, 1)} disabled=${i === photos.length - 1}>→</button>
+            <button class="btn danger" onClick=${() => set("photos", photos.filter((_, j) => j !== i))}>Remove</button></div></div>`)}
+        <label class="ph add">+ Add photos<input type="file" accept="image/*" multiple onChange=${upload} style="display:none"/></label></div></div>
+      <div class="egroup wide"><h3>Weights · in %, only the ratios count</h3><${WeightsGrid} value=${s.weights} onChange=${(w) => setS({ ...s, weights: w })} />
+        <label>Where these weights come from<input maxlength="80" value=${s.weightsSource || ""} onInput=${(e) => setS({ ...s, weightsSource: e.target.value })}/></label>
+        <div class="btns" style="margin-top:8px"><button class="btn primary" onClick=${saveWeights}>Save weights</button></div></div>
+      <div class="egroup"><h3>Position</h3>
+        <label>Latitude<input value=${s.newLat ?? s.lat} onInput=${(e) => setS({ ...s, newLat: e.target.value })}/></label>
+        <label>Longitude<input value=${s.newLon ?? s.lon} onInput=${(e) => setS({ ...s, newLon: e.target.value })}/></label>
+        <div class="btns"><button class="btn" onClick=${() => move(false)}>Move</button></div>
+        ${s.askFar ? html`<div class="confirm">${s.askFar}. <button class="btn danger" onClick=${() => move(true)}>Move it that far</button></div>` : null}</div>
+    </div>
+    <div class="btns ebar"><button class="btn" onClick=${() => save(false)}>Save draft</button>
+      <${ActButton} label="Publish to the app" ask="Publish to every rider? Click again" primary=${true} run=${async () => { await save(true); return { ok: true }; }} />
+      <${Saved} msg=${msg} /></div>
+  </div>`;
+}
+
+function SpotsEditor({ spots, refresh }) {
+  const [edit, setEdit] = useState(null);
+  if (!spots) return html`<p class="empty">Reading the spots…</p>`;
+  if (edit) return html`<${SpotEdit} code=${edit} onClose=${() => { setEdit(null); refresh(); }} onSaved=${refresh} />`;
+  const sets = spots.sets || [];
+  const official = (spots.official || []).filter((o) => !String(o.spot_id).startsWith("w-"));
+  const groups = [...sets.map((st) => [st, official.filter((o) => (o.sets || [])[0] === st.id)]), [{ id: "", name: "In no set", flag: "" }, official.filter((o) => !sets.some((st) => st.id === (o.sets || [])[0]))]];
+  const act = async (body) => { const { data } = await adminPostRaw("spots", body); if (data.error) alertMsg(data.error); refresh(); };
+  return html`<div class="grid">
+    ${(spots.pending || []).length ? html`<div class="panel s12"><h2>Riders' spots waiting for review</h2><div class="tablewrap"><table><tbody>
+      ${spots.pending.map((p) => html`<tr><td><b>${p.name}</b><div class="whytxt">by ${p.author || "a rider"} · ${(+p.lat).toFixed(3)}, ${(+p.lon).toFixed(3)}${p.described && p.described.info ? " · with a description" : ""}</div></td>
+        <td class="r"><span class="btns"><${ActButton} label="Approve" primary=${true} run=${async () => { const d = await adminPost("spots", { code: p.code, action: "approve" }); refresh(); return d; }} />
+          <${ActButton} label="Reject" danger=${true} run=${async () => { const d = await adminPost("spots", { code: p.code, action: "reject" }); refresh(); return d; }} /></span></td></tr>`)}</tbody></table></div></div>` : null}
+    <div class="panel s12"><h2>Public rider spots · ${(spots.published || []).length}</h2><div class="tablewrap"><table><tbody>
+      ${(spots.published || []).map((p) => html`<tr><td><b>${p.name}</b><div class="whytxt">by ${p.author || "a rider"} · <a href=${spots.base + "/s/" + p.code} style="color:var(--accent)">rider link</a></div></td>
+        <td class="r"><span class="btns"><select id=${"set-" + p.code}><option value="">set…</option>${sets.map((st) => html`<option value=${st.id}>${st.flag} ${st.name}</option>`)}</select>
+          <${ActButton} label="Make official" run=${async () => { const v = document.getElementById("set-" + p.code).value; if (!v) throw new Error("Pick a set first"); const d = await adminPost("spots", { code: p.code, action: "official", set: v }); refresh(); return d; }} />
+          <${ActButton} label="Unpublish" danger=${true} run=${async () => { const d = await adminPost("spots", { code: p.code, action: "unpublish" }); refresh(); return d; }} /></span></td></tr>`)}</tbody></table></div></div>
+    ${groups.filter(([, list]) => list.length).map(([st, list]) => html`<div class="panel s12"><h2>${st.flag} ${st.name} · ${list.length}</h2><div class="tablewrap"><table><tbody>
+      ${list.sort((a, b) => a.position - b.position).map((o) => html`<tr><td><b>${o.name}</b>${o.hidden ? html` <span class="st unknown">hidden</span>` : null}<div class="whytxt">${o.spot_id} · info ${o.score}/13${o.draft ? " · draft" : ""} · <a href=${`https://www.openstreetmap.org/?mlat=${o.lat}&mlon=${o.lon}#map=13/${o.lat}/${o.lon}`} style="color:var(--accent)">map</a></div></td>
+        <td class="r"><span class="btns"><button class="btn primary" onClick=${() => setEdit(o.code)}>Edit</button>
+          <select value=${(o.sets || [])[0] || ""} onChange=${(e) => act({ code: o.code, action: "set", set: e.target.value })}>${sets.map((x) => html`<option value=${x.id}>${x.flag} ${x.name}</option>`)}</select>
+          <button class="btn" onClick=${() => act({ code: o.code, action: o.hidden ? "show" : "hide" })}>${o.hidden ? "Show" : "Hide"}</button></span></td></tr>`)}</tbody></table></div></div>`)}
+    ${!official.length ? html`<div class="panel s12"><${ActButton} label=${"Import the " + spots.builtIn + " built-in spots"} run=${async () => { const d = await adminPost("spots", { action: "import" }); refresh(); return d; }} /></div>` : null}
+  </div>`;
+}
+
+let alertMsg = (m) => console.warn(m);
+
+function WeightPoints({ spots, refresh }) {
+  const [edit, setEdit] = useState(null);
+  const [form, setForm] = useState({ name: "", lat: "", lon: "", weights: {}, source: "" });
+  const [msg, setMsg] = useState("");
+  if (!spots) return html`<p class="empty">Reading the spots…</p>`;
+  if (edit) return html`<${SpotEdit} code=${edit} onClose=${() => { setEdit(null); refresh(); }} onSaved=${refresh} />`;
+  const points = (spots.official || []).filter((o) => String(o.spot_id).startsWith("w-"));
+  const add = async () => {
+    const { data } = await adminPostRaw("spots", { action: "point", name: form.name, lat: form.lat, lon: form.lon, weights: form.weights, source: form.source });
+    setMsg(data.error ? data.error : "✓ added");
+    if (!data.error) { setForm({ name: "", lat: "", lon: "", weights: {}, source: "" }); refresh(); }
+  };
+  return html`<div class="grid">
+    <div class="panel s6"><h2>Weight points · ${points.length}</h2><p class="note">Places with their own model weights, not shown as spots: the Mix and new spots near them use these weights.</p>
+      <div class="tablewrap"><table><tbody>${points.map((o) => html`<tr><td><b>${o.name}</b><div class="whytxt">${(+o.lat).toFixed(3)}, ${(+o.lon).toFixed(3)}</div></td>
+        <td class="r"><button class="btn" onClick=${() => setEdit(o.code)}>Edit weights, move</button></td></tr>`)}</tbody></table></div></div>
+    <div class="panel s6"><h2>Add a weight point</h2><div class="form">
+      <label>Name<input maxlength="60" value=${form.name} onInput=${(e) => setForm({ ...form, name: e.target.value })}/></label>
+      <label>Where the weights come from<input maxlength="80" value=${form.source} onInput=${(e) => setForm({ ...form, source: e.target.value })}/></label>
+      <label>Latitude<input value=${form.lat} onInput=${(e) => setForm({ ...form, lat: e.target.value })}/></label>
+      <label>Longitude<input value=${form.lon} onInput=${(e) => setForm({ ...form, lon: e.target.value })}/></label></div>
+      <div style="margin-top:10px"><${WeightsGrid} value=${form.weights} onChange=${(w) => setForm({ ...form, weights: w })} /></div>
+      <div class="btns" style="margin-top:10px"><button class="btn primary" onClick=${add} disabled=${!form.name || !form.lat || !form.lon}>Add</button><${Saved} msg=${msg} /></div></div>
+  </div>`;
+}
+
+function RolesEditor({ roles, refresh, now }) {
+  const [msg, setMsg] = useState("");
+  if (!roles) return html`<p class="empty">Reading riders and roles…</p>`;
+  const post = async (body, what) => { const { data, status } = await adminPostRaw("roles", body); setMsg(data.error ? data.error : `✓ ${what}`); if (!data.error && status < 400) refresh(); };
+  const accounts = (roles.accounts || []).slice().sort((a, b) => b.last_seen - a.last_seen);
+  const devices = (roles.devices || []).slice().sort((a, b) => b.last_seen - a.last_seen);
+  return html`<div class="grid">
+    <div class="panel s12"><div class="btns" style="align-items:center"><b>New riders get</b>
+      <select value=${roles.defaultRole} onChange=${(e) => post({ action: "default", role: e.target.value }, "default role " + e.target.value)}>${ROLES.map((r) => html`<option value=${r}>${r}</option>`)}</select>
+      <${Saved} msg=${msg} /></div></div>
+    <div class="panel s12"><h2>Accounts · ${accounts.length}</h2><div class="tablewrap"><table><thead><tr><th>Rider</th><th>Email</th><th>Signed in with</th><th>Role</th><th class="r">Last seen</th><th></th></tr></thead><tbody>
+      ${accounts.map((a) => html`<tr><td>${a.photo && !a.photo_blocked ? html`<img src=${a.photo} alt="" class="avatar"/>` : null} ${a.nickname || [a.first, a.last].filter(Boolean).join(" ") || "–"}</td>
+        <td class="whytxt">${a.email || a.apple_email || "–"}</td><td class="whytxt">${[a.apple ? "Apple" : null, a.google ? "Google" : null].filter(Boolean).join(", ") || "email"}</td>
+        <td><select value=${a.role} onChange=${(e) => post({ action: "accountRole", account: a.id, role: e.target.value }, (a.nickname || a.first || "rider") + " is " + e.target.value)}>${ROLES.map((r) => html`<option value=${r}>${r}</option>`)}</select></td>
+        <td class="r num">${a.last_seen ? hrs(now - a.last_seen) + " ago" : "–"}</td>
+        <td class="r">${a.photo ? html`<span class="btns"><button class="btn" onClick=${() => post({ action: "photo", account: a.id, remove: true }, "photo removed")}>Remove photo</button>
+          <button class="btn danger" onClick=${() => post({ action: "photo", account: a.id, block: !a.photo_blocked }, a.photo_blocked ? "photos allowed" : "photos blocked")}>${a.photo_blocked ? "Allow photos" : "Block photos"}</button></span>` : null}</td></tr>`)}</tbody></table></div></div>
+    <div class="panel s12"><h2>Devices · ${devices.length}</h2><div class="tablewrap"><table><thead><tr><th>Device</th><th>Build</th><th>Country</th><th>Account</th><th>Role</th><th class="r">Last seen</th></tr></thead><tbody>
+      ${devices.map((d) => html`<tr><td>${d.nickname || d.model || d.device.slice(0, 8)}<div class="whytxt">${d.model || ""}</div></td><td class="num whytxt">${d.build || "–"}</td><td class="whytxt">${d.country || "–"}</td>
+        <td class="whytxt">${(accounts.find((a) => a.id === d.account) || {}).nickname || (d.account ? "signed in" : "–")}</td>
+        <td><select value=${d.role} onChange=${(e) => post({ action: "role", device: d.device, role: e.target.value }, "device is " + e.target.value)}>${ROLES.map((r) => html`<option value=${r}>${r}</option>`)}</select></td>
+        <td class="r num">${d.last_seen ? hrs(now - d.last_seen) + " ago" : "–"}</td></tr>`)}</tbody></table></div></div>
+  </div>`;
+}
+
+function FeatureRow({ x, post }) {
+  const [release, setRelease] = useState(x.release);
+  const [roles, setRoles] = useState(new Set(x.roles || []));
+  const [account, setAccount] = useState(!!x.account);
+  const changed = release !== x.release || account !== !!x.account || [...roles].sort().join() !== [...(x.roles || [])].sort().join();
+  return html`<tr><td><b>${x.name}</b><div class="whytxt">${x.key}${x.soon ? " · " + x.soon : ""}</div></td><td class="whytxt">${x.grp}</td>
+    <td><select value=${release} onChange=${(e) => setRelease(e.target.value)}><option value="released">released</option><option value="testers">testers only</option><option value="off">off</option></select></td>
+    <td><span class="btns">${ROLES.map((r) => html`<label class="row"><input type="checkbox" checked=${roles.has(r)} disabled=${r === "admin"} onChange=${() => { const n = new Set(roles); n.has(r) ? n.delete(r) : n.add(r); setRoles(n); }}/> ${r}</label>`)}</span></td>
+    <td><label class="row"><input type="checkbox" checked=${account} onChange=${(e) => setAccount(e.target.checked)}/> signed in only</label></td>
+    <td class="r">${changed ? html`<button class="btn primary" onClick=${() => post({ action: "feature", key: x.key, release, roles: [...roles], account }, x.name)}>Save</button>` : null}</td></tr>`;
+}
+
+function FeaturesEditor({ roles, refresh }) {
+  const [msg, setMsg] = useState("");
+  if (!roles) return html`<p class="empty">Reading features…</p>`;
+  const post = async (body, what) => { const { data } = await adminPostRaw("roles", body); setMsg(data.error ? data.error : `✓ ${what} saved`); if (!data.error) refresh(); };
+  return html`<div class="panel"><h2>Features · who gets what</h2><p class="note">Admins always get everything. "Testers only": only the tester role. "Released": the roles ticked.</p>
+    <div class="tablewrap"><table><thead><tr><th>Feature</th><th>Group</th><th>Release</th><th>Roles</th><th>Accounts</th><th></th></tr></thead>
+      <tbody>${(roles.features || []).map((x) => html`<${FeatureRow} key=${x.key + x.release + (x.roles || []).join()} x=${x} post=${post} />`)}</tbody></table></div>
+    <${Saved} msg=${msg} /></div>`;
+}
+
+function StationAdd({ st, refresh }) {
+  const kinds = (st && st.kinds) || {};
+  const [q, setQ] = useState({ source: Object.keys(kinds)[0] || "", lat: "", lon: "", km: "30" });
+  const [found, setFound] = useState(null);
+  const [msg, setMsg] = useState("");
+  const [show, setShow] = useState(true);
+  const find = async () => {
+    setMsg("…");
+    try { const d = await adminGet(`stations/find?source=${encodeURIComponent(q.source)}&lat=${encodeURIComponent(q.lat)}&lon=${encodeURIComponent(q.lon)}&km=${encodeURIComponent(q.km)}`);
+      if (d.error) throw new Error(d.error); setFound(d); setMsg(""); } catch (e) { setMsg(String(e.message || e)); }
+  };
+  const add = async (x) => {
+    const { data } = await adminPostRaw("stations", { action: "add", source: q.source, code: x.code, name: x.name, lat: x.lat, lon: x.lon, show });
+    setMsg(data.error ? data.error : `✓ added ${data.station ? data.station.name : x.name}${show ? "" : " (hidden)"}`);
+    if (!data.error) { refresh(); find(); }
+  };
+  return html`<div class="panel s12"><h2>Find and add a station</h2><div class="form four">
+      <label>Source<select value=${q.source} onChange=${(e) => setQ({ ...q, source: e.target.value })}>${Object.entries(kinds).map(([k, v]) => html`<option value=${k}>${v.name}</option>`)}</select></label>
+      <label>Latitude<input value=${q.lat} onInput=${(e) => setQ({ ...q, lat: e.target.value })} placeholder="36.01"/></label>
+      <label>Longitude<input value=${q.lon} onInput=${(e) => setQ({ ...q, lon: e.target.value })} placeholder="-5.60"/></label>
+      <label>Within km<input value=${q.km} onInput=${(e) => setQ({ ...q, km: e.target.value })}/></label></div>
+    <div class="btns" style="margin-top:8px;align-items:center"><button class="btn primary" onClick=${find} disabled=${!q.lat || !q.lon}>Find stations</button>
+      <label class="row"><input type="checkbox" checked=${show} onChange=${(e) => setShow(e.target.checked)}/> show on the map when added</label><${Saved} msg=${msg} /></div>
+    ${found ? html`<div class="tablewrap" style="margin-top:10px"><table><thead><tr><th>Station</th><th class="r">Distance</th><th class="r">Wind</th><th class="r">Reading</th><th></th></tr></thead><tbody>
+      ${(found.found || []).map((x) => html`<tr><td>${x.name}<div class="whytxt">${x.code}</div></td><td class="r num">${x.km.toFixed(1)} km</td><td class="r num">${x.wind != null ? x.wind + " m/s" : "–"}</td>
+        <td class="r num">${x.time ? hrs(Date.now() / 1000 - x.time) + " ago" : "–"}</td>
+        <td class="r">${x.added ? html`<span class="st ok">added</span>` : html`<button class="btn" onClick=${() => add(x)}>Add</button>`}</td></tr>`)}</tbody></table>
+      <p class="whytxt">${found.listed} stations listed for this source, list updated ${found.updated ? hrs(Date.now() / 1000 - found.updated) + " ago" : "–"}.</p></div>` : null}
+  </div>`;
+}
+
+function StationRow({ x, refresh, now }) {
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState({ name: x.name, note: x.note || "", windguru: x.windguru || "", twinKm: x.twinKm ?? "", lat: x.lat, lon: x.lon });
+  const [msg, setMsg] = useState("");
+  const [far, setFar] = useState(null);
+  const save = async (confirmFar) => {
+    const body = { action: "edit", id: x.id, name: f.name, note: f.note, windguru: f.windguru === "" ? null : f.windguru, twinKm: f.twinKm === "" ? undefined : Number(f.twinKm) };
+    if (String(f.lat) !== String(x.lat) || String(f.lon) !== String(x.lon)) { body.lat = Number(f.lat); body.lon = Number(f.lon); if (confirmFar) body.far = true; }
+    const { status, data } = await adminPostRaw("stations", body);
+    if (status === 409 && data.far) { setFar(data.error); return; }
+    setMsg(data.error ? data.error : "✓ saved"); setFar(null);
+    if (!data.error) refresh();
+  };
+  const toggle = async () => { const { data } = await adminPostRaw("stations", { action: x.hidden ? "show" : "hide", id: x.id }); setMsg(data.error ? data.error : "✓"); refresh(); };
+  return html`<tr><td>${x.name}${x.hidden ? html` <span class="st unknown">hidden</span>` : null}<div class="whytxt">${x.id}</div></td><td class="whytxt">${x.source}</td>
+    <td class="r num" style=${x.time && now - x.time > 1200 ? "color:var(--warn)" : ""}>${x.time ? hrs(now - x.time) + " ago" : "–"}</td>
+    <td class="r num">${x.wind != null ? x.wind + (x.gust != null ? "/" + x.gust : "") + " m/s" : "–"}</td>
+    <td class="r"><span class="btns"><button class="btn" onClick=${() => setOpen(!open)}>${open ? "Close" : "Edit"}</button><button class="btn" onClick=${toggle}>${x.hidden ? "Show" : "Hide"}</button></span></td></tr>
+    ${open ? html`<tr><td colspan="5"><div class="form four">
+      <label>Name<input value=${f.name} onInput=${(e) => setF({ ...f, name: e.target.value })}/></label>
+      <label>Note<input maxlength="300" value=${f.note} onInput=${(e) => setF({ ...f, note: e.target.value })}/></label>
+      <label>Windguru station id (internal)<input value=${f.windguru} onInput=${(e) => setF({ ...f, windguru: e.target.value })}/></label>
+      <label>Twin km (0-10)<input value=${f.twinKm} onInput=${(e) => setF({ ...f, twinKm: e.target.value })}/></label>
+      <label>Latitude<input value=${f.lat} onInput=${(e) => setF({ ...f, lat: e.target.value })}/></label>
+      <label>Longitude<input value=${f.lon} onInput=${(e) => setF({ ...f, lon: e.target.value })}/></label></div>
+      <div class="btns" style="margin-top:8px;align-items:center"><button class="btn primary" onClick=${() => save(false)}>Save</button><${Saved} msg=${msg} />
+        ${far ? html`<span class="confirm">${far} <button class="btn danger" onClick=${() => save(true)}>Move it that far</button></span>` : null}</div></td></tr>` : null}`;
+}
+
+function StationsEditor({ st, refresh, now }) {
+  if (!st) return null;
+  return html`<div class="grid" style="margin-top:16px"><${StationAdd} st=${st} refresh=${refresh} />
+    <div class="panel s12"><h2>Edit stations · ${(st.stations || []).length}</h2><div class="tablewrap"><table><thead><tr><th>Station</th><th>Source</th><th class="r">Last reading</th><th class="r">Wind</th><th></th></tr></thead><tbody>
+      ${(st.stations || []).slice().sort((a, b) => a.name.localeCompare(b.name)).map((x) => html`<${StationRow} key=${x.id} x=${x} refresh=${refresh} now=${now} />`)}</tbody></table></div></div></div>`;
+}
+
+const APP_TABS = [["overview", "Overview"], ["spots", "Spots"], ["points", "Weight points"], ["roles", "Riders & roles"], ["features", "Features"]];
+function AppSection(props) {
+  const [tab, setTab] = useState("overview");
+  return html`<div class="subtabs">${APP_TABS.map(([k, label]) => html`<button class=${"chip" + (tab === k ? " on" : "")} onClick=${() => setTab(k)}>${label}</button>`)}</div>
+    ${tab === "overview" ? html`<${AppRiders} ...${props} />` : tab === "spots" ? html`<${SpotsEditor} spots=${props.spots} refresh=${props.reloadSpots} />`
+      : tab === "points" ? html`<${WeightPoints} spots=${props.spots} refresh=${props.reloadSpots} />`
+      : tab === "roles" ? html`<${RolesEditor} roles=${props.roles} refresh=${props.reloadRoles} now=${props.now} />`
+      : html`<${FeaturesEditor} roles=${props.roles} refresh=${props.reloadRoles} />`}`;
+}
+
 function App() {
   const [f, setF] = useState(null);
   const [s, setS] = useState(null);
@@ -1062,6 +1407,8 @@ function App() {
   const setZone = (z) => { ZONE = z; try { localStorage.setItem("ops-zone", z); } catch (e) {} setZoneState(z); };
   const load = async (list) => { for (const [k, fn] of list) { try { fn(await adminGet(k)); } catch (e) {} } };
   const refresh = () => load([["spots", setSpots]]);
+  const reloadRoles = () => load([["roles", setRoles]]);
+  const reloadStations = () => load([["stations", setSt]]);
   useEffect(() => {
     let last = Date.now();
     const es = new EventSource("/api/stream");
@@ -1099,8 +1446,8 @@ function App() {
       ${sec === "pipeline" ? html`<${Pipeline} maps=${maps} fr=${fr} f=${f} now=${now} />`
         : sec === "machine" ? html`<${NowTab} f=${f} s=${s} now=${now} /><div style="margin-top:16px"><${Capacity} cap=${cap} now=${now} /></div>`
         : sec === "quality" ? html`<${Quality} ad=${ad} now=${now} />`
-        : sec === "app" ? html`<${AppRiders} ad=${ad} spots=${spots} roles=${roles} builds=${builds} refresh=${refresh} now=${now} />`
-        : sec === "stations" ? html`<${StationsSec} ad=${ad} st=${st} now=${now} />`
+        : sec === "app" ? html`<${AppSection} ad=${ad} spots=${spots} roles=${roles} builds=${builds} refresh=${refresh} reloadSpots=${refresh} reloadRoles=${reloadRoles} now=${now} />`
+        : sec === "stations" ? html`<${StationsSec} ad=${ad} st=${st} now=${now} /><${StationsEditor} st=${st} refresh=${reloadStations} now=${now} />`
         : html`<${Costs} ad=${ad} now=${now} />`}
     <div class="foot"><span>Live every 2 seconds; admin's data every 5-10 minutes.</span><span>Changes go through admin's own routes and ask once more.</span><a href="/admin/" style="color:var(--accent)">Full admin</a></div></main>`;
 }
