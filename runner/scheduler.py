@@ -195,6 +195,11 @@ def main():
         if now - last_pull > 600:
             pull()
             last_pull = now
+            # The runs' logs a week (about 60 MB a day; the owner asked about the disks, 21.10.2026).
+            for name in os.listdir(LOGS):
+                path = f"{LOGS}/{name}"
+                if name != "runner.log" and now - os.path.getmtime(path) > 7 * 86400:
+                    os.remove(path)
         # Finished runs.
         for name, run in list(running.items()):
             code = run.finished()
