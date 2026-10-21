@@ -73,7 +73,8 @@ HEARTBEAT = "https://data.meteogust.com/tiles/upload/runner/heartbeat.json"
 OPS_PORT, OPS_UDP = 8090, 8091
 OPS_HOST = os.environ.get("MG_OPS_HOST", "172.17.0.1")
 TUNNEL = "meteogust-tunnel"
-TUNNEL_IMAGE = "cloudflare/cloudflared:2024.12.2"
+# A version two weeks old or more (Cloudflare marks old connectors "Unsupported": 2024.12.2 was, 21.10.2026).
+TUNNEL_IMAGE = "cloudflare/cloudflared:2026.10.0"
 AGENT = {"User-Agent": "MeteoGust helper runner (data.meteogust.com)"}
 
 
@@ -243,7 +244,8 @@ def keep_ops():
     token = env_value("CLOUDFLARE_TUNNEL_TOKEN")
     if token:
         there = subprocess.run(["docker", "ps", "-q", "-f", f"name=^{TUNNEL}$"], capture_output=True, text=True).stdout.strip()
-        if not there:
+        image = subprocess.run(["docker", "inspect", "-f", "{{.Config.Image}}", TUNNEL], capture_output=True, text=True).stdout.strip()
+        if not there or image != TUNNEL_IMAGE:
             subprocess.run(["docker", "rm", "-f", TUNNEL], capture_output=True)
             started = subprocess.run(["docker", "run", "-d", "--name", TUNNEL, "--restart", "unless-stopped", "--network", "host",
                                       "-e", "TUNNEL_TOKEN", TUNNEL_IMAGE, "tunnel", "--no-autoupdate", "run"],
