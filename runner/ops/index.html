@@ -978,11 +978,11 @@ function Lanes({ lanes, now, sel, setSel, back, ahead }) {
     if (!l.wrf) {
       const gs = e.gh ? e.gh.start : null, ge = e.pub || (e.gh && e.gh.end == null ? now : null);
       const from = a != null ? a : gs;
-      const tip = html`<title>${runTip(l, e)} · GitHub: ${gs ? `job started ${clock(gs)}${a != null ? ` (waited ${mins(gs - a)})` : ""}` : "job not found"}${e.pub ? `, published ${clock(e.pub)}${a != null ? " · " + mins(e.pub - a) + " from available" : ""}` : e.failed ? ", failed" : ge ? ", running" : ""}</title>`;
+      const tip = html`<title>${runTip(l, e)} · GitHub: ${gs ? `job started ${clock(gs)}${a != null ? ` (waited ${mins(gs - a)})` : ""}` : "job's start not known (faint: waiting and the job together)"}${e.pub ? `, published ${clock(e.pub)}${a != null ? " · " + mins(e.pub - a) + " from available" : ""}` : e.failed ? ", failed" : ge ? ", running" : ""}</title>`;
       if (from != null && ge) {
         const procFrom = gs != null && a != null ? Math.max(gs, a) : from;
         out.push(html`<g>${tip}${a != null && procFrom > a ? html`<rect x=${x(a)} y=${y + 8} width=${w(a, procFrom, 1)} height="6" rx="1" fill="var(--wait)"/>` : null}
-          <rect x=${x(procFrom)} y=${y + 8} width=${w(procFrom, ge)} height="6" rx="1" fill=${e.failed ? "var(--bad)" : "var(--gh)"}/>
+          <rect x=${x(procFrom)} y=${y + 8} width=${w(procFrom, ge)} height="6" rx="1" fill=${e.failed ? "var(--bad)" : "var(--gh)"} opacity=${gs == null && a != null ? 0.35 : 1}/>
           ${e.pub ? html`<rect x=${x(e.pub) - 1} y=${y + 6} width="2.5" height="10" fill="var(--ok)"/>` : null}</g>`);
       } else if (e.pub) out.push(html`<g>${tip}<rect x=${x(e.pub) - 1} y=${y + 6} width="2.5" height="10" fill="var(--ok)"/></g>`);
       else if (a != null && now - a < 3 * 3600) out.push(html`<g>${tip}<rect x=${x(a)} y=${y + 8} width=${w(a, now, 1)} height="6" rx="1" fill="var(--wait)"/></g>`);
@@ -1024,8 +1024,8 @@ function RunBars({ l }) {
   if (!es.length) return html`<p class="note" style="margin:0">No runs with an "available" moment yet${l.procOnly ? " (this one is made from our own sets or a source Open-Meteo doesn't have; the chart shows its jobs' own times)" : " (recorded from 21.10.2026 evening)"}.</p>`;
   const top = Math.max(...es.map((e) => Math.max(e.pub ? e.pub - e.avail : 0, e.tower ? e.tower.end - e.avail : 0)), 1800) / 60;
   const max = top <= 60 ? Math.ceil(top / 15) * 15 : Math.ceil(top / 60) * 60;
-  const A = 40, B = 510, xx = (m) => A + Math.max(0, Math.min(m, max)) / max * (B - A), H = es.length * 22 + 24;
-  return html`<svg viewBox=${`0 0 520 ${H}`} style="width:100%" role="img" aria-label="The last runs, minutes from available">
+  const A = 34, B = 350, xx = (m) => A + Math.max(0, Math.min(m, max)) / max * (B - A), H = es.length * 22 + 24;
+  return html`<svg viewBox=${`0 0 360 ${H}`} style="width:100%" role="img" aria-label="The last runs, minutes from available">
     ${[0, 0.25, 0.5, 0.75, 1].map((p) => html`<line x1=${xx(p * max)} x2=${xx(p * max)} y1="4" y2=${H - 16} stroke="var(--line)"/><text x=${xx(p * max)} y=${H - 3} text-anchor="middle" style="font:10px var(--mono);fill:var(--muted)">${max > 60 ? (p * max / 60).toFixed(p * max % 60 ? 1 : 0) + (p === 1 ? " h" : "") : Math.round(p * max) + (p === 1 ? " min" : "")}</text>`)}
     ${es.map((e, i) => {
       const y = 6 + i * 22, gw = e.gh ? Math.max(0, e.gh.start - e.avail) / 60 : 0, gt = e.pub ? (e.pub - e.avail) / 60 : null;
@@ -1046,7 +1046,7 @@ function LaneDetail({ l, now, cap, all }) {
   const jobs = ((cap && cap.jobs) || []).filter((j) => l.jobs.includes(j.job));
   const makes = (job) => all.filter((x) => x.jobs.includes(job)).length;
   return html`<div class="panel"><div class="dhead"><b>${l.label}</b><span class=${"tag" + (l.isLive ? " live" : "")}>${l.wrf ? "at home" : l.jobs.length ? "Tower: " + (l.isLive ? "live" : "shadow") : "GitHub only"}</span></div>
-      <p class="note" style="margin:6px 0 10px">${srcEvery ? `Every ${srcEvery} h at the source` : "No source record"}, every ${l.interval} h ours${l.skipped ? ` · ${l.skipped} of ${l.offered} runs skipped in 24 h` : ""}. The last runs, from available:</p>
+      <p class="note" style="margin:6px 0 10px">${srcEvery ? `Every ${srcEvery} h at the source` : l.procOnly ? "No source record (made from our own sets or a source Open-Meteo doesn't have)" : "The source's cadence not known yet"}, every ${l.interval} h ours${l.skipped ? ` · ${l.skipped} of ${l.offered} runs skipped in 24 h` : ""}. The last runs, from available:</p>
       <${RunBars} l=${l} />
       <div class="legend"><span style="--c:var(--gh)">GitHub</span><span style="--c:var(--home)">Tower</span><span style="--c:var(--wait)">waiting</span></div></div>
     ${last ? html`<div class="panel"><h2>The last run · ${runZ(last.run)}</h2><div class="kv">
