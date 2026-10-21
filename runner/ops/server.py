@@ -357,7 +357,8 @@ def wrf_state():
                     running = True
         except OSError:
             pass
-    logs = sorted(glob.glob(f"{WRF_LOGS}/*.log"))
+    # The runs' own logs (<UTC start>Z-<region>.log; the folder has others, e.g. core8.log from the core tests).
+    logs = sorted(p for p in glob.glob(f"{WRF_LOGS}/*.log") if re.match(r"\d{8}T\d{4}Z-", os.path.basename(p)))
     out = {"running": running, "log": logs[-1] if logs else None}
     if logs:
         name = os.path.basename(logs[-1])
@@ -367,15 +368,22 @@ def wrf_state():
             out["region"] = m.group(2)
         text = read(logs[-1], "") or ""
         box = re.search(r"1 km box from (\S+) to (\S+)", text)
-        last = re.findall(r"time (\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d) on domain (\d)", text[-20000:])
+        # The model's own time: WRF's first process log (rsl.out.0000 in the region's run folder) while it runs.
+        rsl = f"/root/wrf-work/{out.get('region', 'tarifa')}/wrf/rsl.out.0000"
+        tail = ""
+        if running and os.path.exists(rsl):
+            with open(rsl, "rb") as f:
+                f.seek(max(os.path.getsize(rsl) - 4000, 0))
+                tail = f.read().decode(errors="replace")
+        last = re.findall(r"time (\d{4}-\d\d-\d\d_\d\d:\d\d:\d\d) on domain\s+(\d)", tail or text[-20000:])
         if box and last:
             a, b = (datetime.strptime(x, "%Y-%m-%d_%H:%M:%S") for x in box.groups())
             t = datetime.strptime(last[-1][0], "%Y-%m-%d_%H:%M:%S")
             out["box"] = [a.strftime("%d %H:%M"), b.strftime("%d %H:%M")]
             out["progress"] = max(0.0, min(1.0, (t - a) / (b - a)))
             out["model_time"] = t.strftime("%d %H:%M")
-        tail = [line for line in text.splitlines() if line.strip()][-1:] or [""]
-        out["last_line"] = tail[0][-200:]
+        lines = [line for line in text.splitlines() if line.strip()][-1:] or [""]
+        out["last_line"] = lines[0][-200:]
         took = re.search(r"the run took (\d+) minutes", text)
         if took:
             out["took_min"] = int(took.group(1))
@@ -386,7 +394,7 @@ def wrf_state():
 def wrf_runs(since):
     """WRF's runs since `since` from its logs: [(start, end, ok)]."""
     out = []
-    for path in sorted(glob.glob(f"{WRF_LOGS}/*.log"))[-12:]:
+    for path in sorted(p for p in glob.glob(f"{WRF_LOGS}/*.log") if re.match(r"\d{8}T\d{4}Z-", os.path.basename(p)))[-12:]:
         m = re.match(r"(\d{8}T\d{4})Z-", os.path.basename(path))
         if not m:
             continue
