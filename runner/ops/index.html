@@ -864,8 +864,8 @@ function LaneDetail({ l, now }) {
         <span>Next expected</span><span>${l.next ? clock(l.next) : "–"}</span>
         ${l.home ? html`<span>At home</span><span>${l.home.job} · ${l.home.live ? "live" : "shadow"} · ${l.home.started ? dur(now - l.home.started) : ""}</span>` : null}
       </div></div>
-    <div class="panel"><h2>Last runs</h2><div class="tablewrap"><table><thead><tr><th>Run</th><th>Online</th><th>Published</th><th class="r">From the run</th></tr></thead>
-      <tbody>${recent.map((r) => html`<tr><td class="num">${dayRunZ(r.run, now)}</td><td class="num">${r.online ? clock(r.online) : "–"}</td>
+    <div class="panel"><h2>Last runs</h2><div class="tablewrap"><table><thead><tr><th>Run</th>${recent.some((r) => r.online) ? html`<th>Online</th>` : null}<th>Published</th><th class="r">From the run</th></tr></thead>
+      <tbody>${recent.map((r) => html`<tr><td class="num">${dayRunZ(r.run, now)}</td>${recent.some((x) => x.online) ? html`<td class="num">${r.online ? clock(r.online) : "–"}</td>` : null}
         <td class="num" style=${r.failed ? "color:var(--bad)" : ""}>${r.published ? clock(r.published) : r.failed ? "failed" : "not yet"}</td>
         <td class="r num">${r.published ? ((r.published - r.run) / 3600).toFixed(1) + " h" : "–"}</td></tr>`)}</tbody></table></div></div>
     <div class="panel"><h2>Run → published, 14 days · hours</h2>
@@ -1005,10 +1005,10 @@ function StationsSec({ ad, st, now }) {
     <div class="panel s3"><h2>Stations listed</h2><div class="big">${list.length}</div><p class="whytxt">${((st && st.lists) || []).map((l) => `${l.source} ${l.n}`).join(" · ")}</p></div>
     <div class="panel s6"><h2>Silent stations</h2><div class="tablewrap"><table><thead><tr><th>Station</th><th>Source</th><th class="r">Last reading</th></tr></thead><tbody>
       ${silent.slice(0, 15).map((x) => html`<tr><td>${x.name}</td><td class="whytxt">${x.source}</td><td class="r num" style="color:var(--warn)">${hrs(now - x.time)} ago</td></tr>`)}</tbody></table></div></div>
-    <div class="panel s6"><h2>Readings per hour · worst first · 24 h</h2>${heat.stations ? html`<div class="heat">${(heat.stations || []).slice(0, 12).map((row) => {
-        const counts = row.counts || row.hours || [];
+    <div class="panel s6"><h2>Readings per hour · worst first · 24 h</h2>${heat.stations ? html`<div class="heat">${(heat.stations || []).map(([name, counts]) => [name, counts || [], (counts || []).filter((c) => !c).length])
+        .sort((a, b) => b[2] - a[2]).slice(0, 12).map(([name, counts]) => {
         const usual = Math.max(1, ...counts);
-        return html`<span>${row.station || row.id || ""}</span>${counts.slice(-24).map((c) => html`<i style=${`background:${c === 0 ? "var(--bad)" : c < usual * 0.6 ? "var(--home-soft)" : "var(--home)"}`}></i>`)}`;
+        return html`<span title=${name}>${name}</span>${counts.slice(-24).map((c) => html`<i style=${`background:${!c ? "var(--bad)" : c < usual * 0.6 ? "var(--home-soft)" : "var(--home)"}`}></i>`)}`;
       })}</div>` : html`<p class="whytxt">…</p>`}</div>
     <div class="panel s12"><h2>All stations</h2><div class="tablewrap"><table><thead><tr><th>Station</th><th>Source</th><th>Code</th><th class="r">Last reading</th><th></th></tr></thead><tbody>
       ${list.slice().sort((a, b) => (a.time || 0) - (b.time || 0)).map((x) => html`<tr><td>${x.name}${x.hidden ? html` <span class="whytxt">(hidden)</span>` : null}</td><td class="whytxt">${x.source}</td><td class="num whytxt">${x.code}</td>
