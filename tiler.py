@@ -220,6 +220,8 @@ class Run:
             print(f"{self.name} {self.folder}: {len(later)} hours of the run before after its own", flush=True)
         body = json.dumps(index, separators=(",", ":")).encode()
         if self.local:
+            # (Every hour kept from the published run: no pack made the folder.)
+            self.local.mkdir(parents=True, exist_ok=True)
             (self.local / "index.json").write_bytes(body)
         else:
             world_tiles.upload(f"{self.name}/index.json", body)
