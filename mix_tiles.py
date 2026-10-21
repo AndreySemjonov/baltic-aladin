@@ -351,15 +351,18 @@ def model_mark(model, hours):
 
 
 def reaches(model, hours, z, x, y):
-    """Whether the model's packs of the hour have a tile at or round the Mix's tile (z, x, y): its wind
-    can reach it (the margin, the coast's pull and the smoothing stay within the neighbours)."""
+    """Whether the model's packs of the hour have a tile under the Mix tile's block (z, x, y with its
+    MARGIN, where the coast's pull and the smoothing read; and a few source pixels for the bilinear)."""
     for t, _ in hours:
         pack = model.pack(t)
         zm = min(z, pack.top)
-        n, cx, cy = 2 ** zm, x >> (z - zm), y >> (z - zm)
-        for dx in (-1, 0, 1):
-            for dy in (-1, 0, 1):
-                if 0 <= cy + dy < n and f"{zm}/{(cx + dx) % n}/{cy + dy}" in pack.tiles:
+        size, n = pack.sizes.get(zm, SIZE), 2 ** zm
+        scale = 2 ** (z - zm) * SIZE / size
+        lo = [int(((v * SIZE - MARGIN) / scale - 2) // size) for v in (x, y)]
+        hi = [int((((v + 1) * SIZE + MARGIN) / scale + 2) // size) for v in (x, y)]
+        for tx in range(lo[0], hi[0] + 1):
+            for ty in range(max(lo[1], 0), min(hi[1], n - 1) + 1):
+                if f"{zm}/{tx % n}/{ty}" in pack.tiles:
                     return True
     return False
 
