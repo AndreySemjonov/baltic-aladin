@@ -1,0 +1,71 @@
+"""The helper's jobs as the runner starts them (runner/scheduler.py; the owner, 21.10.2026: off GitHub,
+the Tower first, then the Mac mini). Each job: its script and arguments, and when it is due:
+
+- `watch`: [(Open-Meteo's open-data model, the hours its runs come at)]: as soon as a newer complete run
+  is there (latest.json; the makers' release or a little after), `delay` hours after it at the earliest
+  (a source we don't read from that bucket, e.g. ECMWF's own wave files 2 hours later);
+- `every`: minutes between runs, for jobs built from our own published sets (the mixes, the places'
+  files) or sources without a run record here.
+
+`heavy`: a big job (several GB of memory, long): at most a few at once. `needs`: environment variables it
+can't run without (skipped while missing). The same cadences as the GitHub workflows (21.10.2026).
+"""
+from dataclasses import dataclass, field
+
+
+@dataclass
+class Job:
+    name: str
+    args: list
+    watch: list = field(default_factory=list)
+    every: int = 0
+    delay: float = 0
+    heavy: bool = False
+    needs: list = field(default_factory=list)
+    timeout: int = 150
+
+
+COPERNICUS = ["COPERNICUSMARINE_SERVICE_USERNAME", "COPERNICUSMARINE_SERVICE_PASSWORD"]
+
+JOBS = [
+    # The world's models (world.yml).
+    Job("world-gfs", ["world_tiles.py", "gfs"], watch=[("ncep_gfs025", 6)]),
+    Job("world-ecmwf", ["world_tiles.py", "ecmwf"], watch=[("ecmwf_ifs", 6)], heavy=True),
+    Job("world-icon", ["world_tiles.py", "icon"], watch=[("dwd_icon", 6)]),
+    Job("world-gdps", ["world_tiles.py", "gdps"], watch=[("cmc_gem_gdps_15km", 12)]),
+    Job("icon-eu", ["iconeu_tiles.py"], watch=[("dwd_icon_eu", 3)], heavy=True),
+    Job("ecmwf-waves", ["waves_tiles.py", "ecmwf"], watch=[("ecmwf_wam", 12)], delay=2.5),
+    Job("ewam", ["waves_tiles.py", "ewam"], watch=[("dwd_ewam", 12)]),
+    # Europe's models from Open-Meteo's open data (bucket.yml, ukmo.yml).
+    Job("bucket-icon-ch2", ["bucket_tiles.py", "icon-ch2"], watch=[("meteoswiss_icon_ch2", 6)]),
+    Job("bucket-knmi-eu", ["bucket_tiles.py", "knmi-eu"], watch=[("knmi_harmonie_arome_europe", 1)]),
+    Job("bucket-arome25", ["bucket_tiles.py", "arome25"], watch=[("meteofrance_arome_france0025", 3)]),
+    Job("ukmo", ["ukmo_tiles.py"], watch=[("ukmo_uk_deterministic_2km", 3)]),
+    # The regional models (regional.yml, nordic.yml). In shadow mode (--local) the regional sets are
+    # made whole each time (the live job skips what's published): an upper bound.
+    Job("regional-wind", ["regional_tiles.py", "--set", "wind"], watch=[("metno_nordic_pp", 1)], heavy=True),
+    Job("regional-weather", ["regional_tiles.py", "--set", "weather"], watch=[("metno_nordic_pp", 1)], heavy=True),
+    Job("harm-fi", ["harmfi_tiles.py"], every=180),
+    Job("aladin", ["aladin_tiles.py"], every=360),
+    Job("nordic-1km", ["metnordic_tiles.py"], watch=[("metno_nordic_pp", 1)]),
+    Job("nordic-1km-wx", ["metnordic_tiles.py", "--set", "weather"], watch=[("metno_nordic_pp", 1)]),
+    # Built from our published sets.
+    Job("mix", ["mix_tiles.py"], every=60, heavy=True),
+    Job("mix-world", ["mix_world.py"], every=60),
+    Job("weather-mix-europe", ["weather_mix.py", "europe"], every=150, heavy=True, timeout=240),
+    Job("weather-mix-world", ["weather_mix.py", "world"], every=150, heavy=True, timeout=240),
+    Job("series", ["series_tiles.py"], every=30),
+    Job("spot-points", ["spot_points.py"], every=30),
+    # The spots' short runs and ensembles.
+    Job("gfs013", ["gfs013_points.py"], watch=[("ncep_gfs013", 6)]),
+    Job("ecmwf-short", ["ecmwf_short_points.py"], watch=[("ecmwf_ifs", 6)]),
+    Job("icon-eu-short", ["iconeu_short_points.py"], watch=[("dwd_icon_eu", 3)]),
+    Job("ens", ["ens_points.py"], watch=[("ecmwf_ifs", 12)], delay=1.5, heavy=True),
+    # Rain, air, seas.
+    Job("chance", ["chance_tiles.py"], every=180),
+    Job("rain-now", ["rain_now.py"], every=60),
+    Job("air", ["air_points.py"], every=180),
+    Job("sea", ["water_composite.py"], every=720, heavy=True, needs=COPERNICUS),
+    Job("waves", ["waves_composite.py"], every=720, needs=COPERNICUS),
+    Job("sea-world", ["sea_world.py"], every=1440, heavy=True, needs=COPERNICUS, timeout=240),
+]
