@@ -7,9 +7,12 @@ run-name: Regional tiles (MET Nordic wind, air and rain)
 # The wind and the air and rain side by side, each on its own runner (the owner, 12.10.2026: one
 # after the other took 75 minutes), and beside them the models alone at their full areas
 # (docs/TILES_PLAN.md phase 2): MET Nordic at 1 km, FMI's HARMONIE, ČHMÚ's ALADIN.
+# Hourly since 21.10.2026 (the owner: every 3 hours left the regional models up to 2 hours behind their
+# makers); helper-trigger also starts it as soon as one of their runs is complete. A run makes only
+# what's new: the blend for a new MET Nordic run, each model's own set for its own new run.
 on:
   schedule:
-    - cron: "25 */3 * * *"
+    - cron: "25 * * * *"
   workflow_dispatch:
     inputs:
       force:

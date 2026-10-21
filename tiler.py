@@ -199,9 +199,11 @@ class Run:
         self.bytes += len(data)
         return file
 
-    def finish(self, **extra):
+    def finish(self, tail=False, **extra):
         """The index, after the packs (station-history records the run for the admin panel); not
-        when over a fifth of the hours failed their checks (the run before stays)."""
+        when over a fifth of the hours failed their checks (the run before stays). `tail`: a short run
+        (ICON-EU's 03/09/15/21 UTC), its hours followed by the published run's later ones (the owner,
+        21.10.2026; station-history keeps every folder an index points to)."""
         failed = len(self.report.failures)
         if self.report.checked and failed > 0.2 * self.report.checked:
             self.publish_check(False)
@@ -210,6 +212,12 @@ class Run:
                  "runName": self.folder, "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
                  "zooms": [min(self.zooms), max(self.zooms)], "land": None,
                  "frames": [self.frames[t] for t in sorted(self.frames)], **extra}
+        if tail and index["frames"] and not self.local:
+            previous = world_tiles.published_index(self.name)
+            last = index["frames"][-1]["time"]
+            later = [f for f in sorted((previous or {}).get("frames") or [], key=lambda f: f["time"]) if f["time"] > last]
+            index["frames"] += later
+            print(f"{self.name} {self.folder}: {len(later)} hours of the run before after its own", flush=True)
         body = json.dumps(index, separators=(",", ":")).encode()
         if self.local:
             (self.local / "index.json").write_bytes(body)

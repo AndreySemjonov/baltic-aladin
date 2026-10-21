@@ -1,6 +1,6 @@
 """The UK Met Office's UKV (2 km over the British Isles and the North Sea, to 54 hours; the owner,
 18.10.2026: the last European model the spot pages read from Open-Meteo): from Open-Meteo's open
-data on AWS (CC BY 4.0, not its API; Met Office data), the runs at 00, 06, 12 and 18 UTC, made into
+data on AWS (CC BY 4.0, not its API; Met Office data), the runs every 3 hours (00, 06, 12 and 18 UTC until 21.10.2026), made into
 our wind tiles (tiles/ukmo, zooms 4-6 as the other 2 km models) and the spots' values from its own
 cells (spot_cells.py: points/ukmo.json, points/ukmo-wx.json).
 
@@ -58,11 +58,12 @@ def sample(values, col, row):
 
 
 def newest_run():
-    """The newest 00/06/12/18 UTC run with all its 55 hours there."""
+    """The newest run with all its 55 hours there: every 3 hours (the owner, 21.10.2026: we took the
+    00/06/12/18 UTC ones only; the UKV runs to 54 hours every 3 hours, 12 hours in between)."""
     now = datetime.now(timezone.utc)
-    start = now.replace(hour=now.hour // 6 * 6, minute=0, second=0, microsecond=0)
-    for back in range(4):
-        run = start - timedelta(hours=6 * back)
+    start = now.replace(hour=now.hour // 3 * 3, minute=0, second=0, microsecond=0)
+    for back in range(6):
+        run = start - timedelta(hours=3 * back)
         files = [k for k in world_tiles.s3_list(f"data_spatial/{MODEL}/{run.strftime('%Y/%m/%d/%H%MZ/')}") if k.endswith(".om")]
         if len(files) >= 55:
             return run, sorted(files)

@@ -170,6 +170,32 @@ class Placer:
         return top * (1 - fr) + bottom * fr
 
 
+class Unchanged(Exception):
+    """A regional model whose newest run is published already (its own set left as it is)."""
+
+
+def published_index(model):
+    """A set's published index (its "run", "runName"), None when there's none or it can't be read."""
+    try:
+        request = urllib.request.Request(PUBLISHED.format(model=model) + "?t=%d" % time.time(),
+                                         headers={"User-Agent": "MeteoGust helper"})
+        with urllib.request.urlopen(request, timeout=30) as reply:
+            return json.load(reply)
+    except Exception:
+        return None
+
+
+def own_folder(folder, info, run_name, local):
+    """A model's own set's run folder by the model's own run ("20261021T03Z"; the owner, 21.10.2026: the job
+    hourly, so a model's new run can come with MET Nordic's run unchanged and must not write over its last
+    folder, whose packs are cached for a year), with a suffix when that run is published already."""
+    own = own_run_name(info, run_name)
+    published = None if local else published_run(folder)
+    if published and published.split("-")[0] == own:
+        own += "-" + format(int(time.time()) % 36 ** 6, "x")
+    return own
+
+
 def published_run(model):
     try:
         # Our own user agent (the file store refuses Python's own: world_tiles.published).
@@ -204,13 +230,17 @@ def main():
     run = ask("forecast_reference_time", "forecast_reference_time")[0]
     run_name = datetime.fromtimestamp(run, timezone.utc).strftime("%Y%m%dT%HZ")
     published = None if local else published_run(model)
-    if not local and "--force" not in args and published == run_name:
-        print(f"MET Nordic {run_name} already published")
-        return
+    force = bool(local) or "--force" in args
+    # Hourly since 21.10.2026 (the owner: the regional models published up to 2 hours after their
+    # makers, the job ran every 3 hours): the blend only for a new MET Nordic run, each model's own set
+    # only for its own new run; with neither, done in a minute or two.
+    mn_new = force or published != run_name
+    if not mn_new:
+        print(f"MET Nordic {run_name} already published: only the models with a new run", flush=True)
     # The same run published again (--force, or two runs at once): a folder of its own, since the
     # packs are kept a year in caches (Cloudflare's, the phones'), and a second copy under the same
     # names went unseen (12.10.2026: AROME's corner storms stayed after their fix).
-    if published and published.split("-")[0] == run_name:
+    if mn_new and published and published.split("-")[0] == run_name:
         run_name += "-" + format(int(time.time()) % 36 ** 6, "x")
     # That run's own file from here on: "latest" moves to the next run within the hour, and a request
     # made for the old one then fails (12.10.2026: HTTP 400 half an hour in) or mixes two runs.
@@ -244,6 +274,20 @@ def main():
     wind_set = which == "wind"
 
     report = quality.Report(model)
+    # The models whose own set is published at their newest run (left as they are; with MET Nordic new
+    # their data still goes into the blend).
+    same = set()
+
+    def check(name, run_time):
+        """Before a model's data is read: its own set published at this run already? Without a new MET
+        Nordic run it is then skipped altogether."""
+        if force or run_time is None:
+            return
+        index = published_index(MODEL_SETS[name][0] + ("" if wind_set else "-wx"))
+        if index and index.get("run") == f"{run_time:%Y-%m-%dT%H:%MZ}":
+            if not mn_new:
+                raise Unchanged(run_time)
+            same.add(name)
 
     def add(name, make):
         try:
@@ -264,6 +308,10 @@ def main():
             others[name] = (place, data, sample)
             models.append({"name": name, "run": f"{run_time:%Y-%m-%dT%H:%MZ}", "hours": len(data)})
             print(f"{name} {run_time:%Y%m%dT%HZ}: {len(data)} hours", flush=True)
+        except Unchanged as unchanged:
+            run_time = unchanged.args[0]
+            models.append({"name": name, "run": f"{run_time:%Y-%m-%dT%H:%MZ}", "unchanged": True})
+            print(f"{name} {run_time:%Y%m%dT%HZ}: published already", flush=True)
         except Exception as error:
             models.append({"name": name, "error": str(error)[:200]})
             print(f"{name} left out: {error}", flush=True)
@@ -272,6 +320,7 @@ def main():
         run_time = icond2.newest_run()
         if run_time is None:
             raise RuntimeError("no complete run")
+        check("ICON-D2", run_time)
         icon_time = int(run_time.timestamp())
         if wind_set:
             hours = sorted({round((t - icon_time) / 3600) for t in model_times} & set(range(icond2.LAST + 1)))
@@ -288,25 +337,30 @@ def main():
             return c, r, np.where(on, np.nan_to_num(icond2.sample(weights, c, r)), 0)
         return place, data, icond2.sample, run_time
 
-    def module(model):
+    def module(name, model):
         def make():
             instance = model()
+            check(name, instance.run)
             data = instance.winds(model_times) if wind_set else instance.weather(model_times)
             return instance.place, data, instance.sample, instance.run
         return make
 
     add("ICON-D2", icon_d2)
-    add("HARMONIE DINI", module(dini.Model))
-    add("HARM-NL", module(knmi.Model))
-    add("AROME", module(arome.Model))
-    add("ICON-CH1", module(icon_ch1.Model))
-    add("ICON-2I", module(icon2i.Model))
+    add("HARMONIE DINI", module("HARMONIE DINI", dini.Model))
+    add("HARM-NL", module("HARM-NL", knmi.Model))
+    add("AROME", module("AROME", arome.Model))
+    add("ICON-CH1", module("ICON-CH1", icon_ch1.Model))
+    add("ICON-2I", module("ICON-2I", icon2i.Model))
+    if not mn_new and not others:
+        print(f"Nothing new ({time.time() - started:.0f} s)", flush=True)
+        finished()
     placer = Placer(srows, scols, extra=(lambda lon, lat: any(place(lon, lat)[2].any() for place, _, _ in others.values()))
                     if others else None)
     print(f"{len(placer.tiles)} tiles, {len(steps)} hours, run {run_name}", flush=True)
     names = (("speed", "wind_speed_10m"), ("direction", "wind_direction_10m"), ("gust", "wind_speed_of_gust")) if which == "wind"         else (("speed", "wind_speed_10m"), ("air", "air_temperature_2m"), ("humidity", "relative_humidity_2m"),
               ("pressure", "air_pressure_at_sea_level"), ("rain", "precipitation_amount"), ("cloud", "cloud_area_fraction"))
-    fields = {key: fetch_hours(name, steps, rows, cols) for key, name in names}
+    blend_steps = steps if mn_new else []
+    fields = {key: fetch_hours(name, blend_steps, rows, cols) for key, name in names} if mn_new else {}
     print(f"read in {time.time() - started:.0f} s", flush=True)
     weights = {key: placer.weight(*value) for key, value in placer.tiles.items()}
     # The other models on each tile: where they lie and how much they count there.
@@ -336,7 +390,7 @@ def main():
             tiles[key] = world_tiles.png(np.concatenate([rgb, alpha], axis=-1).astype(np.uint8), "RGBA")
         return world_tiles.encode(tiles, {z: SIZE for z in ZOOMS})
 
-    for s in steps:
+    for s in blend_steps:
         t = int(times[s])
         if which == "wind":
             speed, direction, gust = fields["speed"][s], fields["direction"][s], fields["gust"][s]
@@ -434,25 +488,26 @@ def main():
         frames.append({"time": t, "file": f"{run_name}/{t}-temp.pack", "temp": f"{run_name}/{t}-temp.pack",
                        "rain": f"{run_name}/{t}-rain.pack"})
         total += len(temp) + len(rain)
-    index = {"model": "MET Nordic 1 km" if which == "wind" else "MET Nordic 1 km (air and rain)", "credit": "MET Norway, MET Nordic (CC BY 4.0)",
-             "run": datetime.fromtimestamp(run, timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "runName": run_name,
-             "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "zooms": [ZOOMS.start, ZOOMS.stop - 1],
-             "land": None, "models": models, "frames": frames}
-    body = json.dumps(index, separators=(",", ":")).encode()
-    if local:
-        (local / "index.json").write_bytes(body)
-    else:
-        print(world_tiles.upload(f"{model}/index.json", body).strip())
-        try:
-            world_tiles.upload(f"{model}/check.json", report.body(index["run"], True))
-        except Exception as error:
-            print(f"{model}: check.json not sent ({error})", flush=True)
-    print(f"MET Nordic {run_name}: {len(frames)} hours, {total / 1e6:.0f} MB, {time.time() - started:.0f} s")
+    if mn_new:
+        index = {"model": "MET Nordic 1 km" if which == "wind" else "MET Nordic 1 km (air and rain)", "credit": "MET Norway, MET Nordic (CC BY 4.0)",
+                 "run": datetime.fromtimestamp(run, timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "runName": run_name,
+                 "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "zooms": [ZOOMS.start, ZOOMS.stop - 1],
+                 "land": None, "models": models, "frames": frames}
+        body = json.dumps(index, separators=(",", ":")).encode()
+        if local:
+            (local / "index.json").write_bytes(body)
+        else:
+            print(world_tiles.upload(f"{model}/index.json", body).strip())
+            try:
+                world_tiles.upload(f"{model}/check.json", report.body(index["run"], True))
+            except Exception as error:
+                print(f"{model}: check.json not sent ({error})", flush=True)
+        print(f"MET Nordic {run_name}: {len(frames)} hours, {total / 1e6:.0f} MB, {time.time() - started:.0f} s")
     if which != "wind":
         # Each model's own air and rain too (tiles/<folder>-wx/: the weather mix's; the owner,
         # 18.10.2026). One failing leaves the others.
         for name, (place, data, sample) in others.items():
-            if name not in MODEL_SETS or not data:
+            if name not in MODEL_SETS or not data or name in same:
                 continue
             try:
                 model_weather_set(name, data, sample, parts[name], [m for m in models if m["name"] == name][0], run_name, local,
@@ -464,7 +519,7 @@ def main():
     # Each model alone: its tiles where it counts (its weight as the alpha: the app draws the
     # world's model under it), at this run's hours it has. One failing leaves the others.
     for name, (place, data, sample) in others.items():
-        if name not in MODEL_SETS or not data:
+        if name not in MODEL_SETS or not data or name in same:
             continue
         try:
             model_set(name, data, sample, parts[name], [m for m in models if m["name"] == name][0], run_name, local,
@@ -497,6 +552,7 @@ def model_weather_set(name, data, sample, parts, info, run_name, local, place=No
     files, every model's)."""
     folder, label, credit = MODEL_SETS[name]
     folder += "-wx"
+    run_name = own_folder(folder, info, run_name, local)
     started = time.time()
     import spot_cells
     try:
@@ -574,6 +630,7 @@ def model_set(name, data, sample, parts, info, run_name, local, place=None):
     """One regional model's own tiles (tiles/<folder>/<run_name>/<time>.pack) and index; the FINE
     ones at zoom 7 too (the four under each zoom-6 tile it has)."""
     folder, label, credit = MODEL_SETS[name]
+    run_name = own_folder(folder, info, run_name, local)
     started = time.time()
     keys = [key for key, (c, r, w) in parts.items() if np.any(w > 0)]
     zooms = list(ZOOMS)

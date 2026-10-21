@@ -87,8 +87,11 @@ def main():
     local = args[args.index("--local") + 1] if "--local" in args else None
     limit = int(args[args.index("--hours") + 1]) if "--hours" in args else None
     force = "--force" in args
-    run = iconeu_map.newest_run()
+    # Every 3 hours (the owner, 21.10.2026: the maps took one run in two): a 03/09/15/21 UTC run to 30
+    # hours, the long run's later hours after it on the maps; its spots are iconeu_short_points.py's.
+    run = iconeu_map.newest_run(every=3)
     run_time = datetime.strptime(run, "%Y%m%d%H").replace(tzinfo=timezone.utc)
+    short = run_time.hour % 6 != 0
     wind = tiler.Run("icon-eu", run_time, ZOOMS, "ICON-EU 7 km", CREDIT, force, local and local + "/icon-eu")
     weather = tiler.Run("icon-eu-wx", run_time, ZOOMS, "ICON-EU 7 km (air and rain)", CREDIT, force, local and local + "/icon-eu-wx")
     steer = tiler.Run("icon-eu-steer", run_time, STEER_ZOOMS, "ICON-EU 7 km (wind at 700 hPa)", CREDIT, force,
@@ -96,7 +99,8 @@ def main():
     if not wind.wanted and not weather.wanted and not steer.wanted:
         print(f"ICON-EU {run} already published")
         return
-    steps = STEPS[:limit] if limit else STEPS
+    steps = [s for s in STEPS if not short or s <= iconeu_map.SHORT_LAST]
+    steps = steps[:limit] if limit else steps
     variables = sorted(set(WIND if wind.wanted else ()) | set(WEATHER if weather.wanted else ())
                        | set(key for key, _, _ in STEER if steer.wanted))
     start, started = int(run_time.timestamp()), time.time()
@@ -104,6 +108,8 @@ def main():
     # The spots' values from ICON-EU's own cells (spot_cells.py; the owner, 18.10.2026).
     import spot_cells
     try:
+        if short:
+            raise RuntimeError("a 03/09/15/21 UTC run: the spots are iconeu_short_points.py's")
         cells = spot_cells.SpotCells("icon-eu", "icon_eu", weather="icon-eu-wx")
     except Exception as error:
         print(f"ICON-EU: the spots' cells left out ({error})", flush=True)
@@ -173,11 +179,11 @@ def main():
         raise SystemExit(f"ICON-EU {run}: nothing read")
     area = {"south": box[0], "north": box[1], "west": box[2], "east": box[3]}
     if wind.wanted and wind.frames:
-        wind.finish(area=area)
+        wind.finish(tail=short, area=area)
     if weather.wanted and weather.frames:
-        weather.finish(area=area)
+        weather.finish(tail=short, area=area)
     if steer.wanted and steer.frames:
-        steer.finish(area=area)
+        steer.finish(tail=short, area=area)
     if cells is not None:
         try:
             cells.publish((wind if wind.wanted else weather).folder, local and local + "/points")

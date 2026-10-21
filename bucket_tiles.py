@@ -41,7 +41,8 @@ SETS = {
                 "credit": "HARMONIE-AROME Europe, KNMI (via Open-Meteo's open data)",
                 "proj": "+proj=ob_tran +o_proj=longlat +o_lat_p=-35 +o_lon_p=0 +lon_0=-188 +R=6371229 +no_defs",
                 "x0": 13.5, "y0": 13.6, "dx": -0.05, "dy": -0.05, "nx": 676, "ny": 564, "km": 5.5, "zooms": range(3, 6),
-                "every": 3, "files": 55, "box": (37.0, 67.5, -27.0, 46.0)},
+                # Every hour (the owner, 21.10.2026: we took one run in 3; each hourly run reaches 60 hours).
+                "every": 1, "files": 55, "box": (37.0, 67.5, -27.0, 46.0)},
     "arome25": {"model": "meteofrance_arome_france0025", "key": "meteofrance_arome_france", "name": "AROME France 2.5 km",
                 "credit": "AROME, Météo-France (via Open-Meteo's open data)", "proj": None,
                 "x0": -12.0, "y0": 37.5, "dx": 0.025, "dy": 0.025, "nx": 1121, "ny": 717, "km": 2.5, "zooms": range(4, 7),

@@ -78,13 +78,20 @@ def invariant_message(variable):
                 raise
 
 
-def newest_run():
-    """The newest 00/06/12/18 UTC run whose last file is online (DWD keeps about a day)."""
+# The 03/09/15/21 UTC runs' last hour.
+SHORT_LAST = 30
+
+
+def newest_run(every=6):
+    """The newest 00/06/12/18 UTC run whose last file is online (DWD keeps about a day); `every` 3: the
+    03/09/15/21 UTC runs too, whose last hour is 30 (the maps since 21.10.2026)."""
     now = datetime.now(timezone.utc)
-    start = now.replace(hour=now.hour // 6 * 6, minute=0, second=0, microsecond=0)
-    for back in range(5):
-        run = (start - timedelta(hours=6 * back)).strftime("%Y%m%d%H")
-        if exists(url(run, 120, "VMAX_10M")) and exists(url(run, 120, "V_10M")):
+    start = now.replace(hour=now.hour // every * every, minute=0, second=0, microsecond=0)
+    for back in range(30 // every):
+        moment = start - timedelta(hours=every * back)
+        run = moment.strftime("%Y%m%d%H")
+        last = 120 if moment.hour % 6 == 0 else SHORT_LAST
+        if exists(url(run, last, "VMAX_10M")) and exists(url(run, last, "V_10M")):
             return run
     raise SystemExit("no complete ICON-EU run online")
 

@@ -140,15 +140,36 @@ def s3_list(prefix):
 
 
 def ecmwf9_newest_run():
-    """The newest 00/12 UTC run with all its hours there (145 or more files)."""
+    """The newest run with all its hours there: the 00/12 UTC ones to 15 days (145 or more files), and since
+    21.10.2026 the 06/18 UTC ones to 6 days (109; the owner: the map took one run in two)."""
     now = datetime.now(timezone.utc)
-    start = now.replace(hour=now.hour // 12 * 12, minute=0, second=0, microsecond=0)
-    for back in range(3):
-        run = start - timedelta(hours=12 * back)
+    start = now.replace(hour=now.hour // 6 * 6, minute=0, second=0, microsecond=0)
+    for back in range(5):
+        run = start - timedelta(hours=6 * back)
         files = [k for k in s3_list(ECMWF9_RUNS + run.strftime("%Y/%m/%d/%H%MZ/")) if k.endswith(".om")]
-        if len(files) >= 145:
+        if len(files) >= (145 if run.hour % 12 == 0 else 109):
             return run
     raise SystemExit("No complete ECMWF 9 km run found")
+
+
+def published_index(model):
+    """The set's published index (None when there's none)."""
+    try:
+        request = urllib.request.Request(PUBLISHED.format(model=model) + "?t=%d" % time.time(), headers={"User-Agent": maplib.USER_AGENT})
+        with urllib.request.urlopen(request, timeout=30) as reply:
+            return json.load(reply)
+    except Exception:
+        return None
+
+
+def with_tail(frames, previous):
+    """A short run's frames, then the published run's after its last hour (ECMWF's 06/18 UTC runs end at
+    6 days, ICON-EU's 03/09/15/21 UTC at 30 hours: the long run's later hours stay on the map, as
+    Open-Meteo's series keep them; station-history keeps every folder an index points to)."""
+    if not frames or not previous or not previous.get("frames"):
+        return frames
+    last = max(f["time"] for f in frames)
+    return frames + [f for f in sorted(previous["frames"], key=lambda f: f["time"]) if f["time"] > last]
 
 
 def ecmwf9_steps(run, steps):
@@ -679,6 +700,9 @@ def main():
         except BaseException as error:
             print(f"ECMWF 9 km: {error}; ECMWF's own 9 km files instead", flush=True)
             nine = False
+    # A 06/18 UTC run (6 days): its hours, then the long run's (with_tail); its spots are
+    # ecmwf_short_points.py's (it keeps the long run's later hours there too).
+    short = nine and run.hour % 12 != 0
     if model == "ecmwf" and not nine:
         try:
             run = ecmwf_map.newest_run("0p1")
@@ -734,6 +758,8 @@ def main():
     # 18.10.2026); the tiles go on without them if they fail.
     import spot_cells
     try:
+        if short:
+            raise RuntimeError("a 06/18 UTC run: the spots are ecmwf_short_points.py's")
         # GFS's spots' wind from its 0.13° grid (gfs013_points.py), as Open-Meteo's; here its weather
         # and the 0.25° wind as points/gfs-025.json, whose gusts that takes (the 0.13° files have none).
         cells = spot_cells.SpotCells("gfs-025" if model == "gfs" else model, {"gfs": "gfs_global", "ecmwf": "ecmwf_ifs", "icon": "icon_global",
@@ -742,6 +768,30 @@ def main():
         print(f"{model}: the spots' cells left out ({error})", flush=True)
         cells = None
 
+    # Each hour's layers made side by side and sent while the next hour is made (the owner, 21.10.2026:
+    # ECMWF 9 km's run took 100 minutes, its five layers one after another, about 50 s an hour; the
+    # images' compression and NumPy let go of Python's lock, so threads use the runner's cores). At most
+    # 12 uploads waiting (about 80 MB an hour in memory). A layer other than the wind that can't be made
+    # or sent is left out of its hour, as before; the wind's stops the run.
+    makers = ThreadPoolExecutor(max_workers=5)
+    senders = ThreadPoolExecutor(max_workers=6)
+    sending = []
+
+    def settle(limit):
+        nonlocal size
+        while len(sending) > limit:
+            future, frame, key, name, length = sending.pop(0)
+            try:
+                future.result()
+                if key != "file":
+                    frame[key] = name
+                size += length
+            except (urllib.error.URLError, OSError) as error:
+                if key == "file":
+                    raise
+                print(f"{model} {name}: not uploaded ({error})", flush=True)
+
+    suffixes = {"file": "", "temp": "-temp", "rain": "-rain", "cloud": "-cloud", "sky": "-sky"}
     for step, fields, grid in source:
         if "10u" not in fields or "10v" not in fields:
             print(f"{model} step {step}: no wind, skipped")
@@ -751,23 +801,9 @@ def main():
         if not land and "lsm" in fields:
             put(f"{run_name}/land.pack", land_pack(sample, fields["lsm"]))
             land = True
-        data = pack(sample, fields)
         t = int((run + timedelta(hours=step)).timestamp())
-        name = f"{run_name}/{t}.pack"
-        put(name, data)
-        frame = {"time": t, "file": name}
-        size += len(data)
         # ECMWF: the world's temperature and rain too (the precipitation since the run's start,
         # so each step's rain is its difference from the step before, per hour).
-        # (Optional: one that can't be uploaded is left out, the wind still goes.)
-        if "2t" in fields:
-            extra = temp_pack(sample, fields)
-            try:
-                put(f"{run_name}/{t}-temp.pack", extra)
-                frame["temp"] = f"{run_name}/{t}-temp.pack"
-                size += len(extra)
-            except (urllib.error.URLError, OSError) as error:
-                print(f"{model} step {step}: temperature not uploaded ({error})")
         rate = None
         if "tp" in fields:
             hours = step - previous[0] if previous[1] is not None else 0
@@ -775,6 +811,17 @@ def main():
             previous[0], previous[1] = step, fields["tp"]
         elif "rate" in fields:
             rate = fields["rate"]
+        jobs = {"file": makers.submit(pack, sample, fields)}
+        if "2t" in fields:
+            jobs["temp"] = makers.submit(temp_pack, sample, fields)
+        if rate is not None:
+            jobs["rain"] = makers.submit(rain_pack, sample, fields, rate)
+        # The clouds' layers (ECMWF 9 km's), as the regional sets' cloud packs.
+        if "low" in fields:
+            jobs["cloud"] = makers.submit(cloud_pack, sample, fields)
+        # The rest of a place's weather (ECMWF 9 km's: humidity, visibility, thunder, snow, showers).
+        if "vis" in fields and "2d" in fields:
+            jobs["sky"] = makers.submit(sky_pack, sample, fields)
         if cells is not None:
             try:
                 if "_native" in fields:
@@ -784,35 +831,28 @@ def main():
             except Exception as error:
                 print(f"{model} step {step}: the spots' cells left out ({error})", flush=True)
                 cells = None
-        if rate is not None:
-            extra = rain_pack(sample, fields, rate)
+        frame = {"time": t, "file": f"{run_name}/{t}.pack"}
+        for key, job in jobs.items():
+            name = f"{run_name}/{t}{suffixes[key]}.pack"
             try:
-                put(f"{run_name}/{t}-rain.pack", extra)
-                frame["rain"] = f"{run_name}/{t}-rain.pack"
-                size += len(extra)
-            except (urllib.error.URLError, OSError) as error:
-                print(f"{model} step {step}: rain not uploaded ({error})")
-        # The clouds' layers (ECMWF 9 km's), as the regional sets' cloud packs.
-        if "low" in fields:
-            extra = cloud_pack(sample, fields)
-            try:
-                put(f"{run_name}/{t}-cloud.pack", extra)
-                frame["cloud"] = f"{run_name}/{t}-cloud.pack"
-                size += len(extra)
-            except (urllib.error.URLError, OSError) as error:
-                print(f"{model} step {step}: clouds not uploaded ({error})")
-        # The rest of a place's weather (ECMWF 9 km's: humidity, visibility, thunder, snow, showers).
-        if "vis" in fields and "2d" in fields:
-            extra = sky_pack(sample, fields)
-            try:
-                put(f"{run_name}/{t}-sky.pack", extra)
-                frame["sky"] = f"{run_name}/{t}-sky.pack"
-                size += len(extra)
-            except (urllib.error.URLError, OSError) as error:
-                print(f"{model} step {step}: sky not uploaded ({error})")
+                data = job.result()
+            except Exception as error:
+                if key == "file":
+                    raise
+                print(f"{model} step {step}: {key} not made ({error})", flush=True)
+                continue
+            sending.append((senders.submit(put, name, data), frame, key, name, len(data)))
         frames.append(frame)
+        settle(12)
+    settle(0)
+    makers.shutdown()
+    senders.shutdown()
     if not frames:
         raise SystemExit(f"{model}: no frames")
+    if short:
+        own = len(frames)
+        frames = with_tail(frames, published_index(model))
+        print(f"{model} {run_name}: {own} hours of its own, {len(frames) - own} of the run before after them", flush=True)
     index = {
         "model": info["name"], "credit": info["credit"], "run": run.strftime("%Y-%m-%dT%H:%MZ"), "runName": run_name,
         "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),

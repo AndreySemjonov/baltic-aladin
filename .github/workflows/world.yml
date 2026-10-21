@@ -1,5 +1,5 @@
 name: World weather tiles
-run-name: World tiles (GFS, ECMWF, ICON, GDPS)
+run-name: World tiles ${{ inputs.only || '(all)' }}
 
 # The world's models as weather tiles on our file store (world_tiles.py; the app's map plan
 # step 1, the owner, 12.10.2026): every hour each model's newest run is checked and, when it is
