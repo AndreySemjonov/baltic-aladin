@@ -492,6 +492,11 @@ def main():
             if wanted is None:
                 continue
             need = mem_need(job)
+            # Too big to fit beside WRF at all (the regional wind's 9.7 GB in 5 GB, 21.10.2026): waits for WRF to end,
+            # never starts beside it, and holds nobody back meanwhile.
+            if wrf and need > budget:
+                waiting_why[job.name] = f"waits for WRF to end: needs {need / 1000:.1f} GB, {budget / 1000:.1f} for jobs while it runs"
+                continue
             if busy and reserved + need > budget:
                 waiting_why[job.name] = f"waits for memory: needs {need / 1000:.1f} GB, {max(budget - reserved, 0) / 1000:.1f} free"
                 if waiting is None:

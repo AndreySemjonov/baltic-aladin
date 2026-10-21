@@ -165,7 +165,7 @@ function Spark({ values, w = 70, h = 18 }) {
 
 function Top({ f, zone, setZone }) {
   const now = Date.now() / 1000;
-  const waitingMem = (f.waiting || []).filter((w) => (w.why || "").startsWith("waits for memory")).length;
+  const waitingMem = (f.waiting || []).filter((w) => /^waits for (memory|WRF)/.test(w.why || "")).length;
   const busy = (f.jobs || []).length;
   const stale = f.live_t && now - f.live_t > 180;
   const beatAge = f.beat ? now - f.beat : null;
@@ -284,7 +284,7 @@ function Next({ f }) {
   const wnext = (f.wrf && f.wrf.next) || [];
   return html`<section class="panel s4" aria-label="What's next"><h2>Next, and why</h2><div class="next">
     ${waiting.map((w) => html`<div class="nrow"><span class=${"prio " + prioClass(w.priority)}>P${w.priority}</span>
-      <span class="n">${w.job}${(w.why || "").startsWith("waits for memory") ? html`<span class="chip mem">memory</span>` : (w.why || "").startsWith("priority 3") ? html`<span class="chip hold">held</span>` : null}</span>
+      <span class="n">${w.job}${(w.why || "").startsWith("waits for WRF") ? html`<span class="chip wrf">after WRF</span>` : (w.why || "").startsWith("waits for memory") ? html`<span class="chip mem">memory</span>` : (w.why || "").startsWith("priority 3") ? html`<span class="chip hold">held</span>` : null}</span>
       <span class="t now">due</span><span class="why">${w.source ? w.source + ": " : ""}${w.why}</span></div>`)}
     ${moreWaiting.length ? html`<div class="nrow"><span></span><span class="why" style="grid-column:2/4">Also due and waiting: ${moreWaiting.map((w) => w.job).join(", ")}</span></div>` : null}
     ${next.map((n) => html`<div class="nrow"><span class=${"prio " + prioClass(n.priority)}>P${n.priority}</span><span class="n">${n.job}</span>
