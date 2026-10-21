@@ -19,9 +19,11 @@ import urllib.error
 import urllib.request
 
 import numpy as np
-import omfiles
 
 import sources
+
+# omfiles is imported where it's used: world_tiles (and so tiler, and so nearly every job) imports this module, and
+# most GitHub workflows don't install omfiles (21.10.2026: every Mix failed on the import for two hours).
 
 BLOCK = 16 << 20
 AGENT = "MeteoGust helper (data.meteogust.com)"
@@ -90,6 +92,7 @@ class RemoteOm:
             # About a 32nd of the file, 1-16 MB: a small file's variables need small blocks to be read apart
             # (GFS 0.13°'s 37 MB files: 16 MB blocks took the whole file).
             self.fs.block = min(BLOCK, max(1 << 20, self.fs.size(url) // 32))
+        import omfiles
         self.reader = omfiles.OmFileReader.from_fsspec(self.fs, url)
         self.names = {self.reader.get_child_by_index(i).name for i in range(self.reader.num_children)}
 
@@ -175,6 +178,7 @@ def reader(path_or_prefetched):
     """omfiles' reader for a downloaded file, or the Prefetched itself."""
     if isinstance(path_or_prefetched, Prefetched):
         return path_or_prefetched
+    import omfiles
     return omfiles.OmFileReader.from_path(path_or_prefetched)
 
 
