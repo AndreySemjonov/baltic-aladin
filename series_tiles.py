@@ -17,7 +17,8 @@ files go into packs of up to PACK_BYTES: series/<set>/<run>/v3/pack-<n>.bin, eac
 another; done.json then says where each is: {"packs": ["v3/pack-0.bin", ...], "at": {"z/x/y": [pack, offset,
 length]}}, written last (station-history reads a tile's file through it; the old one-file-a-tile runs still read).
 
-    python series_tiles.py [set ...] [--force] [--local DIR] [--tiles N]   (no set: every one, each when new)
+    python series_tiles.py [set ...] [--force] [--local DIR] [--tiles N] [--all]   (no set: every one, each when new;
+        Europe's fine sets only where they're used unless --all)
 """
 import json
 import math
@@ -63,6 +64,56 @@ SETS = ["mix", "mix-world", "metnordic-1km", "dini", "arome", "ukmo", "icon-ch2"
         "sea", "sea-world"]
 
 
+# Made ahead only where they're used, for Europe's fine sets (the owner, 21.10.2026, "option 1": the series were about
+# half the home machine's job CPU, 236 GB read in 2 runs, nearly all for tiles nobody asks for): the tiles under the
+# catalog's and riders' public spots and their models' points, and those read at places in the last 7 days
+# (station-history notes every read, /series/wanted); station-history builds any other on its first request (a few
+# seconds once a run) and notes it, so it's made ahead from the next run. The coarse world sets, the fallback at any
+# place on Earth, stay whole.
+WHOLE = {"mix-world", "mix-world-wx", "icon-eu", "icon-eu-wx", "ecmwf", "gfs", "icon", "gdps", "ewam", "ecmwf-waves", "sea", "sea-world"}
+WANTED = "https://data.meteogust.com/series/wanted?set="
+
+
+def tile_at(z, lat, lon):
+    n = 2 ** z
+    return z, int((lon + 180) / 360 * n), int((1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * n)
+
+
+def used_tiles(set_name, area, places):
+    """Of the set's area tiles, those riders use: under each place (the next coarser zoom where the set's zoom has no
+    tile there, as area_tiles), and those read at places in the last 7 days."""
+    have = set(area)
+    zooms = sorted({k[0] for k in have}, reverse=True)
+    out = set()
+    for lat, lon in places:
+        for z in zooms:
+            key = tile_at(z, lat, lon)
+            if key in have:
+                out.add(key)
+                break
+    try:
+        for z, x, y in json.loads(spot_points.get(WANTED + set_name) or "[]"):
+            if (z, x, y) in have:
+                out.add((z, x, y))
+    except (ValueError, TypeError) as error:
+        print(f"{set_name}: the tiles read at places not known ({error}): the spots' only", flush=True)
+    return sorted(out)
+
+
+def spot_places():
+    """Every catalog and public spot and its models' points ((lat, lon)), once a run of the job."""
+    places = set()
+    for spot in spot_points.spots():
+        try:
+            places.add((float(spot["lat"]), float(spot["lon"])))
+            for point in (spot.get("csPoints") or {}).values():
+                if isinstance(point, list) and len(point) == 2:
+                    places.add((float(point[0]), float(point[1])))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return sorted(places)
+
+
 def area_tiles(set_name, index, header):
     """Every tile a tap in the set's area reads: those at its zoom, and the next coarser zoom's where
     it has none of their four there."""
@@ -101,7 +152,7 @@ def series_file(times, size, pixels):
     return b"MGS1" + struct.pack("<I", len(head)) + head + b"".join(parts)
 
 
-def make(spec, local, limit, force):
+def make(spec, local, limit, force, places=None):
     # A wind set, or "<folder>:<layer>" (a weather layer's packs: the frames' "temp", "rain", "cloud").
     folder, layer = spec.split(":", 1) if ":" in spec else (spec, "file")
     set_name = folder if layer == "file" else f"{folder}-{layer}"
@@ -125,6 +176,10 @@ def make(spec, local, limit, force):
     # The first hour's pack: the widest (regional models end sooner).
     first = headers[0]
     tiles = area_tiles(set_name, index, first)
+    whole = len(tiles)
+    if places is not None and folder not in WHOLE:
+        tiles = used_tiles(set_name, tiles, places)
+        print(f"{set_name} {run}: {len(tiles)} of {whole} tiles used (the rest built on request)", flush=True)
     if limit:
         tiles = tiles[:limit]
     print(f"{set_name} {run}: {len(tiles)} tiles, {len(frames)} hours", flush=True)
@@ -171,7 +226,7 @@ def make(spec, local, limit, force):
                 buffer += data
                 total += len(data)
     send()
-    done = json.dumps({"tiles": len(tiles), "hours": len(frames), "bytes": total, "packs": packs, "at": at},
+    done = json.dumps({"tiles": len(tiles), "area": whole, "hours": len(frames), "bytes": total, "packs": packs, "at": at},
                       separators=(",", ":")).encode()
     if local:
         (local / f"series/{set_name}/{run}").mkdir(parents=True, exist_ok=True)
@@ -194,9 +249,11 @@ def main():
     limit = int(args[args.index("--tiles") + 1]) if "--tiles" in args else None
     values = {args[i + 1] for i, a in enumerate(args[:-1]) if a in ("--local", "--tiles")}
     chosen = [a for a in args if not a.startswith("--") and a not in values]
+    # Every tile with --all (a test, or to make a set whole again).
+    places = None if "--all" in args else spot_places()
     for set_name in chosen or SETS:
         try:
-            make(set_name, local, limit, "--force" in args)
+            make(set_name, local, limit, "--force" in args, places)
         except Exception as error:
             print(f"{set_name}: {error}", flush=True)
 
