@@ -140,6 +140,62 @@ td.r, th.r { text-align: right }
 .bar i.over { background: var(--warn) }
 .empty { color: var(--muted); font-size: 14px; padding: 6px 0 }
 .core.idle i { background: var(--faint) }
+.top .wrap { flex-direction: column; align-items: stretch; padding-bottom: 0 }
+.row1 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px }
+.tabs { display: flex; gap: 2px; overflow-x: auto; margin-bottom: -1px }
+.tabs a { font: 600 15px/1 var(--display); letter-spacing: .03em; color: var(--muted); text-decoration: none; padding: 10px 14px 11px;
+  border-bottom: 2px solid transparent; white-space: nowrap; display: flex; gap: 7px; align-items: center }
+.tabs a.on { color: var(--ink); border-color: var(--accent) }
+.tabs a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
+.badge { font: 600 11px/1 var(--mono); padding: 3px 5px; border-radius: 4px; background: var(--bad-soft); color: var(--bad) }
+.badge.warn { background: var(--warn-soft); color: var(--warn) }
+:root { --ok-soft: #dcf2e4 }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ok-soft: #173525 } }
+:root[data-theme="dark"] { --ok-soft: #173525 }
+.note { font-size: 13.5px; color: var(--muted); max-width: 80ch }
+.st { font: 600 12px/1 var(--body); padding: 5px 8px; border-radius: 5px; white-space: nowrap; display: inline-block }
+.st.ok { background: var(--ok-soft); color: var(--ok) } .st.proc { background: var(--accent-soft); color: var(--accent) }
+.st.wait { background: var(--warn-soft); color: var(--warn) } .st.bad { background: var(--bad-soft); color: var(--bad) }
+.st.unknown { background: var(--line); color: var(--muted) }
+.where { font: 500 11px/1 var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 3px 5px; margin-left: 4px }
+.where.home { color: var(--accent); border-color: var(--accent) }
+.ftiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px }
+@media (max-width: 720px) { .ftiles { grid-template-columns: repeat(2, minmax(0, 1fr)) } }
+.ftile { border-radius: 8px; padding: 12px 14px; background: var(--bg) }
+.ftile .v { font: 600 30px/1 var(--display) } .ftile .l { font-size: 13px; color: var(--muted); margin-top: 4px }
+.ftile.ok .v { color: var(--ok) } .ftile.proc .v { color: var(--accent) } .ftile.wait .v { color: var(--warn) } .ftile.bad .v { color: var(--bad) }
+td .sub { display: block; font-size: 12.5px; color: var(--muted) }
+tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding-top: 16px }
+.strip { display: block; width: 260px; height: 22px }
+.fresh-table { min-width: 1080px }
+.fcards { display: none }
+.fcard { padding: 10px 0; border-top: 1px solid var(--line); display: grid; gap: 4px }
+.fcard .h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap }
+.fcard .h b { font: 600 16px var(--display) }
+.fcard .h .st { margin-left: auto }
+.fcard .t { font: 12.5px var(--mono); color: var(--muted) }
+.fcard.group { font: 600 12px var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding-top: 16px; border-top: 0 }
+.whytxt { font-size: 12.5px; color: var(--muted) }
+@media (max-width: 760px) { #freshtable { display: none } .fcards { display: grid } }
+.verdict { display: grid; gap: 4px }
+.verdict .v { font: 600 24px/1.1 var(--display) }
+.verdict .d { font-size: 13.5px; color: var(--muted) }
+.s3 { grid-column: span 3 } .s6 { grid-column: span 6 }
+@media (max-width: 980px) { .s3 { grid-column: span 6 } .s6 { grid-column: span 12 } }
+@media (max-width: 520px) { .s3 { grid-column: span 12 } }
+.chart { width: 100%; display: block }
+.chart text { font: 11px var(--mono); fill: var(--muted) }
+.hbar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; min-width: 60px }
+.hbar i { display: block; height: 100%; background: var(--accent) }
+.cards { display: grid; gap: 16px; grid-template-columns: repeat(3, minmax(0, 1fr)) }
+@media (max-width: 980px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)) } }
+@media (max-width: 620px) { .cards { grid-template-columns: 1fr } }
+.kv { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; font-size: 14px }
+.kv > span:nth-child(even) { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere }
+.btn { display: inline-block; margin-top: 12px; font: 600 13px var(--body); color: var(--accent); text-decoration: none; border: 1px solid var(--accent); border-radius: 6px; padding: 6px 10px }
+.feed { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line); font-size: 14px }
+.feed:first-child { border-top: 0 }
+.feed .sub { display: block; font-size: 12.5px; color: var(--muted) }
 </style>
 <div id="app"><main class="wrap"><p class="empty">Connecting to the Tower…</p></main></div>
 <script type="module">
@@ -163,16 +219,18 @@ function Spark({ values, w = 70, h = 18 }) {
   return html`<svg viewBox="0 0 ${w} ${h}" width=${w} height=${h}><path d=${d} fill="none" stroke="var(--accent)" stroke-width="1.5"/></svg>`;
 }
 
-function Top({ f, zone, setZone }) {
+function Top({ f, zone, setZone, tab, fr, cap }) {
   const now = Date.now() / 1000;
   const waitingMem = (f.waiting || []).filter((w) => /^waits for (memory|WRF)/.test(w.why || "")).length;
   const busy = (f.jobs || []).length;
   const stale = f.live_t && now - f.live_t > 180;
   const beatAge = f.beat ? now - f.beat : null;
-  return html`<header class="top"><div class="wrap">
+  const behind = fr && fr.counts ? fr.counts.bad : 0;
+  return html`<header class="top"><div class="wrap"><div class="row1">
     <div class="brand"><span class="dot" aria-hidden="true" style=${stale ? "background:var(--bad)" : ""}></span>MeteoGust ops
       <small>${f.host || "…"} · ${(f.live || []).length ? `${f.live.length} live` : "shadow"}</small></div>
     <div class="pills">
+      ${behind ? html`<a class="pill bad" href="#freshness" style="text-decoration:none">${behind} model${behind > 1 ? "s" : ""} behind</a>` : null}
       ${f.wrf && f.wrf.running
         ? html`<span class="pill wrf">WRF ${f.wrf.region || ""} running · ${dur(now - (f.wrf.started || now))}</span>`
         : html`<span class="pill">WRF idle · next ${clock((f.wrf && f.wrf.next || [])[0])}</span>`}
@@ -183,7 +241,7 @@ function Top({ f, zone, setZone }) {
     </div>
     <div class="clock"><b>${clock(now, true)}</b> ${zoneName()}
       <button class="tbtn" id="zone" onClick=${() => setZone(zone === "UTC" ? "Europe/Riga" : "UTC")}>show ${zone === "UTC" ? "Riga" : "UTC"}</button></div>
-  </div></header>`;
+  </div><${Tabs} tab=${tab} fr=${fr} cap=${cap} /></div></header>`;
 }
 
 function Machine({ f }) {
@@ -353,9 +411,201 @@ function Runs({ s }) {
   </section>`;
 }
 
+// MARK: v2 tabs (the owner, 21.10.2026: Freshness first, then Now, Capacity, Admin; docs/mockups/ops-panel-v2-2026-10-21.html)
+
+const TABS = ["freshness", "now", "capacity", "admin"];
+const runZ = (t) => t ? new Date(t * 1000).toISOString().slice(11, 13) + "Z" : "–";
+const dayRunZ = (t, ref) => {
+  if (!t) return "–";
+  const d = new Date(t * 1000).toISOString();
+  return (ref && Math.abs(ref - t) > 20 * 3600 ? d.slice(8, 10) + " " : "") + d.slice(11, 13) + "Z";
+};
+const hrs = (s) => s == null ? "–" : s >= 3600 ? (s / 3600).toFixed(1) + " h" : Math.round(s / 60) + " min";
+const STATUS = { ok: "on time", proc: "processing", wait: "due", bad: "behind", unknown: "no record" };
+
+function Tabs({ tab, fr, cap }) {
+  const bad = fr && fr.counts ? fr.counts.bad : 0;
+  const capWarn = cap && (cap.mem_full_h > 1 || cap.waited_h > 2);
+  return html`<nav class="tabs" aria-label="Sections">
+    ${TABS.map((t) => html`<a href=${"#" + t} class=${tab === t ? "on" : ""}>${t[0].toUpperCase() + t.slice(1)}
+      ${t === "freshness" && bad ? html`<span class="badge">${bad}</span>` : null}
+      ${t === "capacity" && capWarn ? html`<span class="badge warn">!</span>` : null}</a>`)}
+  </nav>`;
+}
+
+function FreshStrip({ row, now }) {
+  const w = 260, h = 22, from = now - 24 * 3600;
+  const x = (t) => Math.max(0, Math.min(w, (t - from) / (24 * 3600) * w));
+  const allow = Math.max((row.usual_ours || 3 * 3600) - (row.usual_maker || 0), 1800) * 1.5;
+  const strip = row.strip || [];
+  return html`<svg class="strip" viewBox="0 0 ${w} ${h}" aria-hidden="true">
+    <line x1="0" x2=${w} y1=${h / 2} y2=${h / 2} stroke="var(--line)"/>
+    ${strip.map(([run, done, pub], i) => {
+      const last = i === strip.length - 1;
+      const end = pub || (last ? now : Math.min(now, done + allow * 2));
+      const color = pub ? (pub - done <= allow ? "var(--ok)" : "var(--warn)") : last ? "var(--accent)" : "var(--bad)";
+      const a = x(done), b = x(end);
+      return html`<rect x=${a.toFixed(1)} y=${h / 2 - 4} width=${Math.max(b - a, 2).toFixed(1)} height="8" rx="2" fill=${color}><title>${runZ(run)}: complete ${clock(done)}, ours ${pub ? clock(pub) : "not yet"}</title></rect>`;
+    })}
+    <line x1=${w - 1} x2=${w - 1} y1="2" y2=${h - 2} stroke="var(--warn)" stroke-width="2"/>
+  </svg>`;
+}
+
+function behindText(r) {
+  if (!r.behind_runs) return "–";
+  return `${r.behind_runs} run${r.behind_runs > 1 ? "s" : ""}${r.waited != null ? " · " + hrs(r.waited) : ""}`;
+}
+
+function usualText(r) {
+  const m = r.usual_maker != null ? `maker +${hrs(r.usual_maker)}` : null;
+  const o = r.usual_ours != null ? `ours +${hrs(r.usual_ours)}` : null;
+  return [m, o].filter(Boolean).join(" · ") || "–";
+}
+
+function oursText(r) {
+  const both = r.ours_spots && r.ours_map && r.ours_spots !== r.ours_map;
+  return both ? `spots ${runZ(r.ours_spots)} · map ${runZ(r.ours_map)}` : "";
+}
+
+function Freshness({ fr, now }) {
+  if (!fr || !fr.rows) return html`<p class="empty">Reading the makers' and our runs…</p>`;
+  const groups = [];
+  fr.rows.forEach((r) => { if (!groups.length || groups[groups.length - 1].name !== r.group) groups.push({ name: r.group, rows: [] }); groups[groups.length - 1].rows.push(r); });
+  const c = fr.counts || {};
+  return html`<div class="grid">
+    <div class="panel s12"><div class="ftiles">
+      <div class="ftile ok"><div class="v">${c.ok || 0}</div><div class="l">on time: our newest run is the maker's newest</div></div>
+      <div class="ftile proc"><div class="v">${c.proc || 0}</div><div class="l">processing: a newer run is being made now</div></div>
+      <div class="ftile wait"><div class="v">${c.wait || 0}</div><div class="l">due: a newer run is out, ours within its usual lag or queued</div></div>
+      <div class="ftile bad"><div class="v">${c.bad || 0}</div><div class="l">behind: a newer run sits unprocessed past its usual lag</div></div>
+    </div></div>
+    <div class="panel s12"><h2>Each model: the maker's newest run against ours · ${zoneName()} time</h2>
+      <div class="fcards">${groups.map((g) => html`<div class="fcard group">${g.name}</div>${g.rows.map((r) => html`<div class="fcard">
+        <div class="h"><b>${r.label}</b><span class=${"where" + (r.where === "Home" ? " home" : "")}>${r.where}</span>
+          <span class=${"st " + r.status}>${STATUS[r.status]}${r.behind_runs ? " · " + behindText(r) : ""}</span></div>
+        <div class="t">maker ${dayRunZ(r.maker_run, now)}${r.maker_done ? " " + clock(r.maker_done) : ""} · ours ${dayRunZ(r.ours, now)}${r.published ? " " + clock(r.published) : ""}</div>
+        ${r.processing || oursText(r) ? html`<div class="whytxt">${[r.processing, oursText(r)].filter(Boolean).join(" · ")}</div>` : null}</div>`)}`)}</div>
+      <div class="tablewrap" id="freshtable"><table class="fresh-table">
+        <thead><tr><th>Model</th><th>Runs</th><th>Maker's newest</th><th>Ours, published</th><th>Status</th><th class="r">Behind</th><th>Usual, from the run's start</th><th>Last 24 h: maker complete → ours</th></tr></thead>
+        <tbody>${groups.map((g) => html`<tr class="group"><td colspan="8">${g.name}</td></tr>${g.rows.map((r) => html`<tr>
+          <td><b>${r.label}</b>${r.processing ? html`<span class="sub">${r.processing}</span>` : null}</td>
+          <td class="whytxt">${r.every === 1 ? "hourly" : "every " + r.every + " h"}</td>
+          <td class="num">${dayRunZ(r.maker_run, now)}<span class="sub">${r.maker_done ? "complete " + clock(r.maker_done) : r.maker_run ? "" : "not in Open-Meteo's record"}</span></td>
+          <td class="num">${dayRunZ(r.ours, now)}<span class="sub">${r.published ? clock(r.published) : ""}<span class=${"where" + (r.where === "Home" ? " home" : "")}>${r.where}</span>${oursText(r) ? html`<br/>${oursText(r)}` : null}</span></td>
+          <td><span class=${"st " + r.status}>${STATUS[r.status]}</span></td>
+          <td class="r num" style=${r.status === "bad" ? "color:var(--bad)" : ""}>${behindText(r)}</td>
+          <td class="num whytxt">${usualText(r)}</td>
+          <td><${FreshStrip} row=${r} now=${now} /></td></tr>`)}`)}</tbody></table></div>
+      <div class="legend"><span style="--c:var(--ok)">published within its usual lag</span><span style="--c:var(--warn)">later than usual</span><span style="--c:var(--bad)">not published</span><span style="--c:var(--accent)">in progress</span></div>
+      <p class="note">Maker's newest: Open-Meteo's open-data record (the makers' release or a little after), at the run hours our job takes. Ours: the spot forecasts' and the map's newest run, the older of the two. "Usual" is from the run's start: how long the maker takes, and how long until ours is published. The strips fill in from 21.10.2026 (the panel's own record).</p>
+    </div>
+    <div class="panel s12"><h2>Products riders see, made from our sets</h2>
+      <div class="tablewrap"><table><thead><tr><th>Product</th><th>Made</th><th>Inputs newer since</th><th>Now</th></tr></thead>
+      <tbody>${(fr.products || []).map((p) => html`<tr><td><b>${p.label}</b></td><td class="num">${p.updated ? clock(p.updated) + " · " + hrs(now - p.updated) + " ago" : "–"}</td>
+        <td class="whytxt">${p.newer_inputs.length ? p.newer_inputs.length + ": " + p.newer_inputs.join(", ") : "none"}</td><td class="whytxt">${p.processing || ""}</td></tr>`)}</tbody></table></div>
+    </div>
+  </div>`;
+}
+
+function Capacity({ cap, now }) {
+  if (!cap || !cap.jobs) return html`<p class="empty">Reading the runner's records…</p>`;
+  const target = 5000;
+  const big = cap.biggest || { job: "–", peak_mb: 0 };
+  const fits = big.peak_mb <= target;
+  const hoursSince = cap.samples_from ? (now - cap.samples_from) / 3600 : 0;
+  const X0 = 40, X1 = 1160, Y0 = 20, Y1 = 190, bw = (X1 - X0) / 24;
+  const maxWait = Math.max(5, ...cap.by_hour.map((h) => h.waiting || 0));
+  const total = cap.jobs.reduce((a, j) => a + j.cpu_h, 0) || 1;
+  return html`<div class="grid">
+    ${hoursSince < 23 ? html`<p class="note s12" style="margin:0">The records reach back ${hoursSince.toFixed(0)} h; the waits are counted from 21.10.2026 evening on (when the runner began recording when a job became due).</p>` : null}
+    <div class="panel s3"><div class="verdict"><h2>CPU</h2><div class="v">${cap.cpu_day != null ? cap.cpu_day + "%" : "–"} <small style="font:500 14px var(--body);color:var(--muted)">of the day</small></div>
+      <div class="d">All ${cap.threads} threads together; peak ${cap.cpu_peak != null ? cap.cpu_peak + "%" : "–"} in a minute.</div></div></div>
+    <div class="panel s3"><div class="verdict"><h2>Memory</h2><div class="v" style=${cap.mem_full_h > 1 ? "color:var(--warn)" : ""}>${cap.mem_full_h} h full</div>
+      <div class="d">Minutes with under 1.5 GB free, added up.</div></div></div>
+    <div class="panel s3"><div class="verdict"><h2>Waiting</h2><div class="v" style=${cap.waited_h > 2 ? "color:var(--warn)" : ""}>${cap.waited_h} h</div>
+      <div class="d">Due jobs' waits added up; ${cap.long_waits} over 15 min.</div></div></div>
+    <div class="panel s3"><div class="verdict"><h2>Mac mini (16 GB)</h2><div class="v" style=${fits ? "color:var(--ok)" : "color:var(--bad)"}>${fits ? "Fits" : "Not yet"}</div>
+      <div class="d">Jobs used ${cap.cpu_h_day} CPU hours (the Mac has about 150-170 a day). Biggest: ${big.job} ${(big.peak_mb / 1000).toFixed(1)} GB, target 5 beside WRF.</div></div></div>
+    <div class="panel s12"><h2>The machine through the day · CPU by who, jobs waiting · Riga time</h2>
+      <svg class="chart" viewBox="0 0 1200 230" role="img" aria-label="CPU use by hour and jobs waiting">
+        ${[0, 50, 100].map((v) => { const y = Y1 - (Y1 - Y0) * v / 100; return html`<line x1=${X0} x2=${X1} y1=${y} y2=${y} stroke="var(--line)"/><text x=${X0 - 6} y=${y + 4} text-anchor="end">${v}%</text>`; })}
+        ${cap.by_hour.map((h) => {
+          const x = X0 + h.h * bw + 3, w = bw - 6;
+          const hw = (Y1 - Y0) * Math.min((h.wrf || 0) / 100, 1), hj = (Y1 - Y0) * Math.min((h.jobs || 0) / 100, 1);
+          return html`${h.free_min != null && h.free_min < 1500 ? html`<rect x=${x} y=${Y1 + 6} width=${w} height="5" rx="2" fill="var(--bad)"/>` : null}
+            <rect x=${x} y=${Y1 - hw} width=${w} height=${hw} fill="var(--wrf)"/>
+            <rect x=${x} y=${Y1 - hw - hj} width=${w} height=${hj} rx="2" fill="var(--accent)"><title>${pad(h.h)}:00 WRF ${h.wrf ?? "–"}% jobs ${h.jobs ?? "–"}%, ${h.waiting} job-hours waiting</title></rect>
+            ${h.h % 3 === 0 ? html`<text x=${x + w / 2} y=${Y1 + 26} text-anchor="middle">${pad(h.h)}:00</text>` : null}`;
+        })}
+        <path d=${cap.by_hour.map((h, i) => `${i ? "L" : "M"}${(X0 + h.h * bw + bw / 2).toFixed(1)} ${(Y1 - (Y1 - Y0) * (h.waiting || 0) / maxWait).toFixed(1)}`).join(" ")} fill="none" stroke="var(--warn)" stroke-width="2"/>
+        <text x=${X1 + 8} y=${Y0 + 4}>${maxWait.toFixed(0)}</text><text x=${X1 + 8} y=${Y1 + 4}>0</text>
+      </svg>
+      <div class="legend"><span style="--c:var(--wrf)">WRF</span><span style="--c:var(--accent)">jobs</span><span style="--c:var(--warn)">job-hours waiting (right scale)</span><span style="--c:var(--bad)">memory full that hour</span></div></div>
+    <div class="panel s12"><h2>Each job, last 24 hours · sorted by CPU</h2>
+      <div class="tablewrap"><table style="min-width:900px"><thead><tr><th>Job</th><th class="r">Runs</th><th class="r">CPU hours</th><th>Share of the CPU</th><th class="r">Time running</th><th class="r">Peak memory</th><th class="r">Downloaded</th><th class="r">Waited</th><th class="r">Longest wait</th><th class="r">Failed</th></tr></thead>
+      <tbody>${cap.jobs.map((j) => html`<tr><td><b>${j.job}</b></td><td class="r num">${j.runs}</td><td class="r num">${j.cpu_h.toFixed(1)}</td>
+        <td><div class="hbar"><i style=${`width:${Math.min(j.cpu_h / total * 250, 100).toFixed(0)}%`}></i></div></td>
+        <td class="r num">${j.wall_h.toFixed(1)} h</td><td class="r num">${(j.peak_mb / 1000).toFixed(1)} GB</td><td class="r num">${j.net_gb.toFixed(1)} GB</td>
+        <td class="r num" style=${j.waited_h >= 1 ? "color:var(--warn)" : ""}>${j.waited_h.toFixed(1)} h</td><td class="r num">${hrs(j.longest_wait)}</td>
+        <td class="r num" style=${j.failed ? "color:var(--bad)" : ""}>${j.failed || ""}</td></tr>`)}</tbody></table></div>
+      <p class="note">CPU hours: thread-hours used (one thread busy for an hour is 1). Waited: from the minute a job was due to its start; this is where the machine runs short. Shadow runs make whole sets, so they show more work than the live jobs will.</p></div>
+  </div>`;
+}
+
+// admin.meteogust.com's overview, read-only: each section's plain values (numbers, short text) and list sizes.
+function Section({ name, value }) {
+  const label = (k) => k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ");
+  const rows = [];
+  const add = (k, v) => {
+    if (v == null) return;
+    if (typeof v === "number") rows.push([label(k), Number.isInteger(v) ? v.toLocaleString("en") : v.toFixed(2)]);
+    else if (typeof v === "string" && v.length < 60) rows.push([label(k), v]);
+    else if (typeof v === "boolean") rows.push([label(k), v ? "yes" : "no"]);
+    else if (Array.isArray(v)) rows.push([label(k), v.length + " items"]);
+  };
+  if (Array.isArray(value)) rows.push(["items", value.length]);
+  else if (value && typeof value === "object") Object.entries(value).slice(0, 12).forEach(([k, v]) => add(k, v));
+  else add(name, value);
+  if (!rows.length) return null;
+  return html`<div class="panel"><h2>${label(name)}</h2><div class="kv">${rows.map(([k, v]) => html`<span>${k}</span><span>${v}</span>`)}</div></div>`;
+}
+
+function Admin({ ad, now }) {
+  if (!ad || !ad.feeds) return html`<p class="empty">Reading the feeds…</p>`;
+  const late = ad.feeds.filter((f) => f.late).length;
+  const skip = new Set(["now", "rows", "history", "heat", "rainSkill", "rainWeights", "maps", "runs", "models", "tiles"]);
+  return html`<p class="note" style="margin:0 0 12px">admin.meteogust.com's data, read-only, every minute while open. Changes (approve a spot, add a station, start a build) stay on <a href="https://admin.meteogust.com/" style="color:var(--accent)">admin.meteogust.com</a>, which also keeps working when home is down.</p>
+    <div class="cards">
+      <div class="panel"><h2>Feeds and alerts · ${late ? late + " late" : "all fine"}</h2>
+        ${ad.feeds.map((f) => html`<div class="feed"><span>${f.name}<span class="sub">${f.usual}</span></span><span class="num">${f.age != null ? hrs(f.age) + " ago" : "not found"}</span>
+          <span class=${"st " + (f.late ? "bad" : "ok")}>${f.late ? "late" : "fine"}</span></div>`)}
+        <a class="btn" href="https://admin.meteogust.com/">Alert settings in admin ↗</a></div>
+      ${ad.error === "token" ? html`<div class="panel"><h2>The rest of admin's overview</h2>
+          <p class="note">Needs the admin service token on the Tower: add <b>SHOREWIND_ADMIN_ID</b> and <b>SHOREWIND_ADMIN_SECRET</b> (the same values call.py uses on your PC) to /root/.meteogust.env. The panel reads them within a minute.</p></div>`
+        : ad.error ? html`<div class="panel"><h2>Admin's overview</h2><p class="note">${ad.error}</p></div>`
+        : Object.entries(ad.overview || {}).filter(([k]) => !skip.has(k)).map(([k, v]) => html`<${Section} name=${k} value=${v} />`)}
+    </div>`;
+}
+
+function NowTab({ f, s, now }) {
+  return html`<div class="grid">
+      <${Machine} f=${f} />
+      <${Running} f=${f} now=${now} />
+      <${Next} f=${f} />
+      <${Timeline} s=${s} now=${now} />
+      <${Sources} f=${f} s=${s} />
+      <${Runs} s=${s} />
+    </div>`;
+}
+
 function App() {
   const [f, setF] = useState(null);
   const [s, setS] = useState(null);
+  const [fr, setFr] = useState(null);
+  const [cap, setCap] = useState(null);
+  const [ad, setAd] = useState(null);
+  const pick = () => (TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "freshness");
+  const [tab, setTab] = useState(pick());
   const [zone, setZoneState] = useState(ZONE);
   const [, tick] = useState(0);
   const setZone = (z) => { ZONE = z; try { localStorage.setItem("ops-zone", z); } catch (e) {} setZoneState(z); };
@@ -364,29 +614,34 @@ function App() {
     const es = new EventSource("/api/stream");
     es.addEventListener("fast", (e) => { last = Date.now(); setF(JSON.parse(e.data)); });
     es.addEventListener("slow", (e) => setS(JSON.parse(e.data)));
+    es.addEventListener("fresh", (e) => setFr(JSON.parse(e.data)));
+    es.addEventListener("capacity", (e) => setCap(JSON.parse(e.data)));
+    es.addEventListener("admin", (e) => setAd(JSON.parse(e.data)));
+    const onHash = () => setTab(pick());
+    addEventListener("hashchange", onHash);
     // Without the stream (a proxy holding it back), ask every 3 seconds instead.
     const poll = setInterval(async () => {
       if (Date.now() - last < 8000) return;
       try {
         setF(await (await fetch("/api/fast")).json());
-        if (!s || Date.now() % 30000 < 3000) setS(await (await fetch("/api/slow")).json());
+        if (!s || Date.now() % 30000 < 3000) {
+          setS(await (await fetch("/api/slow")).json());
+          setFr(await (await fetch("/api/fresh")).json());
+          setCap(await (await fetch("/api/capacity")).json());
+          setAd(await (await fetch("/api/admin")).json());
+        }
       } catch (err) {}
     }, 3000);
     const clockTimer = setInterval(() => tick((n) => n + 1), 1000);
-    return () => { es.close(); clearInterval(poll); clearInterval(clockTimer); };
+    return () => { es.close(); clearInterval(poll); clearInterval(clockTimer); removeEventListener("hashchange", onHash); };
   }, []);
   const now = Date.now() / 1000;
   if (!f) return html`<main class="wrap"><p class="empty">Connecting to the Tower…</p></main>`;
-  return html`<${Top} f=${f} zone=${zone} setZone=${setZone} />
-    <main class="wrap"><div class="grid">
-      <${Machine} f=${f} />
-      <${Running} f=${f} now=${now} />
-      <${Next} f=${f} />
-      <${Timeline} s=${s} now=${now} />
-      <${Sources} f=${f} s=${s} />
-      <${Runs} s=${s} />
-    </div>
-    <div class="foot"><span>Read-only. Updates every 2 seconds while open.</span><span>Tap a job for its live log.</span></div></main>`;
+  return html`<${Top} f=${f} zone=${zone} setZone=${setZone} tab=${tab} fr=${fr} cap=${cap} />
+    <main class="wrap">
+      ${tab === "freshness" ? html`<${Freshness} fr=${fr} now=${now} />` : tab === "capacity" ? html`<${Capacity} cap=${cap} now=${now} />`
+        : tab === "admin" ? html`<${Admin} ad=${ad} now=${now} />` : html`<${NowTab} f=${f} s=${s} now=${now} />`}
+    <div class="foot"><span>Read-only. Live every 2 seconds; freshness every 2 minutes.</span><span>On Now, tap a job for its live log.</span></div></main>`;
 }
 
 render(html`<${App} />`, document.getElementById("app"));

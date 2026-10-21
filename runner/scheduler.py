@@ -161,6 +161,9 @@ def wrf_running():
 
 
 _runs_seen, _arrived = {}, set()
+# When each due job first became due and couldn't start (the ops panel's Capacity: from due to started is the
+# wait, where the machine runs short); STATS/_runs.jsonl's "due".
+_due_since = {}
 
 
 def newest_run(model, cache):
@@ -426,8 +429,11 @@ def write_live(state, running, others, live, names, cache, now, wrf, budget, res
                 "priority 3 waits for a free slot" if job.priority >= 3 else
                 f"all {total_max} slots busy" if len(busy) >= total_max else "starts within a minute")
             src = f"{datetime.fromtimestamp(wanted, timezone.utc):%d %H}Z run" if job.watch else None
-            out_waiting.append({"job": job.name, "priority": job.priority, "why": why, "source": src, "need": mem_need(job)})
+            since = _due_since.setdefault(job.name, now)
+            out_waiting.append({"job": job.name, "priority": job.priority, "why": why, "source": src, "need": mem_need(job),
+                                "since": round(since)})
         else:
+            _due_since.pop(job.name, None)
             at, why = expected(job, state, cache, now, lags)
             out_next.append({"job": job.name, "priority": job.priority, "at": round(at) if at else None, "why": why})
     out_next.sort(key=lambda n: (n["at"] is None, n["at"] or 0))
@@ -534,7 +540,8 @@ def main():
                 continue
             reserved += need
             is_live = job.name in live
-            running[job.name] = Running(job, is_live, wanted if job.watch else None, now, LOW_SHARES if wrf else 1024)
+            running[job.name] = Running(job, is_live, wanted if job.watch else None, _due_since.pop(job.name, now),
+                                        LOW_SHARES if wrf else 1024)
             mine = state.setdefault(job.name, {})
             mine["started"] = now
             if job.watch:

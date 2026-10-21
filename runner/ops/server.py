@@ -35,6 +35,9 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import views  # noqa: E402  (freshness, capacity, admin)
+
 HOME = os.environ.get("MG_HOME", "/var/lib/meteogust")
 PORT = int(os.environ.get("MG_OPS_PORT", "8090"))
 UDP = int(os.environ.get("MG_OPS_UDP", "8091"))
@@ -474,7 +477,7 @@ class Records:
                 self.fetch_github()
             except Exception as error:
                 log(f"github: {error}")
-            time.sleep(3600)
+            time.sleep(3 * 3600)  # (the public API's 60 calls an hour, shared with the freshness's every 2 minutes)
 
     def build_slow(self, live, downloads):
         now = time.time()
@@ -526,7 +529,41 @@ class Records:
 DOWNLOADS = Downloads()
 MACHINE = Machine(DOWNLOADS)
 RECORDS = Records()
+FRESH = views.Freshness()
+ADMIN = views.Admin()
 CLIENTS = [0]
+_capacity = {"at": 0, "data": {}}
+
+
+def summaries_loop():
+    """Freshness every 2 minutes and the admin view every minute while someone watches (else every 10)."""
+    last_fresh = last_admin = 0
+    while True:
+        now = time.time()
+        watched = now - MACHINE.watched < 120
+        if now - last_fresh > (120 if watched else 600):
+            last_fresh = now
+            try:
+                FRESH.refresh(wrf_state())
+            except Exception as error:
+                log(f"freshness: {error}")
+        if now - last_admin > (60 if watched else 600):
+            last_admin = now
+            try:
+                ADMIN.refresh()
+            except Exception as error:
+                log(f"admin: {error}")
+        time.sleep(10)
+
+
+def capacity():
+    if time.time() - _capacity["at"] > 60:
+        try:
+            _capacity["data"] = views.capacity()
+        except Exception as error:
+            log(f"capacity: {error}")
+        _capacity["at"] = time.time()
+    return _capacity["data"]
 
 
 def live_state():
@@ -620,6 +657,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.reply(200, "application/json", json.dumps(fast()).encode())
             elif url.path == "/api/slow":
                 self.reply(200, "application/json", json.dumps(slow()).encode())
+            elif url.path == "/api/fresh":
+                self.reply(200, "application/json", json.dumps(FRESH.data).encode())
+            elif url.path == "/api/capacity":
+                self.reply(200, "application/json", json.dumps(capacity()).encode())
+            elif url.path == "/api/admin":
+                self.reply(200, "application/json", json.dumps(ADMIN.data).encode())
             elif url.path == "/api/stream":
                 self.stream()
             elif url.path == "/api/log":
@@ -637,6 +680,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             while True:
                 if time.time() - last_slow > 30:
                     self.send_event("slow", slow())
+                    self.send_event("fresh", FRESH.data)
+                    self.send_event("capacity", capacity())
+                    self.send_event("admin", ADMIN.data)
                     last_slow = time.time()
                 self.send_event("fast", fast())
                 time.sleep(2)
@@ -686,19 +732,20 @@ class Server(http.server.ThreadingHTTPServer):
 
 
 def reload_when_changed():
-    stamp = os.path.getmtime(__file__)
+    files = [__file__, views.__file__]
+    stamp = [os.path.getmtime(f) for f in files]
     while True:
         time.sleep(20)
         try:
-            if os.path.getmtime(__file__) != stamp:
-                log("server.py changed: reloading")
+            if [os.path.getmtime(f) for f in files] != stamp:
+                log("the panel's code changed: reloading")
                 os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)])
         except OSError:
             pass
 
 
 def main():
-    for target in (DOWNLOADS.listen, MACHINE.run, RECORDS.github_loop, reload_when_changed):
+    for target in (DOWNLOADS.listen, MACHINE.run, RECORDS.github_loop, summaries_loop, reload_when_changed):
         threading.Thread(target=target, daemon=True).start()
     log(f"ops panel on 127.0.0.1:{PORT}, downloads on UDP {UDP}")
     Server(("127.0.0.1", PORT), Handler).serve_forever()
