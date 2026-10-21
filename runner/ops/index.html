@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MeteoGust Ops</title>
+<!-- The ops panel (runner/ops/server.py); from docs/mockups/ops-panel-2026-10-21.html in the app repo, approved by the owner 21.10.2026. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a control-room console. Status bar, the machine, running jobs beside what's next, then the
+   day's timeline, sources and recent runs. One column on a phone, in the order a glance needs. */
+:root {
+  --bg: #eef2f5; --panel: #ffffff; --line: #d8e0e7; --ink: #13202b; --muted: #5d6d7c; --faint: #9aa8b5;
+  --accent: #0f7f88; --accent-soft: #d5eef0; --wrf: #6a55c9; --wrf-soft: #e6e1fa;
+  --ok: #2f9a5c; --warn: #b9770e; --warn-soft: #fbefd9; --bad: #c94141; --bad-soft: #f8dede;
+  --display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0d151d; --panel: #141f2a; --line: #233242; --ink: #dbe5ee; --muted: #8b9cad; --faint: #5a6b7c;
+  --accent: #46c1c9; --accent-soft: #143a40; --wrf: #a594f2; --wrf-soft: #2a2550;
+  --ok: #5fc58a; --warn: #e3a447; --warn-soft: #3a2c14; --bad: #f07272; --bad-soft: #3d1b1e; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0d151d; --panel: #141f2a; --line: #233242; --ink: #dbe5ee; --muted: #8b9cad; --faint: #5a6b7c;
+  --accent: #46c1c9; --accent-soft: #143a40; --wrf: #a594f2; --wrf-soft: #2a2550;
+  --ok: #5fc58a; --warn: #e3a447; --warn-soft: #3a2c14; --bad: #f07272; --bad-soft: #3d1b1e; color-scheme: dark }
+
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--ink); font: 15px/1.45 var(--body); margin: 0 }
+.wrap { max-width: 1320px; margin: 0 auto; padding-block: 0 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)) }
+.num, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums }
+h2 { font: 600 13px/1 var(--display); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0 }
+
+/* Status bar */
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line);
+  margin-bottom: 16px }
+.top .wrap { padding-block: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px }
+.brand { font: 700 20px/1 var(--display); letter-spacing: .01em; display: flex; align-items: center; gap: 10px }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent);
+  animation: pulse 2s infinite }
+@keyframes pulse { 50% { box-shadow: 0 0 0 6px transparent } }
+@media (prefers-reduced-motion: reduce) { .dot { animation: none } }
+.brand small { font: 500 14px var(--body); color: var(--muted) }
+.pills { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0 }
+.pill { font: 500 12.5px/1 var(--body); padding: 6px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); white-space: nowrap }
+.pill.wrf { background: var(--wrf-soft); border-color: transparent; color: var(--wrf) }
+.pill.warn { background: var(--warn-soft); border-color: transparent; color: var(--warn) }
+.clock { font: 500 13px var(--mono); color: var(--muted); white-space: nowrap }
+.clock b { color: var(--ink); font-weight: 500 }
+
+/* Grid */
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(12, minmax(0, 1fr)) }
+.s12 { grid-column: span 12 } .s8 { grid-column: span 8 } .s4 { grid-column: span 4 } .s7 { grid-column: span 7 } .s5 { grid-column: span 5 }
+@media (max-width: 980px) { .s8, .s4, .s7, .s5 { grid-column: span 12 } }
+
+/* Machine */
+.machine { display: grid; grid-template-columns: 1.25fr 1fr 1.25fr; gap: 24px }
+@media (max-width: 980px) { .machine { grid-template-columns: 1fr } }
+.cores { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px }
+.core { height: 38px; border-radius: 4px; background: var(--line); position: relative; overflow: hidden }
+.core i { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); transition: height .8s }
+.core.wrf i { background: var(--wrf) }
+.core.e { height: 30px; align-self: end }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--muted); margin-top: 8px }
+.legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; background: var(--c) }
+.mem { display: flex; height: 22px; border-radius: 5px; overflow: hidden; background: var(--line); gap: 2px }
+.mem div { height: 100% }
+.memline { display: flex; justify-content: space-between; align-items: baseline; margin: 2px 0 8px }
+.big { font: 600 26px/1 var(--display) }
+.big small { font: 500 14px var(--body); color: var(--muted) }
+.memnote { font-size: 13px; color: var(--muted); margin-top: 8px }
+.net { display: flex; flex-direction: column; gap: 6px }
+.net svg { width: 100%; height: 64px; display: block }
+.netnums { display: flex; gap: 22px }
+
+/* Running jobs */
+.jobs { display: grid; gap: 12px }
+.job { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: grid; gap: 8px; cursor: pointer; background: var(--panel) }
+.job:hover, .job:focus-visible { border-color: var(--accent); outline: none }
+.job.wrfjob { background: var(--wrf-soft); border-color: transparent }
+.jhead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap }
+.jname { font: 600 17px/1.1 var(--display) }
+.prio { font: 600 11px/1 var(--mono); padding: 4px 6px; border-radius: 4px }
+.p1 { background: var(--accent); color: var(--panel) } .p2 { border: 1px solid var(--accent); color: var(--accent) } .p3 { border: 1px solid var(--faint); color: var(--muted) }
+.pw { background: var(--wrf); color: var(--panel) }
+.jstats { margin-left: auto; display: flex; gap: 14px; font: 13px var(--mono); color: var(--muted) }
+.jstats b { color: var(--ink); font-weight: 500 }
+.what { font-size: 14px }
+.bar { height: 5px; border-radius: 3px; background: var(--line); overflow: hidden }
+.bar i { display: block; height: 100%; background: var(--accent); transition: width .8s }
+.wrfjob .bar i { background: var(--wrf) }
+.dl { display: flex; align-items: center; gap: 10px; font: 12.5px var(--mono); color: var(--muted); min-width: 0 }
+.dl .file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 }
+.dl .speed { color: var(--accent); font-weight: 500; white-space: nowrap }
+.dl svg { width: 70px; height: 18px; flex: none }
+.logline { font: 12px var(--mono); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.log { background: var(--bg); border-radius: 6px; padding: 10px 12px; font: 12px/1.6 var(--mono); color: var(--muted); max-height: 168px; overflow: auto }
+.log div:last-child { color: var(--ink) }
+
+/* Next */
+.next { display: grid; gap: 0 }
+.nrow { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; padding: 10px 0; border-top: 1px solid var(--line); align-items: start }
+.nrow:first-of-type { border-top: 0; padding-top: 0 }
+.nrow .t { font: 500 13px var(--mono); color: var(--muted); white-space: nowrap; text-align: right }
+.nrow .t.now { color: var(--warn) }
+.nrow .n { font: 600 15px/1.2 var(--display) }
+.nrow .why { grid-column: 2 / 4; font-size: 13px; color: var(--muted) }
+.chip { display: inline-block; font: 500 11.5px/1 var(--body); padding: 4px 7px; border-radius: 4px; margin-left: 6px; vertical-align: 1px }
+.chip.mem { background: var(--warn-soft); color: var(--warn) }
+.chip.hold { background: var(--line); color: var(--muted) }
+.chip.wrf { background: var(--wrf-soft); color: var(--wrf) }
+
+/* Timeline */
+.tlwrap { overflow-x: auto }
+.tl { min-width: 860px; width: 100%; display: block }
+.tl text { font: 11px var(--mono); fill: var(--muted) }
+.tl .lane { font: 600 12px var(--display); letter-spacing: .04em; fill: var(--ink) }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; font-size: 14px }
+th { text-align: left; font: 600 11.5px var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 0 8px 8px; border-bottom: 1px solid var(--line) }
+td { padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: top }
+tr:last-child td { border-bottom: 0 }
+td.r, th.r { text-align: right }
+.tablewrap { overflow-x: auto }
+.ok { color: var(--ok) } .bad { color: var(--bad) } .warn { color: var(--warn) }
+.faster { color: var(--ok); font-size: 12.5px } .slower { color: var(--warn); font-size: 12.5px }
+.foot { margin-top: 18px; font-size: 12.5px; color: var(--faint); display: flex; flex-wrap: wrap; gap: 6px 18px }
+.mockflag { font: 600 11px var(--mono); letter-spacing: .08em; color: var(--warn); border: 1px dashed var(--warn); border-radius: 4px; padding: 3px 6px }
+</style>
+</head><body>
+<style>
+.pill.bad { background: var(--bad-soft); border-color: transparent; color: var(--bad) }
+.pill.okp { color: var(--ok) }
+.tbtn { font: 500 12.5px var(--body); padding: 5px 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer }
+.tbtn:focus-visible { outline: 2px solid var(--accent) }
+.tag { font: 500 11px/1 var(--body); padding: 3px 6px; border-radius: 4px; background: var(--line); color: var(--muted) }
+.tag.live { background: var(--accent-soft); color: var(--accent) }
+.bar i.over { background: var(--warn) }
+.empty { color: var(--muted); font-size: 14px; padding: 6px 0 }
+.core.idle i { background: var(--faint) }
+</style>
+<div id="app"><main class="wrap"><p class="empty">Connecting to the Tower…</p></main></div>
+<script type="module">
+import { html, render, useState, useEffect, useRef } from "https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js";
+
+const GB = (b) => (b / 1e9).toFixed(1);
+const MBs = (v) => v >= 20 ? Math.round(v) : v >= 1 ? v.toFixed(1) : v > 0 ? v.toFixed(2) : "0";
+const pad = (n) => String(n).padStart(2, "0");
+const dur = (s) => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, r = s % 60; return h ? `${h}:${pad(m)}:${pad(r)}` : `${m}:${pad(r)}`; };
+const prioClass = (p) => p === 1 ? "p1" : p === 2 ? "p2" : "p3";
+let ZONE = "Europe/Riga";
+try { ZONE = localStorage.getItem("ops-zone") || ZONE; } catch (e) {}
+const clock = (t, sec) => t ? new Date(t * 1000).toLocaleTimeString("en-GB", { timeZone: ZONE, hour: "2-digit", minute: "2-digit", second: sec ? "2-digit" : undefined }) : "–";
+const zoneName = () => ZONE === "UTC" ? "UTC" : "Riga";
+const base = (u) => { try { const p = new URL(u); const parts = p.pathname.split("/").filter(Boolean); return p.hostname + "/…/" + parts.slice(-2).join("/"); } catch (e) { return u; } };
+
+function Spark({ values, w = 70, h = 18 }) {
+  if (!values || values.length < 2) return html`<svg width=${w} height=${h}></svg>`;
+  const max = Math.max(...values, 1);
+  const d = values.map((v, i) => `${i ? "L" : "M"}${(i / (values.length - 1) * w).toFixed(1)} ${(h - v / max * (h - 2) - 1).toFixed(1)}`).join(" ");
+  return html`<svg viewBox="0 0 ${w} ${h}" width=${w} height=${h}><path d=${d} fill="none" stroke="var(--accent)" stroke-width="1.5"/></svg>`;
+}
+
+function Top({ f, zone, setZone }) {
+  const now = Date.now() / 1000;
+  const waitingMem = (f.waiting || []).filter((w) => (w.why || "").startsWith("waits for memory")).length;
+  const busy = (f.jobs || []).length;
+  const stale = f.live_t && now - f.live_t > 180;
+  const beatAge = f.beat ? now - f.beat : null;
+  return html`<header class="top"><div class="wrap">
+    <div class="brand"><span class="dot" aria-hidden="true" style=${stale ? "background:var(--bad)" : ""}></span>MeteoGust ops
+      <small>${f.host || "…"} · ${(f.live || []).length ? `${f.live.length} live` : "shadow"}</small></div>
+    <div class="pills">
+      ${f.wrf && f.wrf.running
+        ? html`<span class="pill wrf">WRF ${f.wrf.region || ""} running · ${dur(now - (f.wrf.started || now))}</span>`
+        : html`<span class="pill">WRF idle · next ${clock((f.wrf && f.wrf.next || [])[0])}</span>`}
+      <span class="pill">${busy} of ${f.slots || "?"} job slots${f.wrf && f.wrf.running ? " (halved for WRF)" : ""}</span>
+      ${waitingMem ? html`<span class="pill warn">${waitingMem} waiting for memory</span>` : null}
+      ${stale ? html`<span class="pill bad">scheduler quiet for ${dur(now - f.live_t)}</span>` : null}
+      <span class="pill">heartbeat ${beatAge == null ? "not sent" : dur(beatAge) + " ago"}</span>
+    </div>
+    <div class="clock"><b>${clock(now, true)}</b> ${zoneName()}
+      <button class="tbtn" id="zone" onClick=${() => setZone(zone === "UTC" ? "Europe/Riga" : "UTC")}>show ${zone === "UTC" ? "Riga" : "UTC"}</button></div>
+  </div></header>`;
+}
+
+function Machine({ f }) {
+  const cores = f.cores || [];
+  const total = f.mem_total || 1, used = total - (f.mem_avail || 0);
+  const conts = (f.containers || []).filter((c) => c.kind !== "other" || c.mem > 2e8);
+  const sum = conts.reduce((a, c) => a + c.mem, 0);
+  const segs = [...conts.map((c) => ({ name: c.kind === "wrf" ? "WRF" : c.name, mem: c.mem, color: c.kind === "wrf" ? "var(--wrf)" : c.kind === "job" ? "var(--accent)" : "var(--faint)" })),
+    { name: "system and caches", mem: Math.max(used - sum, 0), color: "color-mix(in srgb, var(--faint) 60%, var(--panel))" }];
+  const hist = (f.net_hist || []).map((h) => h[1]);
+  const max = Math.max(117, ...hist, 1);
+  const w = 300, hh = 64;
+  const pts = hist.map((v, i) => [hist.length > 1 ? i / (hist.length - 1) * w : 0, hh - v / max * (hh - 4)]);
+  const line = pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" ");
+  const limitY = hh - 117 / max * (hh - 4);
+  return html`<section class="panel s12" aria-label="The machine"><div class="machine">
+    <div><h2>Threads (${cores.length})</h2>
+      <div class="cores" style=${`grid-template-columns:repeat(${Math.min(cores.length || 10, 10)},1fr)`}>
+        ${cores.map((v) => html`<div class=${"core" + (v < 5 ? " idle" : "")}><i style=${`height:${Math.max(v, 2)}%`}></i></div>`)}
+      </div>
+      <div class="legend"><span style="--c:var(--accent)">busy share of each thread, last 2 s</span></div></div>
+    <div><h2>Memory</h2>
+      <div class="memline"><span class="big">${GB(used)} <small>of ${GB(total)} GB</small></span>
+        <span class="mono" style="font-size:13px;color:var(--muted)">jobs' budget ${f.budget ? (f.budget / 1000).toFixed(1) : "?"}</span></div>
+      <div class="mem" role="img" aria-label="Memory by user">${segs.filter((s) => s.mem > 0).map((s) => html`<div title=${`${s.name} ${GB(s.mem)} GB`} style=${`width:${(s.mem / total * 100).toFixed(2)}%;background:${s.color}`}></div>`)}</div>
+      <div class="legend">${segs.filter((s) => s.mem > 1e8).map((s) => html`<span style=${`--c:${s.color}`}>${s.name} ${GB(s.mem)}</span>`)}</div>
+      <div class="memnote">Reserved for running jobs: <b class="num">${f.reserved != null ? (f.reserved / 1000).toFixed(1) : "?"} GB</b>${f.wrf && f.wrf.running ? " (WRF's 9 GB off the budget while it runs)" : ""}.</div></div>
+    <div class="net"><h2>Network</h2>
+      <div class="netnums"><span class="big">${MBs(f.net_in || 0)} <small>MB/s in</small></span><span class="big">${MBs(f.net_out || 0)} <small>MB/s out</small></span></div>
+      <svg viewBox="0 0 300 64" preserveAspectRatio="none" aria-label="Download speed, last minutes">
+        <line x1="0" x2="300" y1=${limitY} y2=${limitY} stroke="var(--faint)" stroke-dasharray="3 4" stroke-width="1" vector-effect="non-scaling-stroke"/>
+        ${hist.length > 1 ? html`<path d=${line + " L300 64 L0 64 Z"} fill="var(--accent-soft)"/><path d=${line} fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/>` : null}
+      </svg>
+      <div class="legend"><span style="--c:var(--accent)">in, last ${Math.round(hist.length * 2 / 60) || "<1"} min</span><span style="--c:var(--faint)">line limit ~117 MB/s</span></div></div>
+  </div></section>`;
+}
+
+function Log({ job }) {
+  const [lines, setLines] = useState([]);
+  const box = useRef(null);
+  useEffect(() => {
+    const es = new EventSource("/api/log?job=" + encodeURIComponent(job));
+    const got = [];
+    es.addEventListener("line", (e) => { got.push(JSON.parse(e.data).text); if (got.length > 200) got.shift(); setLines([...got]); });
+    return () => es.close();
+  }, [job]);
+  useEffect(() => { if (box.current) box.current.scrollTop = box.current.scrollHeight; }, [lines]);
+  return html`<div class="log" ref=${box}>${lines.length ? lines.map((l) => html`<div>${l}</div>`) : html`<div>Reading the log…</div>`}</div>`;
+}
+
+function JobCard({ j, now, open, toggle }) {
+  const el = j.started ? now - j.started : null;
+  const typ = j.typical;
+  const pct = el != null && typ ? Math.min(el / (typ * 60), 1) : null;
+  const over = el != null && typ && el > typ * 60 * 1.2;
+  const d = j.download;
+  const speed = j.net_in || 0;
+  return html`<div class="job" tabindex="0" onClick=${toggle} onKeyDown=${(e) => e.key === "Enter" && toggle()}>
+    <div class="jhead"><span class=${"prio " + prioClass(j.priority)}>P${j.priority}</span><span class="jname">${j.job}</span>
+      <span class=${"tag" + (j.live ? " live" : "")}>${j.live ? "live" : "shadow"}</span>
+      <span class="jstats"><span><b>${el != null ? dur(el) : "–"}</b></span><span>CPU <b>${j.cpu != null ? j.cpu + "%" : "–"}</b></span><span><b>${j.mem != null ? GB(j.mem) : "–"}</b> GB</span></span></div>
+    <div class="what">${j.source ? `source run ${new Date(j.source * 1000).toISOString().slice(8, 13).replace("T", " ")}Z · ` : ""}${typ ? `usually ${typ} min` : "first runs: no usual time yet"}${over ? html` · <b class="warn">over its usual time</b>` : ""} · plans for ${j.need ? (j.need / 1000).toFixed(1) : "?"} GB</div>
+    ${pct != null ? html`<div class="bar"><i class=${over ? "over" : ""} style=${`width:${(pct * 100).toFixed(1)}%`}></i></div>` : null}
+    <div class="dl"><span>↓</span><span class="file">${d ? `${d.host} · ${base(d.url)}${d.done ? " · done" : ""}` : "no download right now"}</span>
+      <${Spark} values=${j.speeds} /><span class="speed">${MBs(speed)} MB/s</span></div>
+    ${open ? html`<${Log} job=${j.job} />` : html`<div class="logline">tap for the live log</div>`}
+  </div>`;
+}
+
+function WrfCard({ w, now, open, toggle }) {
+  return html`<div class="job wrfjob" tabindex="0" onClick=${toggle} onKeyDown=${(e) => e.key === "Enter" && toggle()}>
+    <div class="jhead"><span class="prio pw">WRF</span><span class="jname">WRF ${w.region || ""} 1 km</span>
+      <span class="jstats"><span><b>${dur(now - (w.started || now))}</b></span><span>CPU <b>${w.cpu != null ? w.cpu + "%" : "–"}</b></span><span><b>${w.mem != null ? GB(w.mem) : "–"}</b> GB</span></span></div>
+    <div class="what">${w.box ? `1 km box ${w.box[0]} to ${w.box[1]} UTC · model time ${w.model_time || "–"}` : "preparing (GFS, the boxes)"}</div>
+    ${w.progress != null ? html`<div class="bar"><i style=${`width:${(w.progress * 100).toFixed(1)}%`}></i></div>` : null}
+    ${open ? html`<${Log} job="wrf" />` : html`<div class="logline">${w.last_line || ""}</div>`}
+  </div>`;
+}
+
+function Running({ f, now }) {
+  const [open, setOpen] = useState(null);
+  const t = (k) => () => setOpen(open === k ? null : k);
+  const jobs = [...(f.jobs || [])].sort((a, b) => a.priority - b.priority);
+  return html`<section class="panel s8" aria-label="Running now"><h2>Running now</h2><div class="jobs">
+    ${f.wrf && f.wrf.running ? html`<${WrfCard} w=${f.wrf} now=${now} open=${open === "wrf"} toggle=${t("wrf")} />` : null}
+    ${jobs.map((j) => html`<${JobCard} key=${j.job} j=${j} now=${now} open=${open === j.job} toggle=${t(j.job)} />`)}
+    ${!jobs.length && !(f.wrf && f.wrf.running) ? html`<p class="empty">Nothing running: every job is waiting for its next run.</p>` : null}
+  </div></section>`;
+}
+
+function Next({ f }) {
+  const waiting = f.waiting || [];
+  const next = (f.next || []).filter((n) => n.at).slice(0, 10);
+  const later = (f.next || []).filter((n) => !n.at);
+  const wnext = (f.wrf && f.wrf.next) || [];
+  return html`<section class="panel s4" aria-label="What's next"><h2>Next, and why</h2><div class="next">
+    ${waiting.map((w) => html`<div class="nrow"><span class=${"prio " + prioClass(w.priority)}>P${w.priority}</span>
+      <span class="n">${w.job}${(w.why || "").startsWith("waits for memory") ? html`<span class="chip mem">memory</span>` : (w.why || "").startsWith("priority 3") ? html`<span class="chip hold">held</span>` : null}</span>
+      <span class="t now">due</span><span class="why">${w.source ? w.source + ": " : ""}${w.why}</span></div>`)}
+    ${next.map((n) => html`<div class="nrow"><span class=${"prio " + prioClass(n.priority)}>P${n.priority}</span><span class="n">${n.job}</span>
+      <span class="t">${n.why.startsWith("every") ? "" : "~"}${clock(n.at)}</span><span class="why">${n.why}</span></div>`)}
+    ${wnext[0] ? html`<div class="nrow"><span class="prio pw">WRF</span><span class="n">WRF Tarifa</span><span class="t">${clock(wnext[0])}</span>
+      <span class="why">From the newest GFS. Job slots halve and their CPU share drops while it runs.</span></div>` : null}
+    ${later.length ? html`<div class="nrow"><span></span><span class="why" style="grid-column:2/4">Not known yet: ${later.map((n) => n.job).join(", ")}</span></div>` : null}
+  </div></section>`;
+}
+
+function Timeline({ s, now }) {
+  if (!s || !s.items) return html`<section class="panel s12"><h2>Timeline</h2><p class="empty">Loading…</p></section>`;
+  const X0 = 150, X1 = 1225, top = 38, lh = 30;
+  const t0 = s.from, t1 = s.to;
+  const x = (t) => X0 + (t - t0) / (t1 - t0) * (X1 - X0);
+  const lanes = s.lanes;
+  const hours = [];
+  const first = Math.ceil(t0 / 3600) * 3600;
+  for (let t = first; t <= t1; t += 3600) hours.push(t);
+  const color = (k) => k === "wrf" || k === "wrfplan" ? "var(--wrf)" : k === "bad" ? "var(--bad)" : k === "plan" ? "var(--line)" : "var(--accent)";
+  const H = top + lanes.length * lh + 24;
+  return html`<section class="panel s12" aria-label="Timeline"><h2>Last 12 hours and next 6 · ${zoneName()} time</h2>
+    <div class="tlwrap"><svg class="tl" viewBox="0 0 1240 ${H}" role="img" aria-label="Timeline of job runs">
+      ${hours.map((t, i) => html`<line x1=${x(t)} x2=${x(t)} y1=${top - 6} y2=${top + lanes.length * lh} stroke="var(--line)" stroke-width="1"/>
+        ${i % 2 === 0 ? html`<text x=${x(t)} y=${top - 12} text-anchor="middle">${clock(t)}</text>` : null}`)}
+      ${(s.arrivals || []).map((a) => html`<path d=${`M${x(a.t) - 4} ${top - 4} L${x(a.t) + 4} ${top - 4} L${x(a.t)} ${top + 2} Z`} fill="var(--muted)"><title>${a.label} arrived ${clock(a.t)}</title></path>`)}
+      ${lanes.map((name, i) => html`<text class="lane" x="0" y=${top + i * lh + 19}>${name}</text>`)}
+      ${s.items.map((it) => {
+        const i = lanes.indexOf(it.lane); if (i < 0) return null;
+        const xa = x(Math.max(it.a, t0)), xb = Math.max(x(Math.min(it.b, t1)), xa + 3);
+        return html`<rect x=${xa.toFixed(1)} y=${top + i * lh + 7} width=${(xb - xa).toFixed(1)} height="16" rx="3" fill=${color(it.kind)} opacity=${it.kind === "wrfplan" ? 0.35 : 1}
+          stroke=${it.kind === "run" ? "var(--ink)" : "none"} stroke-width="1.5"><title>${it.job} ${clock(it.a)}–${clock(it.b)}</title></rect>`;
+      })}
+      <line x1=${x(now)} x2=${x(now)} y1=${top - 8} y2=${top + lanes.length * lh + 4} stroke="var(--warn)" stroke-width="2"/>
+      <text x=${x(now) + 6} y=${top + lanes.length * lh + 16} style="fill:var(--warn)">now ${clock(now)}</text>
+    </svg></div>
+    <div class="legend"><span style="--c:var(--accent)">ran</span><span style="--c:var(--bad)">failed</span><span style="--c:var(--wrf)">WRF</span><span style="--c:var(--line)">expected</span><span>▾ a model's new run complete</span></div>
+  </section>`;
+}
+
+function Sources({ f, s }) {
+  const hosts = (s && s.hosts) || {};
+  const now = f.sources_now || {};
+  const names = [...new Set([...Object.keys(hosts), ...Object.keys(now)])]
+    .sort((a, b) => ((hosts[b] || {}).bytes || 0) - ((hosts[a] || {}).bytes || 0));
+  return html`<section class="panel s5" aria-label="Downloads by source"><h2>Downloads by source · today (UTC)</h2>
+    ${names.length ? html`<div class="tablewrap"><table><thead><tr><th>Source</th><th class="r">Now</th><th class="r">Best today</th><th class="r">Today</th></tr></thead>
+      <tbody>${names.map((n) => html`<tr><td>${n}</td><td class="r num">${MBs((now[n] || 0) / 1e6)} MB/s</td>
+        <td class="r num">${(hosts[n] || {}).best ? MBs(hosts[n].best / 1e6) + " MB/s" : "–"}</td><td class="r num">${GB((hosts[n] || {}).bytes || 0)} GB</td></tr>`)}</tbody></table></div>`
+      : html`<p class="empty">No downloads reported yet today.</p>`}
+  </section>`;
+}
+
+function Runs({ s }) {
+  const runs = ((s && s.runs) || []).slice(0, 12);
+  return html`<section class="panel s7" aria-label="Recent runs"><h2>Recent runs</h2>
+    ${runs.length ? html`<div class="tablewrap"><table><thead><tr><th>Job</th><th>Ended</th><th class="r">Took</th><th class="r">On GitHub</th><th>Result</th></tr></thead>
+      <tbody>${runs.map((r) => {
+        const factor = r.github && r.took ? r.github / r.took : null;
+        const ok = r.exit === 0;
+        const why = r.exit === -9 || r.exit === 137 || r.exit === 247 ? "stopped: out of memory" : `stopped (exit ${r.exit})`;
+        return html`<tr><td>${r.job}</td><td class="num">${clock(r.end)}</td><td class="r num">${r.took} min</td>
+          <td class="r num">${r.github ? html`${r.github} min ${factor >= 1.15 ? html`<span class="faster">${factor.toFixed(1)}×</span>` : factor < 0.87 ? html`<span class="slower">slower</span>` : ""}` : "–"}</td>
+          <td class=${ok ? "ok" : "bad"}>${ok ? "done" : why}${r.peak_mb ? ` · ${(r.peak_mb / 1000).toFixed(1)} GB` : ""}${r.net_mb ? ` · ${(r.net_mb / 1000).toFixed(1)} GB in` : ""}</td></tr>`;
+      })}</tbody></table></div>` : html`<p class="empty">No runs recorded yet.</p>`}
+  </section>`;
+}
+
+function App() {
+  const [f, setF] = useState(null);
+  const [s, setS] = useState(null);
+  const [zone, setZoneState] = useState(ZONE);
+  const [, tick] = useState(0);
+  const setZone = (z) => { ZONE = z; try { localStorage.setItem("ops-zone", z); } catch (e) {} setZoneState(z); };
+  useEffect(() => {
+    let last = Date.now();
+    const es = new EventSource("/api/stream");
+    es.addEventListener("fast", (e) => { last = Date.now(); setF(JSON.parse(e.data)); });
+    es.addEventListener("slow", (e) => setS(JSON.parse(e.data)));
+    // Without the stream (a proxy holding it back), ask every 3 seconds instead.
+    const poll = setInterval(async () => {
+      if (Date.now() - last < 8000) return;
+      try {
+        setF(await (await fetch("/api/fast")).json());
+        if (!s || Date.now() % 30000 < 3000) setS(await (await fetch("/api/slow")).json());
+      } catch (err) {}
+    }, 3000);
+    const clockTimer = setInterval(() => tick((n) => n + 1), 1000);
+    return () => { es.close(); clearInterval(poll); clearInterval(clockTimer); };
+  }, []);
+  const now = Date.now() / 1000;
+  if (!f) return html`<main class="wrap"><p class="empty">Connecting to the Tower…</p></main>`;
+  return html`<${Top} f=${f} zone=${zone} setZone=${setZone} />
+    <main class="wrap"><div class="grid">
+      <${Machine} f=${f} />
+      <${Running} f=${f} now=${now} />
+      <${Next} f=${f} />
+      <${Timeline} s=${s} now=${now} />
+      <${Sources} f=${f} s=${s} />
+      <${Runs} s=${s} />
+    </div>
+    <div class="foot"><span>Read-only. Updates every 2 seconds while open.</span><span>Tap a job for its live log.</span></div></main>`;
+}
+
+render(html`<${App} />`, document.getElementById("app"));
+</script>
+</body></html>

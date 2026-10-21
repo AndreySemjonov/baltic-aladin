@@ -23,6 +23,13 @@ heartbeat.json, with INGEST_TOKEN from ENV_FILE): the jobs it runs live, less th
 helper-trigger leaves GitHub's runs of those jobs out while the heartbeat is fresh, and starts them again when it
 is 20 minutes old or a job leaves the list; station-history tells the admins' phones when it stops.
 
+The ops panel (runner/ops/server.py; the owner, 21.10.2026: live, read-only, ops.meteogust.com through a
+Cloudflare Tunnel behind Access): every minute LIVE (live.json) says what runs, what waits and why, and what's
+next and when; each model's new runs go in STATS/_arrivals.jsonl (when they came, for the expected times). The
+scheduler starts the panel's server when it isn't running, and the tunnel's container (cloudflared) when
+CLOUDFLARE_TUNNEL_TOKEN is in ENV_FILE. The jobs' containers get MG_OPS (the panel's address for their downloads,
+runner/ops/hook/sitecustomize.py).
+
 Written next to it: the jobs' measurements (STATS/<job>.jsonl), the scheduler's own record of each run
 (STATS/_runs.jsonl: when due, started, ended, live or not) and every minute each container's CPU and
 memory and the machine's load and free memory (STATS/_samples.jsonl); each run's log in LOGS.
@@ -45,7 +52,7 @@ from jobs import JOBS  # noqa: E402
 REPO = os.environ.get("MG_REPO", "/root/baltic-aladin")
 HOME = os.environ.get("MG_HOME", "/var/lib/meteogust")
 WORK = os.environ.get("MG_WORK", "/mnt/d/meteogust/runner-work")
-STATS, LOGS, STATE = f"{HOME}/stats", f"{HOME}/logs", f"{HOME}/state.json"
+STATS, LOGS, STATE, LIVE = f"{HOME}/stats", f"{HOME}/logs", f"{HOME}/state.json", f"{HOME}/live.json"
 ENV_FILE = os.environ.get("MG_ENV", "/root/.meteogust.env")
 LIVE_FILE = os.environ.get("MG_LIVE", "/root/.meteogust-live")
 IMAGE = os.environ.get("MG_IMAGE", "meteogust-helper")
@@ -61,6 +68,12 @@ WRF_MB = int(os.environ.get("MG_WRF_MB", "9000"))
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUCKET = "https://openmeteo.s3.amazonaws.com/data_spatial/"
 HEARTBEAT = "https://data.meteogust.com/tiles/upload/runner/heartbeat.json"
+# The ops panel: its server (127.0.0.1:OPS_PORT, the tunnel's origin) and the jobs' download reports (UDP to the
+# Docker bridge's host address); the tunnel's container.
+OPS_PORT, OPS_UDP = 8090, 8091
+OPS_HOST = os.environ.get("MG_OPS_HOST", "172.17.0.1")
+TUNNEL = "meteogust-tunnel"
+TUNNEL_IMAGE = "cloudflare/cloudflared:2024.12.2"
 AGENT = {"User-Agent": "MeteoGust helper runner (data.meteogust.com)"}
 
 
@@ -145,8 +158,14 @@ def wrf_running():
     return subprocess.run(["flock", "-n", WRF_LOCK, "true"]).returncode != 0
 
 
+_runs_seen, _arrived = {}, set()
+
+
 def newest_run(model, cache):
-    """A model's newest complete run on Open-Meteo's open data (unix seconds), None when unknown."""
+    """A model's newest complete run on Open-Meteo's open data (unix seconds), None when unknown; asked at most
+    every 2 minutes. A run not seen before goes in STATS/_arrivals.jsonl (when it came: the panel's expected times)."""
+    if model not in cache and model in _runs_seen and time.time() - _runs_seen[model][0] < 120:
+        cache[model] = _runs_seen[model][1]
     if model not in cache:
         try:
             request = urllib.request.Request(f"{BUCKET}{model}/latest.json", headers=AGENT)
@@ -155,9 +174,81 @@ def newest_run(model, cache):
             run = datetime.fromisoformat(latest["reference_time"].replace("Z", "+00:00")).timestamp() if latest.get("completed") else None
             done = datetime.fromisoformat(latest["last_modified_time"].replace("Z", "+00:00")).timestamp()
             cache[model] = (run, done)
+            _runs_seen[model] = (time.time(), (run, done))
+            if run and (model, round(run)) not in _arrived:
+                # latest.json's last change is when the run became complete, whenever we look.
+                append(f"{STATS}/_arrivals.jsonl", {"model": model, "run": round(run), "done": round(done or time.time()),
+                                                   "seen": round(time.time())})
+                _arrived.add((model, round(run)))
         except Exception:
             cache[model] = (None, None)
     return cache[model]
+
+
+def arrivals():
+    """{model: [seconds from each run's start to it being complete]}, the last 8 of each."""
+    out = {}
+    try:
+        with open(f"{STATS}/_arrivals.jsonl") as f:
+            for line in f.readlines()[-2000:]:
+                a = json.loads(line)
+                out.setdefault(a["model"], []).append(a["done"] - a["run"])
+    except (OSError, ValueError, KeyError):
+        pass
+    return {m: v[-8:] for m, v in out.items()}
+
+
+def expected(job, state, cache, now, lags):
+    """When a job not due now should be next (unix), and why, for the panel."""
+    mine = state.get(job.name, {})
+    if job.watch:
+        best = None
+        for model, every in job.watch:
+            run, done = newest_run(model, cache)
+            if not run:
+                continue
+            nxt = run + every * 3600
+            lag = sorted(lags.get(model) or [0])[len(lags.get(model) or [0]) // 2]
+            at = nxt + lag + job.delay * 3600
+            why = f"{model} {datetime.fromtimestamp(nxt, timezone.utc):%H}Z" + (
+                f", usually {lag / 3600:.1f} h after the run" if lag else "")
+            if best is None or at < best[0]:
+                best = (at, why)
+        return best or (None, "its source's run isn't known yet")
+    if job.every:
+        return mine.get("started", now) + job.every * 60, f"every {job.every} min"
+    return None, ""
+
+
+def ops_up():
+    """Whether the panel's server answers on its port."""
+    import socket
+    try:
+        with socket.create_connection(("127.0.0.1", OPS_PORT), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def keep_ops():
+    """The panel's server started when it's down (its own log in LOGS/ops.log); the tunnel's container when its
+    token is set (cloudflared reads TUNNEL_TOKEN; the value never printed)."""
+    if not ops_up():
+        server = f"{HERE}/ops/server.py"
+        if os.path.exists(server):
+            with open(f"{LOGS}/ops.log", "a") as out:
+                subprocess.Popen([sys.executable, server], stdout=out, stderr=subprocess.STDOUT, start_new_session=True,
+                                 env={**os.environ, "MG_HOME": HOME, "MG_OPS_PORT": str(OPS_PORT), "MG_OPS_UDP": str(OPS_UDP)})
+            log("ops panel: started")
+    token = env_value("CLOUDFLARE_TUNNEL_TOKEN")
+    if token:
+        there = subprocess.run(["docker", "ps", "-q", "-f", f"name=^{TUNNEL}$"], capture_output=True, text=True).stdout.strip()
+        if not there:
+            subprocess.run(["docker", "rm", "-f", TUNNEL], capture_output=True)
+            started = subprocess.run(["docker", "run", "-d", "--name", TUNNEL, "--restart", "unless-stopped", "--network", "host",
+                                      "-e", "TUNNEL_TOKEN", TUNNEL_IMAGE, "tunnel", "--no-autoupdate", "run"],
+                                     capture_output=True, text=True, env={**os.environ, "TUNNEL_TOKEN": token})
+            log("ops tunnel: started" if started.returncode == 0 else f"ops tunnel: not started ({started.stderr.strip()[:200]})")
 
 
 def due(job, state, cache, now):
@@ -234,7 +325,8 @@ class Running:
         os.makedirs(folder, exist_ok=True)
         # MG_REGION: the European mirrors and partial reads (sources.py, omremote.py; 21.10.2026).
         command = ["docker", "run", "--rm", "--name", self.name, "--cpu-shares", str(shares), "-e", f"MG_JOB={job.name}",
-                   "-e", f"MG_REGION={REGION}",
+                   "-e", f"MG_REGION={REGION}", "-e", f"MG_OPS={OPS_HOST}:{OPS_UDP}",
+                   "-e", "PYTHONPATH=/code/runner/ops/hook",
                    "-v", f"{REPO}:/code", "-v", f"{folder}:/work", "-v", f"{STATS}:/stats"]
         if os.path.exists(ENV_FILE):
             command += ["--env-file", ENV_FILE]
@@ -283,11 +375,53 @@ def pull():
         log(f"git pull failed: {result.stderr.strip()[:200]}")
 
 
+def write_live(state, running, others, live, names, cache, now, wrf, budget, reserved, total_max, waiting_why, last_beat):
+    """LIVE for the panel: running, due and waiting (why), next (when, why)."""
+    lags = arrivals()
+    out_running, out_waiting, out_next = [], [], []
+    for name, run in running.items():
+        out_running.append({"job": name, "priority": run.job.priority, "started": round(run.started), "live": run.live,
+                            "source": run.source, "need": mem_need(run.job), "log": run.log_path, "heavy": run.job.heavy})
+    for name in others:
+        job = next((j for j in JOBS if j.name == name), None)
+        logs = sorted((f for f in os.listdir(LOGS) if f.startswith(name + "-") and f[len(name) + 1:len(name) + 2].isdigit()), reverse=True)
+        out_running.append({"job": name, "priority": job.priority if job else 2, "started": None, "live": name in live,
+                            "need": mem_need(job) if job else None, "log": f"{LOGS}/{logs[0]}" if logs else None,
+                            "heavy": bool(job and job.heavy)})
+    busy = set(running) | set(others)
+    for job in JOBS:
+        if job.name in busy:
+            continue
+        if any(n not in names for n in job.needs):
+            out_next.append({"job": job.name, "priority": job.priority, "at": None, "why": "needs " + ", ".join(job.needs)})
+            continue
+        wanted = due(job, state, cache, now)
+        if wanted is not None:
+            why = waiting_why.get(job.name) or (
+                "priority 3 waits for a free slot" if job.priority >= 3 else
+                f"all {total_max} slots busy" if len(busy) >= total_max else "starts within a minute")
+            src = f"{datetime.fromtimestamp(wanted, timezone.utc):%d %H}Z run" if job.watch else None
+            out_waiting.append({"job": job.name, "priority": job.priority, "why": why, "source": src, "need": mem_need(job)})
+        else:
+            at, why = expected(job, state, cache, now, lags)
+            out_next.append({"job": job.name, "priority": job.priority, "at": round(at) if at else None, "why": why})
+    out_next.sort(key=lambda n: (n["at"] is None, n["at"] or 0))
+    save(LIVE, {"t": round(now), "host": os.uname().nodename, "wrf": wrf, "budget": budget, "reserved": reserved,
+                "slots": total_max, "live": sorted(live), "beat": round(last_beat) or None,
+                "running": out_running, "waiting": sorted(out_waiting, key=lambda w: w["priority"]), "next": out_next,
+                "lags": {m: sorted(v)[len(v) // 2] for m, v in lags.items() if v}})
+
+
 def main():
     for folder in (HOME, STATS, LOGS, WORK):
         os.makedirs(folder, exist_ok=True)
     state = load(STATE, {})
-    running, last_pull, stamp, wrf_was, last_beat, beat_said = {}, 0, code_stamp(), None, 0, False
+    try:
+        with open(f"{STATS}/_arrivals.jsonl") as f:
+            _arrived.update((a["model"], a["run"]) for a in map(json.loads, f.readlines()[-2000:]))
+    except (OSError, ValueError, KeyError):
+        pass
+    running, last_pull, stamp, wrf_was, last_beat, beat_said, last_ops = {}, 0, code_stamp(), None, 0, False, 0
     threading.Thread(target=sampler, daemon=True).start()
     log(f"runner: {len(JOBS)} jobs, at most {MAX_TOTAL} at once ({MAX_HEAVY} heavy), work in {WORK}")
     while True:
@@ -333,6 +467,7 @@ def main():
         budget = mem_budget() - (WRF_MB if wrf else 0)
         reserved = sum(mem_need(by_name[n]) for n in list(running) + others if n in by_name)
         waiting = None  # the priority of a due job left waiting for memory
+        waiting_why = {}
         # The riders' first models first (the owner, 21.10.2026: the 00Z/12Z peaks); within a priority the
         # order of jobs.py.
         for job in sorted(JOBS, key=lambda j: j.priority):
@@ -347,12 +482,14 @@ def main():
             if any(n not in names for n in job.needs):
                 continue
             if waiting is not None and job.priority > waiting:
+                waiting_why[job.name] = "a job of higher priority waits for memory"
                 continue
             wanted = due(job, state, cache, now)
             if wanted is None:
                 continue
             need = mem_need(job)
             if busy and reserved + need > budget:
+                waiting_why[job.name] = f"waits for memory: needs {need / 1000:.1f} GB, {max(budget - reserved, 0) / 1000:.1f} free"
                 if waiting is None:
                     log(f"{job.name}: due, waiting for memory ({need} MB; {reserved} of {budget} taken)")
                 waiting = job.priority if waiting is None else min(waiting, job.priority)
@@ -368,6 +505,16 @@ def main():
             heavy_now += job.heavy
             log(f"{job.name}: started ({'live' if is_live else 'shadow'})"
                 + (f", source run {datetime.fromtimestamp(wanted, timezone.utc):%d %H}Z" if job.watch else ""))
+        try:
+            write_live(state, running, others, live, names, cache, now, wrf, budget, reserved, total_max, waiting_why, last_beat)
+        except Exception as error:
+            log(f"live.json: {error}")
+        if now - last_ops >= 120:
+            last_ops = now
+            try:
+                keep_ops()
+            except Exception as error:
+                log(f"ops: {error}")
         if now - last_beat >= 300:
             last_beat = now
             if not heartbeat(state, live, set(running) | set(others), wrf) and not beat_said:
