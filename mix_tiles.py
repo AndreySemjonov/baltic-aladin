@@ -248,7 +248,8 @@ class Coast:
         """A block, kept (the same tiles every hour)."""
         key = (z, px0, py0, w, h)
         if key not in self.blocks:
-            self.blocks[key] = self.block(z, px0, py0, w, h)
+            # 16-bit: the land shares are 0, 1/4, 1/2, 3/4 or 1, all exact in float16 (half the memory; 21.10.2026).
+            self.blocks[key] = self.block(z, px0, py0, w, h).astype(np.float16)
         return self.blocks[key]
 
     def block(self, z, px0, py0, w, h):
@@ -306,14 +307,17 @@ def coast_fill(arrays, land, buffer_px, valid, key):
             distance, (ri, ci) = ndimage.distance_transform_edt(~source, return_indices=True)
             target = sea & ~source & (distance <= 2 * buffer_px + 1) & valid
             share = np.clip(1 - (from_land[target] - 0.5) / max(buffer_px, 1), 0, 1).astype(np.float32)
-            _fills[cache] = (target, ri[target], ci[target], share)
+            # Kept as row/column lists (int16: blocks are under 400 pixels a side), not a full mask: the cache held
+            # ~415 MB over Europe, mostly masks (21.10.2026). The same pixels in the same order: exact.
+            tr, tc = np.nonzero(target)
+            _fills[cache] = (tr.astype(np.int16), tc.astype(np.int16), ri[target].astype(np.int16), ci[target].astype(np.int16), share)
         if len(_fills) > 20000:
             _fills.clear()
     found = _fills[cache]
     if found is not None:
-        target, ri, ci, share = found
+        tr, tc, ri, ci, share = found
         for values in arrays:
-            values[target] = values[target] * (1 - share) + values[ri, ci] * share
+            values[tr, tc] = values[tr, tc] * (1 - share) + values[ri, ci] * share
 
 
 class Model:

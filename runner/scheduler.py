@@ -358,6 +358,9 @@ class Running:
         command = ["docker", "run", "--rm", "--name", self.name, "--cpu-shares", str(shares), "-e", f"MG_JOB={job.name}",
                    "-e", f"MG_REGION={REGION}", "-e", f"MG_OPS={OPS_HOST}:{OPS_UDP}",
                    "-e", "PYTHONPATH=/code/runner/ops/hook",
+                   # glibc's per-thread memory pools kept GBs the jobs had freed (the Mix: 5.1 GB process, 2.2 GB in its
+                   # caches, 21.10.2026); two pools are enough for their few threads.
+                   "-e", "MALLOC_ARENA_MAX=2",
                    "-v", f"{REPO}:/code", "-v", f"{folder}:/work", "-v", f"{STATS}:/stats"]
         if os.path.exists(ENV_FILE):
             command += ["--env-file", ENV_FILE]
