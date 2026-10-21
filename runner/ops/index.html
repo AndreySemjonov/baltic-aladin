@@ -552,28 +552,89 @@ function Capacity({ cap, now }) {
   </div>`;
 }
 
-// admin.meteogust.com's overview, read-only: each section's plain values (numbers, short text) and list sizes.
-function Section({ name, value }) {
-  const label = (k) => k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ");
-  const rows = [];
-  const add = (k, v) => {
-    if (v == null) return;
-    if (typeof v === "number") rows.push([label(k), Number.isInteger(v) ? v.toLocaleString("en") : v.toFixed(2)]);
-    else if (typeof v === "string" && v.length < 60) rows.push([label(k), v]);
-    else if (typeof v === "boolean") rows.push([label(k), v ? "yes" : "no"]);
-    else if (Array.isArray(v)) rows.push([label(k), v.length + " items"]);
-  };
-  if (Array.isArray(value)) rows.push(["items", value.length]);
-  else if (value && typeof value === "object") Object.entries(value).slice(0, 12).forEach(([k, v]) => add(k, v));
-  else add(name, value);
-  if (!rows.length) return null;
-  return html`<div class="panel"><h2>${label(name)}</h2><div class="kv">${rows.map(([k, v]) => html`<span>${k}</span><span>${v}</span>`)}</div></div>`;
+// admin.meteogust.com's overview, read-only (its /api/overview through the service token on the Tower).
+const ago = (t, now) => t ? hrs(now - t) + " ago" : "–";
+function KV({ rows }) {
+  return html`<div class="kv">${rows.filter(Boolean).map(([k, v, style]) => html`<span>${k}</span><span style=${style || ""}>${v}</span>`)}</div>`;
+}
+
+function AdminCards({ o, now }) {
+  const cards = [];
+  // The helper's hourly job on GitHub (update.yml): its last 24 hours.
+  const runs = (o.runs || []).filter((r) => r.started >= now - 86400);
+  const failed = runs.filter((r) => r.result && r.result !== "success" && r.result !== "ok");
+  const lastFail = failed.sort((a, b) => b.started - a.started)[0];
+  const h = o.helper || {};
+  cards.push(html`<div class="panel"><h2>Helper's hourly job · 24 h</h2><${KV} rows=${[
+    ["Runs", runs.length], ["Failed", failed.length, failed.length ? "color:var(--bad)" : ""],
+    lastFail ? ["Last failure", `${clock(lastFail.started)}${(lastFail.failed || []).length ? " · " + lastFail.failed.slice(0, 3).join(", ") : ""}`] : null,
+    h.running ? ["Running now", `${h.running.step || "…"} · since ${clock(h.running.started)}`] : ["Last finished", ago(h.lastEnd || h.lastStart, now)],
+    h.queued ? ["Queued", h.queued] : null]} /></div>`);
+  // Stations.
+  const st = o.stations || {};
+  cards.push(html`<div class="panel"><h2>Stations</h2><${KV} rows=${[
+    ["Fresh in 20 min", `${st.fresh ?? "–"} of ${st.total ?? "–"}`, st.total && st.fresh < st.total / 2 ? "color:var(--bad)" : ""],
+    ["Newest reading", ago(st.newest, now)],
+    ...(st.stale || []).slice(0, 5).map((x) => [x.station, "silent " + ago(x.time, now)])]} />
+    <a class="btn" href="https://admin.meteogust.com/#stations">Stations in admin ↗</a></div>`);
+  // Ours against Open-Meteo on the same run (the first 48 hours): the biggest differences.
+  const ours = ((o.ours || {}).rows || []).filter((r) => r.lead === "0-48" && r.n >= 50).sort((a, b) => b.mae - a.mae);
+  cards.push(html`<div class="panel"><h2>Our data vs Open-Meteo · same run, 0-48 h</h2><${KV} rows=${[
+    ...ours.slice(0, 6).map((r) => [r.model.replace("#temp", " air"), `${r.mae.toFixed(2)} ${r.model.endsWith("#temp") ? "°C" : "m/s"} · ${r.n.toLocaleString("en")} h`,
+      r.mae > (r.model.endsWith("#temp") ? 0.5 : 0.3) ? "color:var(--warn)" : ""]),
+    ours.length ? null : ["Compared", "no rows yet"]]} /></div>`);
+  // Open-Meteo calls (admins' "vs OM" and the server's comparisons): today.
+  const om = o.openMeteo || [];
+  const today = Math.max(0, ...om.map((x) => x.day));
+  const todays = om.filter((x) => x.day === today);
+  const sum = (k) => todays.reduce((a, x) => a + (x[k] || 0), 0);
+  const refused = todays.filter((x) => x.kind.includes("refused")).reduce((a, x) => a + x.hits, 0);
+  cards.push(html`<div class="panel"><h2>Open-Meteo relay · today</h2><${KV} rows=${[
+    ["Requests", sum("hits").toLocaleString("en")], ["Fetched from Open-Meteo", sum("fetches").toLocaleString("en")],
+    ["Weight (counts toward the cap)", sum("weight").toLocaleString("en")], refused ? ["Refused", refused, "color:var(--warn)"] : null]} /></div>`);
+  // Crashes, 30 days.
+  const cr = o.crashes || {};
+  const groups = cr.groups || [];
+  const newest = groups.slice().sort((a, b) => b.last - a.last)[0];
+  cards.push(html`<div class="panel"><h2>Crashes · 30 days</h2><${KV} rows=${[
+    ["iPhone", groups.filter((g) => g.platform === "ios").reduce((a, g) => a + g.n, 0)],
+    ["Android", groups.filter((g) => g.platform !== "ios").reduce((a, g) => a + g.n, 0)],
+    ["Kinds", groups.length],
+    newest ? ["Newest", `${ago(newest.last, now)} · ${(newest.summary || newest.kind || "").slice(0, 40)}`] : null]} /></div>`);
+  // Rain and wind alerts.
+  const al = o.alerts || {};
+  const sent = al.sent || [];
+  cards.push(html`<div class="panel"><h2>Rain and wind alerts</h2><${KV} rows=${[
+    ["Rain alerts", `${(al.rain || {}).phones ?? 0} phones · ${(al.rain || {}).places ?? 0} places`],
+    ["Wind alerts", `${(al.wind || {}).phones ?? 0} phones · ${(al.wind || {}).spots ?? 0} spots`],
+    ...sent.map((x) => [`Sent today (${x.kind})`, `${x.ok}${x.failed ? " · " + x.failed + " failed" : ""}`, x.failed ? "color:var(--warn)" : ""]),
+    al.last ? ["Last alert", `${ago(al.last.time, now)} · ${al.last.kind} · ${al.last.place}`] : null,
+    (al.errors || []).length ? ["Errors (recent)", `${al.errors.length} · last: ${al.errors[0].reason}`.slice(0, 60), "color:var(--warn)"] : null]} /></div>`);
+  // Builds.
+  const b = o.builds || {};
+  const nb = (b.builds || [])[0], nr = (b.runs || [])[0];
+  cards.push(html`<div class="panel"><h2>Builds</h2><${KV} rows=${[
+    nb ? ["Newest build", `${nb.number} · ${nb.result || nb.progress || ""}`] : null,
+    nr ? ["Last workflow", `${nr.title.slice(0, 32)} · ${nr.conclusion || nr.status}`] : null,
+    nr ? ["Started", ago(nr.created, now)] : null]} />
+    <a class="btn" href="https://admin.meteogust.com/">Builds in admin ↗</a></div>`);
+  // Pushes, the last day.
+  const pushes = o.pushes || [];
+  const pday = Math.max(0, ...pushes.map((x) => x.day));
+  const pt = pushes.filter((x) => x.day === pday);
+  if (pt.length) cards.push(html`<div class="panel"><h2>Pushes · last day</h2><${KV} rows=${pt.map((x) => [x.kind, `${x.ok} sent${x.failed ? " · " + x.failed + " failed" : ""}`, x.failed ? "color:var(--warn)" : ""])} /></div>`);
+  // The station collector's own state.
+  cards.push(html`<div class="panel"><h2>Collector</h2><${KV} rows=${(o.collector || []).map((c) => {
+    const v = c.value, k = c.key.replace(/_/g, " ").replace(/^windguru/, "source");
+    const asTime = typeof v === "number" && v > 1.5e9 && v < 2.5e9;
+    return [k, asTime ? ago(v, now) : String(v)];
+  })} /></div>`);
+  return cards;
 }
 
 function Admin({ ad, now }) {
   if (!ad || !ad.feeds) return html`<p class="empty">Reading the feeds…</p>`;
   const late = ad.feeds.filter((f) => f.late).length;
-  const skip = new Set(["now", "rows", "history", "heat", "rainSkill", "rainWeights", "maps", "runs", "models", "tiles"]);
   return html`<p class="note" style="margin:0 0 12px">admin.meteogust.com's data, read-only, every minute while open. Changes (approve a spot, add a station, start a build) stay on <a href="https://admin.meteogust.com/" style="color:var(--accent)">admin.meteogust.com</a>, which also keeps working when home is down.</p>
     <div class="cards">
       <div class="panel"><h2>Feeds and alerts · ${late ? late + " late" : "all fine"}</h2>
@@ -581,9 +642,9 @@ function Admin({ ad, now }) {
           <span class=${"st " + (f.late ? "bad" : "ok")}>${f.late ? "late" : "fine"}</span></div>`)}
         <a class="btn" href="https://admin.meteogust.com/">Alert settings in admin ↗</a></div>
       ${ad.error === "token" ? html`<div class="panel"><h2>The rest of admin's overview</h2>
-          <p class="note">Needs the admin service token on the Tower: add <b>SHOREWIND_ADMIN_ID</b> and <b>SHOREWIND_ADMIN_SECRET</b> (the same values call.py uses on your PC) to /root/.meteogust.env. The panel reads them within a minute.</p></div>`
+          <p class="note">Needs the admin service token on the Tower: add <b>SHOREWIND_ADMIN_ID</b> and <b>SHOREWIND_ADMIN_SECRET</b> to /root/.meteogust.env.</p></div>`
         : ad.error ? html`<div class="panel"><h2>Admin's overview</h2><p class="note">${ad.error}</p></div>`
-        : Object.entries(ad.overview || {}).filter(([k]) => !skip.has(k)).map(([k, v]) => html`<${Section} name=${k} value=${v} />`)}
+        : ad.overview ? html`<${AdminCards} o=${ad.overview} now=${now} />` : null}
     </div>`;
 }
 
