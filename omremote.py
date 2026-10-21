@@ -125,6 +125,11 @@ class RemoteOm:
 # whole files, faster there).
 
 PARTIAL = os.environ.get("MG_PARTIAL", "1" if sources.EU else "0") == "1"
+# Files in a row not read before the job gives up (21.10.2026: ICON-CH2's 121 hours each failed after minutes of
+# retries while a test filled the line, 2 hours stuck, and omfiles' failed reads left files open to "Too many
+# open files"): the next run starts clean.
+GIVE_UP = 5
+_failed = [0]
 
 
 class _Array:
@@ -147,9 +152,13 @@ class Prefetched:
                 with RemoteOm(url) as om:
                     self.arrays = om.read_many(list(wanted))
                     self.fetched = om.fetched
+                _failed[0] = 0
                 return
             except Exception:
                 if attempt == 3:
+                    _failed[0] += 1
+                    if _failed[0] >= GIVE_UP:
+                        raise SystemExit(f"{GIVE_UP} files in a row not read (the last {url}): stopped")
                     raise
                 time.sleep(10 * (attempt + 1))
 

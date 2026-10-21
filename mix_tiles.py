@@ -17,8 +17,16 @@ hourly from now for a day, then every 3 hours while a regional model reaches (ab
 app's ICON-EU and ECMWF layers take over after). Its tiles fade (alpha) where only ECMWF and GFS are. Each hour lists its models;
 the data checks (R3) as the other sets; published as tiles/mix.
 
+Only what changed is made again (the owner, 21.10.2026: the Mix took ~65 minutes, 21 times a day, mostly
+redoing the same tiles): each hour's frame keeps a short mark of every model's packs it read ("src", in the
+order of the index's "srcModels"). Next run, an hour whose models all read the same packs keeps the published
+pack as it is; an hour where some changed makes only the tiles those models reach (their packs' tiles round
+it), the others copied from the published pack. The weights (the catalog's, the defaults), the coast and this
+code's VERSION in "srcWeights": any change there makes everything again, as --force does.
+
     python mix_tiles.py [--force] [--local DIR] [--hours N] [--box S,N,W,E]
 """
+import hashlib
 import io
 import json
 import math
@@ -117,6 +125,9 @@ SIZE = 256
 # Pixels round a tile seen for the coast (ECMWF's land reaches 25 km: about 18 zoom-6 pixels here).
 MARGIN = 40
 MAX_GAP = 6 * 3600
+# Raised when a change here alters the tiles (the next run makes every tile again).
+VERSION = 1
+NONE = "------"
 CREDIT = ("MET Nordic, MET Norway; HARMONIE DINI, DMI; HARMONIE, FMI; ALADIN, ČHMÚ; AROME, Météo-France (Etalab 2.0); "
           "ICON-D2 and ICON-EU, DWD; ICON-CH1, MeteoSwiss; HARMONIE-AROME, KNMI; ICON-2I, ItaliaMeteo; "
           "ECMWF open data (CC BY 4.0); GFS, NOAA; UKV, Met Office; ICON-CH2, MeteoSwiss; HARMONIE-AROME Europe, KNMI; "
@@ -330,6 +341,29 @@ class Model:
             del self.packs[t]
 
 
+def mark(text):
+    return hashlib.sha1(text.encode()).hexdigest()[:len(NONE)]
+
+
+def model_mark(model, hours):
+    """The packs a model's hour reads (Model.around), as a short mark; NONE when it has none then."""
+    return mark("|".join(model.files[t] for t, _ in hours)) if hours else NONE
+
+
+def reaches(model, hours, z, x, y):
+    """Whether the model's packs of the hour have a tile at or round the Mix's tile (z, x, y): its wind
+    can reach it (the margin, the coast's pull and the smoothing stay within the neighbours)."""
+    for t, _ in hours:
+        pack = model.pack(t)
+        zm = min(z, pack.top)
+        n, cx, cy = 2 ** zm, x >> (z - zm), y >> (z - zm)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                if 0 <= cy + dy < n and f"{zm}/{(cx + dx) % n}/{cy + dy}" in pack.tiles:
+                    return True
+    return False
+
+
 def model_block(model, hours, z, px0, py0, w, h):
     """The model's wind over a block at a time (`hours` from Model.around), or None."""
     total = None
@@ -540,6 +574,20 @@ def main():
         print(f"Mix {run_time:%Y%m%dT%HZ} already published")
         return
     coast = Coast()
+    # What the published run's tiles were made with (only what changed is made again).
+    weights_mark = mark(json.dumps([VERSION, [(m.name, m.weight, m.coast_km) for m in models], weight_points(),
+                                    sorted(FRESH.items()), coast.folder, list(ZOOMS), MARGIN, list(box)], default=str))
+    previous = {} if "--force" in args else (tiler.world_tiles.published_index("mix") or {})
+    before = {}
+    if previous.get("srcWeights") == weights_mark and previous.get("srcModels"):
+        for f in previous.get("frames") or []:
+            code = f.get("src") or ""
+            if f.get("file") and len(code) == len(NONE) * len(previous["srcModels"]):
+                before[f["time"]] = (f, {name: code[i * len(NONE):(i + 1) * len(NONE)]
+                                         for i, name in enumerate(previous["srcModels"])})
+    elif previous:
+        print("Mix: the weights, the coast or the code changed since the published run: every tile made again", flush=True)
+    kept = partial = whole = 0
     # The tiles: zooms 4-6 over the box, zoom 7 where the 1 km models' tiles are (MET Nordic's; AROME's
     # and ICON-CH1's since 18.10.2026: the models' full detail on the map and at a tap; our WRF's
     # round Tarifa since 20.10.2026).
@@ -560,13 +608,44 @@ def main():
           + ", ".join(m.label for m in models), flush=True)
     for t in hours:
         when = {m.name: m.around(t) for m in models}
+        src = {m.name: model_mark(m, when[m.name]) for m in models}
+        code = "".join(src[m.name] for m in models)
+        todo, old_pack, old_models = keys, None, []
+        if t in before:
+            frame, was = before[t]
+            changed = [m for m in models if was.get(m.name, NONE) != src[m.name]]
+            # A model that left the hour: the tiles it was in are unknown here, all made again.
+            left = any(mark_ != NONE and src.get(name, NONE) == NONE for name, mark_ in was.items())
+            if not changed and not left:
+                out.frames[t] = {"time": t, "file": frame["file"], "models": frame.get("models", []), "src": code}
+                kept += 1
+                continue
+            if not left:
+                try:
+                    old_pack = Pack(get(FILES + "mix/" + frame["file"]))
+                    todo = [k for k in keys if any(reaches(m, when[m.name], *k) for m in changed)]
+                    names = {m.label for m in changed}
+                    old_models = [label for label in frame.get("models", []) if label not in names]
+                except Exception as error:
+                    print(f"  {datetime.fromtimestamp(t, timezone.utc):%d %H:%M}: the published pack not read ({error})", flush=True)
+                    old_pack, todo = None, keys
         # The packs of this hour read side by side first.
         needed = [(m, ht) for m in models for ht, _ in when[m.name] if ht not in m.packs]
         with ThreadPoolExecutor(8) as pool:
             list(pool.map(lambda job: job[0].pack(job[1]), needed))
-        tiles, used, checks = {}, set(), ([], [], [])
+        tiles, used, checks = {}, set(old_models), ([], [], [])
         with ThreadPoolExecutor(4) as pool:
-            results = list(pool.map(lambda key: (key, mix_tile(models, when, coast, *key)), keys))
+            results = list(pool.map(lambda key: (key, mix_tile(models, when, coast, *key)), todo))
+        if old_pack is not None:
+            # The tiles no changed model reaches, as published.
+            made = set(todo)
+            for k in keys:
+                r = old_pack.tiles.get("%d/%d/%d" % k)
+                if k not in made and r is not None:
+                    tiles[k] = old_pack.data[old_pack.start + r[0]:old_pack.start + r[0] + r[1]]
+            partial += 1
+        else:
+            whole += 1
         for key, result in results:
             if result is None:
                 continue
@@ -582,15 +661,19 @@ def main():
             m.forget(min((ht for ht, _ in when[m.name]), default=t))
         if not tiles:
             continue
-        east, north, gust = (np.concatenate(c) if c else np.zeros(0, np.float32) for c in checks)
-        if not out.checked("Mix", t, quality.wind(east, north, gust)):
-            continue
+        # The checks on the tiles made now (the copied ones passed theirs).
+        if any(checks):
+            east, north, gust = (np.concatenate(c) if c else np.zeros(0, np.float32) for c in checks)
+            if not out.checked("Mix", t, quality.wind(east, north, gust)):
+                continue
         out.put(t, tiler.world_tiles.encode(tiles, {z: SIZE for z in ZOOMS}))
         out.frames[t]["models"] = [m.label for m in models if m.label in used]
-        print(f"  {datetime.fromtimestamp(t, timezone.utc):%d %H:%M}: {len(tiles)} tiles, "
+        out.frames[t]["src"] = code
+        print(f"  {datetime.fromtimestamp(t, timezone.utc):%d %H:%M}: {len(results)} of {len(tiles)} tiles made, "
               f"{', '.join(out.frames[t]['models'])}, {time.time() - started:.0f} s", flush=True)
-    out.finish(weights={m.label: m.weight for m in models}, freshness={k: round(v, 3) for k, v in FRESH.items()})
-    print(f"Mix done in {time.time() - started:.0f} s")
+    out.finish(weights={m.label: m.weight for m in models}, freshness={k: round(v, 3) for k, v in FRESH.items()},
+               srcModels=[m.name for m in models], srcWeights=weights_mark)
+    print(f"Mix done in {time.time() - started:.0f} s: {kept} hours kept as published, {partial} in part, {whole} whole")
 
 
 if __name__ == "__main__":

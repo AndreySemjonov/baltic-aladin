@@ -2,8 +2,8 @@
 Mac mini from the end of the week; GitHub only for the code, tests and deploys). Every minute: each job in
 runner/jobs.py that's due (its source has a newer complete run, or its interval passed) starts in its own
 container (runner/Dockerfile; measured by runner/measure.py), at most MAX_TOTAL at once and MAX_HEAVY big
-ones (fewer while WRF runs on this machine). The repo is pulled every 10 minutes (the code is mounted, not
-built in).
+ones (fewer while WRF runs on this machine), in the jobs' priority order (jobs.py; a priority 3 only while
+a slot stays free). The repo is pulled every 10 minutes (the code is mounted, not built in).
 
 Shadow mode (the default): every job writes to --local under the work folder, removed after it's measured,
 nothing uploaded; GitHub stays live. A job named in LIVE_FILE runs live instead (uploads with INGEST_TOKEN
@@ -256,8 +256,14 @@ def main():
         heavy_now = sum(1 for r in running.values() if r.job.heavy) + sum(1 for j in JOBS if j.name in others and j.heavy)
         total_max, heavy_max = (max(MAX_TOTAL // 2, 1), max(MAX_HEAVY // 2, 1)) if wrf else (MAX_TOTAL, MAX_HEAVY)
         names, live, cache = env_names(), live_jobs(), {}
-        for job in JOBS:
-            if job.name in running or job.name in others or len(running) + len(others) >= total_max:
+        # The riders' first models first (the owner, 21.10.2026: the 00Z/12Z peaks); within a priority the
+        # order of jobs.py.
+        for job in sorted(JOBS, key=lambda j: j.priority):
+            busy = len(running) + len(others)
+            if job.name in running or job.name in others or busy >= total_max:
+                continue
+            # A slot kept for a 1 or 2 that comes in next minute.
+            if job.priority >= 3 and busy >= total_max - 1:
                 continue
             if job.heavy and heavy_now >= heavy_max:
                 continue
