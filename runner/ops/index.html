@@ -562,11 +562,13 @@ function AdminCards({ o, now }) {
   const cards = [];
   // The helper's hourly job on GitHub (update.yml): its last 24 hours.
   const runs = (o.runs || []).filter((r) => r.started >= now - 86400);
-  const failed = runs.filter((r) => r.result && r.result !== "success" && r.result !== "ok");
+  // Its results are "published", "nothing new" or "failed" (and the steps that failed in "failed").
+  const failed = runs.filter((r) => r.result === "failed" || (r.failed || []).length);
+  const published = runs.filter((r) => r.result === "published").length;
   const lastFail = failed.sort((a, b) => b.started - a.started)[0];
   const h = o.helper || {};
   cards.push(html`<div class="panel"><h2>Helper's hourly job · 24 h</h2><${KV} rows=${[
-    ["Runs", runs.length], ["Failed", failed.length, failed.length ? "color:var(--bad)" : ""],
+    ["Runs", `${runs.length} · ${published} published, ${runs.length - published - failed.length} nothing new`], ["Failed", failed.length, failed.length ? "color:var(--bad)" : ""],
     lastFail ? ["Last failure", `${clock(lastFail.started)}${(lastFail.failed || []).length ? " · " + lastFail.failed.slice(0, 3).join(", ") : ""}`] : null,
     h.running ? ["Running now", `${h.running.step || "…"} · since ${clock(h.running.started)}`] : ["Last finished", ago(h.lastEnd || h.lastStart, now)],
     h.queued ? ["Queued", h.queued] : null]} /></div>`);
