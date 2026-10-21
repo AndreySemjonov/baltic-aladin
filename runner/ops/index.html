@@ -746,8 +746,8 @@ const JOB_SET = { "icon-eu": "icon-eu", "world-gfs": "gfs", "world-ecmwf": "ecmw
   "harm-fi": "harm-fi", "aladin": "aladin", "regional-wind": "metnordic", "regional-weather": "metnordic-wx", "sea": "sea", "waves": "waves" };
 
 // Each map's home jobs (regional_tiles.py's wind job makes the blend and each regional model's own set).
-const SET_JOBS = { metnordic: ["regional-wind"], "metnordic-wx": ["regional-weather"], dini: ["regional-wind"], arome: ["regional-wind"],
-  "icon-d2": ["regional-wind"], "harm-nl": ["regional-wind"], "icon-ch1": ["regional-wind"], "icon-2i": ["regional-wind"],
+const SET_JOBS = { metnordic: ["regional-wind"], "metnordic-wx": ["regional-weather"], dini: ["regional-dini"], arome: ["regional-arome"],
+  "icon-d2": ["regional-icon-d2"], "harm-nl": ["regional-harm-nl"], "icon-ch1": ["regional-icon-ch1"], "icon-2i": ["regional-icon-2i"],
   "icon-eu": ["icon-eu"], "icon-eu-wx": ["icon-eu"], "icon-eu-steer": ["icon-eu"], ecmwf: ["world-ecmwf"], gfs: ["world-gfs"],
   icon: ["world-icon"], gdps: ["world-gdps"], ewam: ["ewam"], "ecmwf-waves": ["ecmwf-waves"], "metnordic-1km": ["nordic-1km"],
   "harm-fi": ["harm-fi"], aladin: ["aladin"], mix: ["mix"], "mix-world": ["mix-world"], "mix-wx": ["weather-mix-europe"],
@@ -854,6 +854,8 @@ const SET_SRC = { metnordic: ["metno_nordic_pp", "regional.yml"], "metnordic-wx"
   chance: [null, "chance.yml"], sea: [null, "sea.yml"], waves: [null, "waves.yml"], water: [null, "water.yml"], "wrf-tarifa": ["ncep_gfs025", null] };
 // The model each home job watches (runner/jobs.py's watch).
 const JOB_WATCH = { "regional-wind": "metno_nordic_pp", "regional-weather": "metno_nordic_pp", "nordic-1km": "metno_nordic_pp",
+  "regional-icon-d2": "dwd_icon_d2", "regional-dini": "dmi_harmonie_arome_europe", "regional-harm-nl": "knmi_harmonie_arome_netherlands",
+  "regional-arome": "meteofrance_arome_france_hd", "regional-icon-ch1": "meteoswiss_icon_ch1", "regional-icon-2i": "italia_meteo_arpae_icon_2i",
   "icon-eu": "dwd_icon_eu", "world-gfs": "ncep_gfs025", "world-ecmwf": "ecmwf_ifs", "world-icon": "dwd_icon", "world-gdps": "cmc_gem_gdps_15km",
   "ecmwf-waves": "ecmwf_wam", ewam: "dwd_ewam", "bucket-icon-ch2": "meteoswiss_icon_ch2", "bucket-knmi-eu": "knmi_harmonie_arome_europe",
   "bucket-arome25": "meteofrance_arome_france0025", ukmo: "ukmo_uk_deterministic_2km" };

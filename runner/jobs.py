@@ -32,9 +32,10 @@ class Job:
 
 
 COPERNICUS = ["COPERNICUSMARINE_SERVICE_USERNAME", "COPERNICUSMARINE_SERVICE_PASSWORD"]
-# MET Nordic and the models regional_tiles.py makes, on Open-Meteo's open data (when each run is complete there).
-REGIONAL_WATCH = [("metno_nordic_pp", 1), ("dwd_icon_d2", 1), ("dmi_harmonie_arome_europe", 1), ("knmi_harmonie_arome_netherlands", 1),
-                  ("meteofrance_arome_france_hd", 1), ("meteoswiss_icon_ch1", 1), ("italia_meteo_arpae_icon_2i", 1)]
+# The models regional_tiles.py makes besides MET Nordic: its --only name and Open-Meteo's open-data model (when each
+# run is complete there).
+REGIONAL_MODELS = [("icon-d2", "dwd_icon_d2"), ("dini", "dmi_harmonie_arome_europe"), ("harm-nl", "knmi_harmonie_arome_netherlands"),
+                   ("arome", "meteofrance_arome_france_hd"), ("icon-ch1", "meteoswiss_icon_ch1"), ("icon-2i", "italia_meteo_arpae_icon_2i")]
 
 JOBS = [
     # The world's models (world.yml).
@@ -50,12 +51,17 @@ JOBS = [
     Job("bucket-knmi-eu", ["bucket_tiles.py", "knmi-eu"], watch=[("knmi_harmonie_arome_europe", 1)]),
     Job("bucket-arome25", ["bucket_tiles.py", "arome25"], watch=[("meteofrance_arome_france0025", 3)]),
     Job("ukmo", ["ukmo_tiles.py"], watch=[("ukmo_uk_deterministic_2km", 3)]),
-    # The regional models (regional.yml, nordic.yml). The regional jobs start on a new run of MET Nordic or of any
-    # model they make, at whatever hour it comes (the owner, 21.10.2026, "make A": watching MET Nordic only, ICON-D2's
-    # 12Z waited 58 min at home); each start makes only what's new (the blend for MET Nordic, a model's own set for
-    # its own run), in shadow mode too (regional_tiles.py keeps the shadow's own record in /stats/shadow).
-    Job("regional-wind", ["regional_tiles.py", "--set", "wind"], watch=REGIONAL_WATCH, heavy=True, priority=1),
-    Job("regional-weather", ["regional_tiles.py", "--set", "weather"], watch=REGIONAL_WATCH, heavy=True),
+    # The regional models (regional.yml, nordic.yml): the MET Nordic blend (all seven models read at once: heavy) on
+    # each new MET Nordic run, and each model's own set as a small job of its own on that model's new run, whatever
+    # hour it comes (the owner, 21.10.2026: one job watching MET Nordic only left ICON-D2's 12Z waiting 58 min; "B":
+    # ICON-D2's own set alone is ~1-3 GB, not the 9.5-11 GB whole). Each makes only what's new, in shadow mode too
+    # (regional_tiles.py keeps the shadow's own record in /stats/shadow).
+    Job("regional-wind", ["regional_tiles.py", "--set", "wind", "--blend"], watch=[("metno_nordic_pp", 1)], heavy=True, priority=1),
+    Job("regional-weather", ["regional_tiles.py", "--set", "weather", "--blend"], watch=[("metno_nordic_pp", 1)], heavy=True),
+    *[Job(f"regional-{name}", ["regional_tiles.py", "--set", "wind", "--only", name], watch=[(model, 1)], priority=1)
+      for name, model in REGIONAL_MODELS],
+    *[Job(f"regional-{name}-wx", ["regional_tiles.py", "--set", "weather", "--only", name], watch=[(model, 1)])
+      for name, model in REGIONAL_MODELS],
     Job("harm-fi", ["harmfi_tiles.py"], every=180),
     Job("aladin", ["aladin_tiles.py"], every=360),
     Job("nordic-1km", ["metnordic_tiles.py"], watch=[("metno_nordic_pp", 1)], priority=1),

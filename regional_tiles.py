@@ -21,6 +21,11 @@ with the same alpha, uploaded as tiles/metnordic-wx/ (its index's frames carry "
     python regional_tiles.py              make and upload the newest run when it's new
     python regional_tiles.py --force      even when published
     python regional_tiles.py --local DIR  write the packs to DIR (a test; --hours N for fewer)
+    python regional_tiles.py --blend      only the MET Nordic blend (out at once when MET Nordic has nothing new)
+    python regional_tiles.py --only icon-d2   only that model's own set (never the blend), when its run is new
+
+The home runner (runner/jobs.py) runs the blend and each model as jobs of their own (the owner, 21.10.2026: a new
+ICON-D2 run then waits for nothing: a small job, not the 9.5 GB whole); GitHub's regional.yml runs it all at once.
 """
 import json
 import math
@@ -238,6 +243,13 @@ def main():
     local = Path(args[args.index("--local") + 1]) if "--local" in args else None
     limit = int(args[args.index("--hours") + 1]) if "--hours" in args else None
     which = args[args.index("--set") + 1] if "--set" in args else "wind"
+    blend_only = "--blend" in args
+    only = None
+    if "--only" in args:
+        folder = args[args.index("--only") + 1]
+        only = next((name for name, value in MODEL_SETS.items() if value[0] == folder), None)
+        if only is None:
+            sys.exit(f"--only: no regional model {folder} (one of {', '.join(v[0] for v in MODEL_SETS.values())})")
     global STRIDE, shadowing
     shadowing = bool(local) and SHADOW is not None
     STRIDE = SETS[which]["stride"]
@@ -261,8 +273,13 @@ def main():
     # Hourly since 21.10.2026 (the owner: the regional models published up to 2 hours after their
     # makers, the job ran every 3 hours): the blend only for a new MET Nordic run, each model's own set
     # only for its own new run; with neither, done in a minute or two.
-    mn_new = force or published != run_name
-    if not mn_new:
+    mn_new = (force or published != run_name) and not only
+    if blend_only and not mn_new:
+        print(f"MET Nordic {run_name} already published: no blend to make", flush=True)
+        finished()
+    if only:
+        print(f"{only} only (its own set)", flush=True)
+    elif not mn_new:
         print(f"MET Nordic {run_name} already published: only the models with a new run", flush=True)
     # The same run published again (--force, or two runs at once): a folder of its own, since the
     # packs are kept a year in caches (Cloudflare's, the phones'), and a second copy under the same
@@ -317,6 +334,8 @@ def main():
             same.add(name)
 
     def add(name, make):
+        if only and name != only:
+            return
         try:
             place, data, sample, run_time = make()
             # Each hour checked; a model with over a fifth of them wrong is left out (DINI's rain
@@ -531,6 +550,8 @@ def main():
             except Exception as error:
                 print(f"{model}: check.json not sent ({error})", flush=True)
         print(f"MET Nordic {run_name}: {len(frames)} hours, {total / 1e6:.0f} MB, {time.time() - started:.0f} s")
+    if blend_only:
+        finished()
     if which != "wind":
         # Each model's own air and rain too (tiles/<folder>-wx/: the weather mix's; the owner,
         # 18.10.2026). One failing leaves the others.
