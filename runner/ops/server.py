@@ -402,7 +402,7 @@ def wrf_runs(since):
         end = os.path.getmtime(path)
         if end >= since:
             text = read(path, "") or ""
-            out.append((start, end, "failed" not in text[-2000:] and "left out" not in text))
+            out.append((start, end, "the run failed" not in text))
     return out
 
 

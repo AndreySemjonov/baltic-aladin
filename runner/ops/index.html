@@ -275,7 +275,10 @@ function Running({ f, now }) {
 }
 
 function Next({ f }) {
-  const waiting = f.waiting || [];
+  // During WRF a dozen can wait at once: the first 8 by priority, the rest named in one line.
+  const allWaiting = f.waiting || [];
+  const waiting = allWaiting.slice(0, 8);
+  const moreWaiting = allWaiting.slice(8);
   const next = (f.next || []).filter((n) => n.at).slice(0, 10);
   const later = (f.next || []).filter((n) => !n.at);
   const wnext = (f.wrf && f.wrf.next) || [];
@@ -283,6 +286,7 @@ function Next({ f }) {
     ${waiting.map((w) => html`<div class="nrow"><span class=${"prio " + prioClass(w.priority)}>P${w.priority}</span>
       <span class="n">${w.job}${(w.why || "").startsWith("waits for memory") ? html`<span class="chip mem">memory</span>` : (w.why || "").startsWith("priority 3") ? html`<span class="chip hold">held</span>` : null}</span>
       <span class="t now">due</span><span class="why">${w.source ? w.source + ": " : ""}${w.why}</span></div>`)}
+    ${moreWaiting.length ? html`<div class="nrow"><span></span><span class="why" style="grid-column:2/4">Also due and waiting: ${moreWaiting.map((w) => w.job).join(", ")}</span></div>` : null}
     ${next.map((n) => html`<div class="nrow"><span class=${"prio " + prioClass(n.priority)}>P${n.priority}</span><span class="n">${n.job}</span>
       <span class="t">${n.why.startsWith("every") ? "" : "~"}${clock(n.at)}</span><span class="why">${n.why}</span></div>`)}
     ${wnext[0] ? html`<div class="nrow"><span class="prio pw">WRF</span><span class="n">WRF Tarifa</span><span class="t">${clock(wnext[0])}</span>
