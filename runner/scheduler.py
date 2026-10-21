@@ -3,7 +3,10 @@ Mac mini from the end of the week; GitHub only for the code, tests and deploys).
 runner/jobs.py that's due (its source has a newer complete run, or its interval passed) starts in its own
 container (runner/Dockerfile; measured by runner/measure.py), at most MAX_TOTAL at once and MAX_HEAVY big
 ones (fewer while WRF runs on this machine), in the jobs' priority order (jobs.py; a priority 3 only while
-a slot stays free). The repo is pulled every 10 minutes (the code is mounted, not built in).
+a slot stays free), and only while the memory they'll need fits (each job's peak from its own last runs; the
+owner's Tower, 21.10.2026: the regional wind (8.4 GB) and the Mix (8.5 GB) side by side in 15.5 GB, one killed;
+the Mac mini has 16). A job a bigger one is waiting for memory doesn't jump ahead of it from a lower priority.
+The repo is pulled every 10 minutes (the code is mounted, not built in).
 
 Shadow mode (the default): every job writes to --local under the work folder, removed after it's measured,
 nothing uploaded; GitHub stays live. A job named in LIVE_FILE runs live instead (uploads with INGEST_TOKEN
@@ -50,6 +53,9 @@ MAX_TOTAL, MAX_HEAVY = int(os.environ.get("MG_MAX", "4")), int(os.environ.get("M
 WRF_LOCK = "/root/wrf-logs/.lock"
 REGION = os.environ.get("MG_REGION", "eu")
 LOW_SHARES = int(os.environ.get("MG_LOW_SHARES", "128"))
+# The jobs' memory: all but this much of the machine's (MB), unless MG_MEM_MB says.
+MEM_SPARE = 1800
+MEM_DEFAULT = {True: 6000, False: 1500}
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUCKET = "https://openmeteo.s3.amazonaws.com/data_spatial/"
 HEARTBEAT = "https://data.meteogust.com/tiles/upload/runner/heartbeat.json"
@@ -169,6 +175,31 @@ def due(job, state, cache, now):
     if job.every and now - mine.get("started", 0) >= job.every * 60:
         return now
     return None
+
+
+def mem_budget():
+    if os.environ.get("MG_MEM_MB"):
+        return int(os.environ["MG_MEM_MB"])
+    with open("/proc/meminfo") as f:
+        total = next(int(line.split()[1]) for line in f if line.startswith("MemTotal"))
+    return total // 1024 - MEM_SPARE
+
+
+def mem_need(job, _cache={}):
+    """A job's memory (MB): the most of its last 10 runs' peaks and a margin, else a default; read every 10 minutes."""
+    now = time.time()
+    if job.name in _cache and now - _cache[job.name][0] < 600:
+        return _cache[job.name][1]
+    peaks = []
+    try:
+        with open(f"{STATS}/{job.name}.jsonl") as f:
+            for line in f.readlines()[-10:]:
+                peaks.append(json.loads(line).get("peak_rss_mb") or 0)
+    except (OSError, ValueError):
+        pass
+    need = int(max(peaks) * 1.15) if peaks and max(peaks) > 0 else MEM_DEFAULT[job.heavy]
+    _cache[job.name] = (now, need)
+    return need
 
 
 def code_stamp():
@@ -296,6 +327,10 @@ def main():
         heavy_now = sum(1 for r in running.values() if r.job.heavy) + sum(1 for j in JOBS if j.name in others and j.heavy)
         total_max, heavy_max = (max(MAX_TOTAL // 2, 1), max(MAX_HEAVY // 2, 1)) if wrf else (MAX_TOTAL, MAX_HEAVY)
         names, live, cache = env_names(), live_jobs(), {}
+        by_name = {j.name: j for j in JOBS}
+        budget = mem_budget()
+        reserved = sum(mem_need(by_name[n]) for n in list(running) + others if n in by_name)
+        waiting = None  # the priority of a due job left waiting for memory
         # The riders' first models first (the owner, 21.10.2026: the 00Z/12Z peaks); within a priority the
         # order of jobs.py.
         for job in sorted(JOBS, key=lambda j: j.priority):
@@ -309,9 +344,18 @@ def main():
                 continue
             if any(n not in names for n in job.needs):
                 continue
+            if waiting is not None and job.priority > waiting:
+                continue
             wanted = due(job, state, cache, now)
             if wanted is None:
                 continue
+            need = mem_need(job)
+            if busy and reserved + need > budget:
+                if waiting is None:
+                    log(f"{job.name}: due, waiting for memory ({need} MB; {reserved} of {budget} taken)")
+                waiting = job.priority if waiting is None else min(waiting, job.priority)
+                continue
+            reserved += need
             is_live = job.name in live
             running[job.name] = Running(job, is_live, wanted if job.watch else None, now, LOW_SHARES if wrf else 1024)
             mine = state.setdefault(job.name, {})
