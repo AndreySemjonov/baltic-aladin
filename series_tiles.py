@@ -12,6 +12,11 @@ blocks: [[offset, length]...]}, offsets from the header's end) and the blocks: t
 pixel blocks, row by row, each block every hour's RGBA (hour by hour, its rows top first),
 zlib-deflated; a tile with nothing in it has no blocks. Then series/<set>/<run>/done.json.
 
+Since 21.10.2026 (the owner, "W1": one R2 write per file, the series were ~54k of ~95k writes a day) the tiles'
+files go into packs of up to PACK_BYTES: series/<set>/<run>/v3/pack-<n>.bin, each tile's file as it was, one after
+another; done.json then says where each is: {"packs": ["v3/pack-0.bin", ...], "at": {"z/x/y": [pack, offset,
+length]}}, written last (station-history reads a tile's file through it; the old one-file-a-tile runs still read).
+
     python series_tiles.py [set ...] [--force] [--local DIR] [--tiles N]   (no set: every one, each when new)
 """
 import json
@@ -30,6 +35,10 @@ import world_tiles
 
 FILES = spot_points.FILES
 BLOCK = 16
+# A pack's most (station-history's upload reads a body whole, 95 MB at most, in a Worker's 128 MB).
+PACK_BYTES = 48_000_000
+# Tiles made at a time before their files go into the pack (bounds the memory: ~3 MB a tile file at most).
+CHUNK = 32
 # The zoom a tap reads (station-history SERIES_ZOOMS, the same): the 1 km models and the Mix at 7,
 # the 2-2.5 km ones at 6, the others their finest.
 ZOOMS = {"mix": 7, "metnordic-1km": 7, "arome": 7, "icon-ch1": 7, "icon-d2": 6, "dini": 6, "harm-nl": 6, "icon-2i": 6,
@@ -133,19 +142,37 @@ def make(spec, local, limit, force):
         with ThreadPoolExecutor(8) as pool:
             pixels = list(pool.map(read, [(h, key) for h in headers]))
         pixels = [p if p is not None and p.shape[0] == size else None for p in pixels]
-        data = series_file(times, size, pixels)
-        path = f"series/{set_name}/{run}/v2/{z}/{key[1]}/{key[2]}.bin"
+        return key, series_file(times, size, pixels)
+
+    packs, at, buffer, total = [], {}, bytearray(), 0
+
+    def send():
+        """The pack so far out (local or uploaded), the next one started."""
+        nonlocal buffer
+        if not buffer:
+            return
+        name = f"v3/pack-{len(packs)}.bin"
+        path = f"series/{set_name}/{run}/{name}"
         if local:
             (local / path).parent.mkdir(parents=True, exist_ok=True)
-            (local / path).write_bytes(data)
+            (local / path).write_bytes(bytes(buffer))
         else:
-            world_tiles.upload(path, data)
-        return len(data)
+            world_tiles.upload(path, bytes(buffer))
+        packs.append(name)
+        buffer = bytearray()
 
-    # Four tiles at a time (each every hour's tile, about 40 MB while it's made).
+    # Four tiles at a time (each every hour's tile, about 40 MB while it's made), CHUNK at a time into the packs.
     with ThreadPoolExecutor(4) as pool:
-        total = sum(pool.map(one, tiles))
-    done = json.dumps({"tiles": len(tiles), "hours": len(frames), "bytes": total}).encode()
+        for c in range(0, len(tiles), CHUNK):
+            for key, data in pool.map(one, tiles[c:c + CHUNK]):
+                if buffer and len(buffer) + len(data) > PACK_BYTES:
+                    send()
+                at[f"{key[0]}/{key[1]}/{key[2]}"] = [len(packs), len(buffer), len(data)]
+                buffer += data
+                total += len(data)
+    send()
+    done = json.dumps({"tiles": len(tiles), "hours": len(frames), "bytes": total, "packs": packs, "at": at},
+                      separators=(",", ":")).encode()
     if local:
         (local / f"series/{set_name}/{run}").mkdir(parents=True, exist_ok=True)
         (local / f"series/{set_name}/{run}/done.json").write_bytes(done)
@@ -158,7 +185,7 @@ def make(spec, local, limit, force):
         except (ValueError, KeyError, TypeError):
             runs = []
         world_tiles.upload(f"series/{set_name}/runs.json", json.dumps({"runs": [run] + runs}).encode())
-    print(f"{set_name} {run}: {len(tiles)} series, {total / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
+    print(f"{set_name} {run}: {len(tiles)} series in {len(packs)} packs, {total / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
 
 
 def main():
