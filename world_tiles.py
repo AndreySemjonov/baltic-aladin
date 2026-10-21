@@ -154,6 +154,25 @@ def ecmwf9_newest_run():
     raise SystemExit("No complete ECMWF 9 km run found")
 
 
+# The hours past the first day remade at most every 3 hours (the owner, 21.10.2026, "M2", as the Mix's FAR_FROM and
+# FAR_EVERY): an hourly set's new run keeps the published run's packs of those hours while they're under 3 hours old
+# (each frame says when its pack was made: "made"); station-history keeps every folder an index points to. An hour
+# later 94 % of the Mix's far tiles were unchanged; the near day stays hourly. 3- and 6-hourly sets: never kept.
+FAR_FROM, FAR_EVERY = 24 * 3600, 3 * 3600
+
+
+def far_frames(index):
+    """{time: frame} of a published index's frames to keep as they are: past the first day from now, made under
+    FAR_EVERY ago (10 minutes' margin, so hourly runs remake them every third run)."""
+    now = time.time()
+    out = {}
+    for frame in (index or {}).get("frames") or []:
+        t = frame.get("time")
+        if isinstance(t, (int, float)) and t - now >= FAR_FROM and now - (frame.get("made") or 0) < FAR_EVERY - 600:
+            out[int(t)] = dict(frame)
+    return out
+
+
 def published_index(model):
     """The set's published index (None when there's none)."""
     try:

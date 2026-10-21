@@ -166,6 +166,9 @@ def main():
             cells.add_placed(t, grid.place, grid.sample, east, north, gust, air=air, rain=rain, cloud=cloud)
         if not out.checked(spec["name"], t, quality.wind(east, north, gust)):
             continue
+        if out.kept_far(t):
+            print(f"  {valid:%d %H:%M}: the published run's (made under {world_tiles.FAR_EVERY // 3600} h ago)", flush=True)
+            continue
         valid_values = valid_mask.astype(np.float32)
         out.put(t, tiler.pack(placement, grid.sample, lambda at: tiler.wind_rgb(at(east), at(north), at(gust)),
                               valid=lambda at: at(valid_values) > 0.5))

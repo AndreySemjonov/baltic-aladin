@@ -124,6 +124,8 @@ def main():
                     continue
                 if cells is not None:
                     cells.add_placed(t, place, sample, None, None, None, air=air, rain=rain, cloud=cloud)
+                if out.kept_far(t):
+                    continue
                 valid = lambda at: np.isfinite(at(raw))  # noqa: E731
                 out.put(t, tiler.pack(placement, sample, lambda at: tiler.temp_rgb(at(np.nan_to_num(air)), at(feels), at(hpa)), valid), "temp")
                 out.put(t, tiler.pack(placement, sample, lambda at: tiler.rain_rgb(at(rain), at(cloud)), valid), "rain")
@@ -138,6 +140,8 @@ def main():
                 continue
             if cells is not None:
                 cells.add_placed(int(times[s]), place, sample, east, north, gust)
+            if out.kept_far(int(times[s])):
+                continue
             out.put(int(times[s]), tiler.pack(placement, sample, lambda at: tiler.wind_rgb(at(east), at(north), at(gust)),
                                               valid=lambda at: np.isfinite(at(raw))))
         print(f"  {len(out.frames)} hours, {out.bytes / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)

@@ -185,6 +185,14 @@ class Unchanged(Exception):
 # job starts on any regional model's new run; remade whole each time it was 9.5 GB, 4.2 GB downloaded, 17 CPU min).
 SHADOW = Path("/stats/shadow") if os.environ.get("MG_JOB") and os.path.isdir("/stats") else None
 shadowing = False  # main(): --local under the runner
+FORCE = False  # main(): --force, or a person's --local test: every hour made
+
+
+def far_of(folder, local):
+    """The published (or the shadow's) run's far hours to keep in this run (world_tiles.far_frames, "M2")."""
+    if FORCE or (local and not shadowing):
+        return {}
+    return world_tiles.far_frames(published_index(folder))
 
 
 def shadow_read(folder):
@@ -270,6 +278,8 @@ def main():
     run_name = datetime.fromtimestamp(run, timezone.utc).strftime("%Y%m%dT%HZ")
     published = None if local and not shadowing else published_run(model)
     force = (bool(local) and not shadowing) or "--force" in args
+    global FORCE
+    FORCE = force
     # Hourly since 21.10.2026 (the owner: the regional models published up to 2 hours after their
     # makers, the job ran every 3 hours): the blend only for a new MET Nordic run, each model's own set
     # only for its own new run; with neither, done in a minute or two.
@@ -406,7 +416,11 @@ def main():
     names = (("speed", "wind_speed_10m"), ("direction", "wind_direction_10m"), ("gust", "wind_speed_of_gust")) if which == "wind"         else (("speed", "wind_speed_10m"), ("air", "air_temperature_2m"), ("humidity", "relative_humidity_2m"),
               ("pressure", "air_pressure_at_sea_level"), ("rain", "precipitation_amount"), ("cloud", "cloud_area_fraction"))
     blend_steps = steps if mn_new else []
-    fields = {key: fetch_hours(name, blend_steps, rows, cols) for key, name in names} if mn_new else {}
+    far = far_of(model, local) if mn_new else {}
+    made_steps = [s for s in blend_steps if int(times[s]) not in far]
+    if far:
+        print(f"MET Nordic blend: {len(blend_steps) - len(made_steps)} far hours kept from the published run", flush=True)
+    fields = {key: fetch_hours(name, made_steps, rows, cols) for key, name in names} if mn_new else {}
     print(f"read in {time.time() - started:.0f} s", flush=True)
     weights = {key: placer.weight(*value) for key, value in placer.tiles.items()}
     # The other models on each tile: where they lie and how much they count there.
@@ -438,6 +452,9 @@ def main():
 
     for s in blend_steps:
         t = int(times[s])
+        if t in far:
+            frames.append(far[t])
+            continue
         if which == "wind":
             speed, direction, gust = fields["speed"][s], fields["direction"][s], fields["gust"][s]
             rad = np.radians(np.nan_to_num(direction))
@@ -474,7 +491,7 @@ def main():
             data = packed(lambda at: encode(at(east), at(north), at(gust)), extra)
             name = f"{run_name}/{t}.pack"
             put(name, data)
-            frames.append({"time": t, "file": name})
+            frames.append({"time": t, "file": name, "made": round(time.time())})
             total += len(data)
             continue
         # The air (as the world's temperature packs: air, feels like, sea-level pressure) and the
@@ -532,7 +549,7 @@ def main():
         put(f"{run_name}/{t}-temp.pack", temp)
         put(f"{run_name}/{t}-rain.pack", rain)
         frames.append({"time": t, "file": f"{run_name}/{t}-temp.pack", "temp": f"{run_name}/{t}-temp.pack",
-                       "rain": f"{run_name}/{t}-rain.pack"})
+                       "rain": f"{run_name}/{t}-rain.pack", "made": round(time.time())})
         total += len(temp) + len(rain)
     if mn_new:
         index = {"model": "MET Nordic 1 km" if which == "wind" else "MET Nordic 1 km (air and rain)", "credit": "MET Norway, MET Nordic (CC BY 4.0)",
@@ -612,6 +629,7 @@ def model_weather_set(name, data, sample, parts, info, run_name, local, place=No
         cells = None
     keys = [key for key, (c, r, w) in parts.items() if np.any(w > 0)]
     frames, total = [], 0
+    far = far_of(folder, local)
 
     def put(file, pack):
         if local:
@@ -624,6 +642,9 @@ def model_weather_set(name, data, sample, parts, info, run_name, local, place=No
         d = data[t]
         if cells is not None:
             cells.add_placed(t, place, sample, None, None, None, air=d["air"], rain=d["rain"], cloud=d["cloud"])
+        if int(t) in far:
+            frames.append(far[int(t)])
+            continue
         temp_tiles, rain_tiles = {}, {}
         for key in keys:
             c, r, w = parts[key]
@@ -647,7 +668,7 @@ def model_weather_set(name, data, sample, parts, info, run_name, local, place=No
         put(f"{run_name}/{t}-temp.pack", temp)
         put(f"{run_name}/{t}-rain.pack", rain)
         frames.append({"time": int(t), "file": f"{run_name}/{t}-temp.pack", "temp": f"{run_name}/{t}-temp.pack",
-                       "rain": f"{run_name}/{t}-rain.pack"})
+                       "rain": f"{run_name}/{t}-rain.pack", "made": round(time.time())})
         total += len(temp) + len(rain)
     index = {"model": label + " (air and rain)", "credit": credit, "run": info.get("run"), "runName": run_name,
              "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "zooms": [ZOOMS.start, ZOOMS.stop - 1],
@@ -710,10 +731,14 @@ def model_set(name, data, sample, parts, info, run_name, local, place=None):
         print(f"{label}: the spots' cells left out ({error})", flush=True)
         cells = None
     frames, total = [], 0
+    far = far_of(folder, local)
     for t in sorted(data):
         e, n, g = data[t]
         if cells is not None:
             cells.add_placed(t, place, sample, e, n, g)
+        if int(t) in far:
+            frames.append(far[int(t)])
+            continue
         tiles = {}
         for key in keys:
             c, r, w = parts[key]
@@ -729,7 +754,7 @@ def model_set(name, data, sample, parts, info, run_name, local, place=None):
             (local / folder / file).write_bytes(pack)
         else:
             world_tiles.upload(f"{folder}/{file}", pack)
-        frames.append({"time": int(t), "file": file})
+        frames.append({"time": int(t), "file": file, "made": round(time.time())})
         total += len(pack)
     index = {"model": label, "credit": credit, "run": info.get("run"), "runName": run_name,
              "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "zooms": [zooms[0], zooms[-1]],

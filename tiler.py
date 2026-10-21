@@ -161,6 +161,19 @@ class Run:
         self.frames = {}
         self.bytes = 0
         self.report = quality.Report(name)
+        # The published run's far hours to keep (world_tiles.far_frames; not for a test or a forced run).
+        self.far = world_tiles.far_frames(world_tiles.published_index(name)) if self.wanted and not self.local and not force else {}
+        self.far_kept = 0
+
+    def kept_far(self, unix_time):
+        """True when this hour keeps the published run's packs (past the first day, made under 3 hours ago): its
+        frame goes in the index as it was, nothing made or uploaded."""
+        frame = self.far.get(int(unix_time))
+        if frame is None:
+            return False
+        self.frames[int(unix_time)] = frame
+        self.far_kept += 1
+        return True
 
     def checked(self, model, unix_time, reason):
         """An hour's check (`reason` from quality, None: fine): False leaves the hour out."""
@@ -191,6 +204,7 @@ class Run:
         else:
             world_tiles.upload(f"{self.name}/{file}", data)
         frame = self.frames.setdefault(int(unix_time), {"time": int(unix_time)})
+        frame["made"] = round(time.time())
         if kind:
             frame[kind] = file
             frame.setdefault("file", file)
