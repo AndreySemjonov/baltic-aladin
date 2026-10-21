@@ -270,7 +270,7 @@ class Freshness:
                 allowance = ((usual_ours or 3 * 3600) - (median(maker_lags) or 0)) + 1800
                 status = "bad" if waited is not None and waited > max(allowance, 1800) else "wait"
             strip = self.strip(key, om or ("ncep_gfs025" if key == "wrf_tarifa" else None), arrivals, now)
-            rows.append({"key": key, "label": label, "group": group, "every": every, "maker_run": maker_run, "maker_done": maker_done,
+            rows.append({"key": key, "set": set_name, "label": label, "group": group, "every": every, "maker_run": maker_run, "maker_done": maker_done,
                          "ours": ours, "ours_spots": spots.get("run"), "ours_map": mp.get("run"), "published": published,
                          "status": status, "where": where, "processing": processing, "behind_runs": behind_runs, "waited": waited,
                          "usual_ours": usual_ours, "usual_maker": median(maker_lags), "strip": strip})

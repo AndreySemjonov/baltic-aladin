@@ -37,6 +37,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import views  # noqa: E402  (freshness, capacity, admin)
+import adminproxy  # noqa: E402  (admin.meteogust.com through the panel)
 
 HOME = os.environ.get("MG_HOME", "/var/lib/meteogust")
 PORT = int(os.environ.get("MG_OPS_PORT", "8090"))
@@ -548,7 +549,8 @@ def summaries_loop():
                 FRESH.refresh(wrf_state())
             except Exception as error:
                 log(f"freshness: {error}")
-        if now - last_admin > (60 if watched else 600):
+        # (admin's overview reads many database rows: every 5 minutes while watched, else every 30)
+        if now - last_admin > (300 if watched else 1800):
             last_admin = now
             try:
                 ADMIN.refresh()
@@ -654,6 +656,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             if url.path in ("/", "/index.html"):
                 self.reply(200, "text/html; charset=utf-8", (read(f"{HERE}/index.html", "") or "").encode())
+            elif url.path in ("/admin", "/admin/"):
+                self.reply(*adminproxy.page())
+            elif url.path == "/admin/check":
+                self.reply(*adminproxy.check_page())
+            elif url.path.startswith("/admin/api/"):
+                self.reply(*adminproxy.pass_get(url.path[len("/admin/api/"):], url.query))
             elif url.path == "/api/fast":
                 self.reply(200, "application/json", json.dumps(fast()).encode())
             elif url.path == "/api/slow":
@@ -670,6 +678,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.log_stream(urllib.parse.parse_qs(url.query).get("job", [""])[0])
             else:
                 self.reply(404, "text/plain", b"Not here\n")
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def do_POST(self):
+        if not self.allowed():
+            return
+        url = urllib.parse.urlsplit(self.path)
+        try:
+            if not url.path.startswith("/admin/api/"):
+                self.reply(404, "text/plain", b"Not here")
+            elif not adminproxy.allowed_post(self):
+                self.reply(403, "application/json", b'{"error": "Changes only from the control panel page"}')
+            else:
+                length = int(self.headers.get("Content-Length") or 0)
+                body = self.rfile.read(length) if 0 < length <= 30_000_000 else b""
+                self.reply(*adminproxy.pass_post(url.path[len("/admin/api/"):], url.query, body, self.headers.get("Content-Type")))
         except (BrokenPipeError, ConnectionResetError):
             pass
 
@@ -733,7 +757,7 @@ class Server(http.server.ThreadingHTTPServer):
 
 
 def reload_when_changed():
-    files = [__file__, views.__file__]
+    files = [__file__, views.__file__, adminproxy.__file__]
     stamp = [os.path.getmtime(f) for f in files]
     while True:
         time.sleep(20)

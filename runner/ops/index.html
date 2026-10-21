@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>MeteoGust Ops</title>
+<title>MeteoGust Control</title>
 <!-- The ops panel (runner/ops/server.py); from docs/mockups/ops-panel-2026-10-21.html in the app repo, approved by the owner 21.10.2026. -->
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
@@ -196,6 +196,45 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 .feed { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line); font-size: 14px }
 .feed:first-child { border-top: 0 }
 .feed .sub { display: block; font-size: 12.5px; color: var(--muted) }
+.top nav.tabs { flex: 1; min-width: 0 }
+.warnings { display: flex; gap: 8px; flex-wrap: wrap; padding-block: 6px 8px }
+.w { font: 500 13px/1.2 var(--body); padding: 6px 10px; border-radius: 6px; text-decoration: none; color: inherit }
+.w.bad { background: var(--bad-soft); color: var(--bad) } .w.warn { background: var(--warn-soft); color: var(--warn) } .w.ok { background: var(--ok-soft); color: var(--ok) }
+.w b { font-weight: 600 }
+:root { --home: #2b6fd6; --home-soft: #dde8fb }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --home: #6ea2f5; --home-soft: #1b2c4a } }
+:root[data-theme="dark"] { --home: #6ea2f5; --home-soft: #1b2c4a }
+.pipe { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) 380px; align-items: start }
+@media (max-width: 1100px) { .pipe { grid-template-columns: minmax(0, 1fr) } }
+.filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px }
+.chip { font: 500 12.5px/1 var(--body); padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer }
+.chip.on { background: var(--ink); color: var(--panel); border-color: var(--ink) }
+.lanes { overflow-x: auto }
+.lanes svg { display: block; min-width: 980px; width: 100% }
+.lanes text { font: 11px var(--mono); fill: var(--muted) }
+.lanes .lname { font: 600 12.5px var(--display); fill: var(--ink) }
+.lanes .row:hover rect.hit, .lanes .row.sel rect.hit { fill: var(--accent-soft) }
+.detail { position: sticky; top: 140px; display: grid; gap: 14px }
+.dhead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap }
+.dhead b { font: 700 21px/1 var(--display) }
+.plist { display: none }
+.pitem { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; padding: 10px 0; border-top: 1px solid var(--line); cursor: pointer }
+.pitem b { font: 600 15px var(--display) } .pitem .s { font: 12.5px var(--mono); color: var(--muted); grid-column: 1 / 3 }
+@media (max-width: 760px) { .lanes, .filters { display: none } .plist { display: grid } .detail { position: static } }
+.big { font: 600 28px/1 var(--display) } .big small { font: 500 14px var(--body); color: var(--muted) }
+.btn { font: 600 13px var(--body); padding: 6px 10px; border-radius: 6px; border: 1px solid var(--accent); color: var(--accent); background: transparent; cursor: pointer; white-space: nowrap; text-decoration: none; display: inline-block }
+.btn.primary { background: var(--accent); color: var(--panel) }
+.btn.danger { border-color: var(--bad); color: var(--bad) }
+.btn:disabled { opacity: .5 }
+.btns { display: flex; gap: 6px; flex-wrap: wrap }
+.confirm { border: 1px dashed var(--warn); border-radius: 8px; padding: 10px 12px; font-size: 13.5px; background: var(--warn-soft) }
+.form { display: grid; gap: 8px; grid-template-columns: 1fr 1fr }
+.form label { font-size: 12.5px; color: var(--muted); display: grid; gap: 4px }
+.form input { font: 14px var(--body); padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); min-width: 0 }
+.heat { display: grid; grid-template-columns: 150px repeat(24, 1fr); gap: 2px; font: 12px var(--mono); align-items: center }
+.heat span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.heat i { height: 13px; border-radius: 2px; display: block }
+.job { border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; display: flex; gap: 8px; flex-wrap: wrap }
 </style>
 <div id="app"><main class="wrap"><p class="empty">Connecting to the Tower…</p></main></div>
 <script type="module">
@@ -661,17 +700,368 @@ function NowTab({ f, s, now }) {
     </div>`;
 }
 
+// MARK: The control panel (the owner, 21.10.2026: admin and ops in one, at home; mockups control-pipeline and
+// control-sections in docs/mockups). Admin's data and actions come through the home server's /admin/api/.
+
+const SECTIONS = [["pipeline", "Pipeline"], ["machine", "Machine"], ["quality", "Quality"], ["app", "App & riders"], ["stations", "Stations"], ["costs", "Costs"]];
+const JOB_SET = { "icon-eu": "icon-eu", "world-gfs": "gfs", "world-ecmwf": "ecmwf", "world-icon": "icon", "world-gdps": "gdps", "nordic-1km": "metnordic-1km",
+  "mix": "mix", "mix-world": "mix-world", "weather-mix-europe": "mix-wx", "weather-mix-world": "mix-world-wx", "bucket-knmi-eu": "knmi-eu",
+  "bucket-arome25": "arome25", "bucket-icon-ch2": "icon-ch2", "ukmo": "ukmo", "ewam": "ewam", "ecmwf-waves": "ecmwf-waves", "chance": "chance",
+  "harm-fi": "harm-fi", "aladin": "aladin", "regional-wind": "metnordic", "regional-weather": "metnordic-wx", "sea": "sea", "waves": "waves" };
+
+async function adminGet(path) {
+  const r = await fetch("/admin/api/" + path, { cache: "no-store" });
+  if (!r.ok) throw new Error((await r.text()).slice(0, 200));
+  return r.json();
+}
+async function adminPost(path, body) {
+  const r = await fetch("/admin/api/" + path, { method: "POST", headers: { "content-type": "application/json", "x-shorewind-admin": "1" }, body: JSON.stringify(body) });
+  const text = await r.text();
+  let data = {};
+  try { data = JSON.parse(text); } catch (e) { data = { error: text.slice(0, 200) }; }
+  if (!r.ok || data.error) throw new Error(data.error || `HTTP ${r.status}`);
+  return data;
+}
+
+// A button that asks once more before it acts; shows what came back.
+function ActButton({ label, ask, run, primary, danger }) {
+  const [state, setState] = useState("idle");
+  const [msg, setMsg] = useState("");
+  const go = async () => {
+    if (state === "idle") { setState("ask"); return; }
+    setState("busy");
+    try { const d = await run(); setMsg(d && d.ok === false ? "not done" : "done"); setState("done"); }
+    catch (e) { setMsg(String(e.message || e)); setState("error"); }
+  };
+  return html`<span style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap">
+    <button class=${"btn" + (primary ? " primary" : "") + (danger ? " danger" : "")} onClick=${go} disabled=${state === "busy"}>
+      ${state === "ask" ? (ask || "Sure? Click again") : state === "busy" ? "…" : label}</button>
+    ${state === "ask" ? html`<button class="btn" onClick=${() => setState("idle")}>Cancel</button>` : null}
+    ${msg ? html`<span class="whytxt" style=${state === "error" ? "color:var(--bad)" : ""}>${msg}</span>` : null}</span>`;
+}
+
+function Nav({ sec }) {
+  return html`<nav class="tabs" aria-label="Sections">
+    ${SECTIONS.map(([k, label]) => html`<a href=${"#" + k} class=${sec === k ? "on" : ""}>${label}</a>`)}
+    <a href="/admin/" title="admin.meteogust.com's own page, served from home">Full admin ↗</a></nav>`;
+}
+
+function warningsList({ f, fr, ad, spots, now }) {
+  const out = [];
+  for (const r of (fr && fr.rows) || []) if (r.status === "bad") out.push(["bad", r.label, `${r.behind_runs} run${r.behind_runs > 1 ? "s" : ""} behind${r.waited ? " · " + hrs(r.waited) : ""}`, "#pipeline"]);
+  for (const x of (ad && ad.feeds) || []) if (x.late) out.push(["bad", x.name, x.age != null ? "late · " + hrs(x.age) : "not found", "#pipeline"]);
+  const o = ad && ad.overview;
+  if (o) {
+    const over = ((o.ours || {}).rows || []).filter((r) => r.lead === "0-48" && r.n >= 100 && r.mae > (r.model.endsWith("#temp") ? 0.5 : 0.3));
+    if (over.length) out.push(["warn", "Ours vs Open-Meteo", `${over.length} over the limit`, "#quality"]);
+    const crash = ((o.crashes || {}).groups || []).filter((g) => now - g.last < 3 * 3600).sort((a, b) => b.last - a.last)[0];
+    if (crash) out.push(["warn", "Crash", `${crash.kind || crash.summary || ""} · ${crash.platform} · ${hrs(now - crash.last)} ago`, "#app"]);
+    const failed = ((o.alerts || {}).sent || []).reduce((a, s) => a + (s.failed || 0), 0);
+    if (failed) out.push(["warn", "Alerts", `${failed} pushes failed today`, "#app"]);
+    const st = o.stations || {};
+    if (st.total && st.fresh < st.total * 0.8) out.push(["warn", "Stations", `${st.fresh} of ${st.total} fresh`, "#stations"]);
+  }
+  if (spots && (spots.pending || []).length) out.push(["warn", "Spots", `${spots.pending.length} waiting for review`, "#app"]);
+  if (f && f.live_t && now - f.live_t > 180) out.push(["bad", "Runner", `quiet for ${dur(now - f.live_t)}`, "#machine"]);
+  if (f && f.beat && now - f.beat > 1200) out.push(["bad", "Heartbeat", `${dur(now - f.beat)} old`, "#machine"]);
+  return out;
+}
+
+function Warnings(props) {
+  const { f, ad, now } = props;
+  const list = warningsList(props);
+  const fine = ((ad && ad.feeds) || []).filter((x) => !x.late).length;
+  return html`<div class="warnings">
+    ${list.map(([k, a, b, href]) => html`<a class=${"w " + k} href=${href}><b>${a}</b> ${b}</a>`)}
+    <a class="w ok" href="#machine">${fine} feeds fine · ${(f.live || []).length} live at home · ${f.wrf && f.wrf.running ? "WRF running" : "WRF next " + clock((f.wrf && f.wrf.next || [])[0])} · heartbeat ${f.beat ? dur(now - f.beat) : "–"}</a>
+  </div>`;
+}
+
+function TopBar(props) {
+  const { f, zone, setZone, sec } = props;
+  const now = Date.now() / 1000;
+  const stale = f.live_t && now - f.live_t > 180;
+  return html`<header class="top"><div class="wrap"><div class="row1">
+    <div class="brand"><span class="dot" aria-hidden="true" style=${stale ? "background:var(--bad)" : ""}></span>MeteoGust <small>control · ${f.host || "…"}</small></div>
+    <${Nav} sec=${sec} />
+    <div class="clock"><b>${clock(now, true)}</b> ${zoneName()}
+      <button class="tbtn" onClick=${() => setZone(zone === "UTC" ? "Europe/Riga" : "UTC")}>show ${zone === "UTC" ? "Riga" : "UTC"}</button></div>
+  </div><${Warnings} ...${props} now=${now} /></div></header>`;
+}
+
+// MARK: Pipeline
+
+function laneData(maps, fr, f, now) {
+  if (!maps || !maps.maps) return [];
+  const byMap = {};
+  for (const r of maps.runs || []) {
+    const [name, run, online, published, frames, failed] = r;
+    (byMap[name] = byMap[name] || []).push({ run: +run, online: online ? +online : null, published: published ? +published : null, frames: +frames || 0, failed: +failed === 1 });
+  }
+  const freshBySet = {};
+  for (const r of (fr && fr.rows) || []) if (r.set) freshBySet[r.set] = r;
+  const homeBySet = {};
+  for (const j of (f && f.jobs) || []) { const s = JOB_SET[j.job]; if (s) homeBySet[s] = j; }
+  return maps.maps.map((m) => {
+    const set = m.name.startsWith("tiles:") ? m.name.slice(6) : m.name;
+    const runs = (byMap[m.name] || []).sort((a, b) => a.run - b.run);
+    const last = runs[runs.length - 1];
+    const lastPub = [...runs].reverse().find((r) => r.published);
+    const next = last ? last.run + m.interval * 3600 + m.delay * 3600 : null;
+    const fresh = freshBySet[set];
+    let status = "ok";
+    if (fresh) status = fresh.status;
+    else if (lastPub && now - lastPub.run > (m.interval + m.delay) * 3600 + 3600) status = "bad";
+    else if (last && last.online && !last.published && !last.failed) status = "proc";
+    const delays = runs.filter((r) => r.published).map((r) => (r.published - r.run) / 3600);
+    const median = delays.length ? [...delays].sort((a, b) => a - b)[delays.length >> 1] : null;
+    return { ...m, set, runs, last, lastPub, next, fresh, status, home: homeBySet[set], delays, median };
+  });
+}
+
+function Lanes({ lanes, now, sel, setSel }) {
+  const t0 = now - 24 * 3600, t1 = now + 12 * 3600, X0 = 210, X1 = 1250, lh = 24;
+  const x = (t) => X0 + (Math.max(t0, Math.min(t1, t)) - t0) / (t1 - t0) * (X1 - X0);
+  const H = 30 + lanes.length * lh + 20;
+  const hours = [];
+  for (let t = Math.ceil(t0 / 3600) * 3600; t <= t1; t += 3600) hours.push(t);
+  return html`<div class="lanes"><svg viewBox="0 0 1260 ${H}" role="img" aria-label="Every map's runs">
+    ${hours.map((t, i) => html`<line x1=${x(t)} x2=${x(t)} y1="22" y2=${H - 20} stroke="var(--line)"/>${i % 3 === 0 ? html`<text x=${x(t)} y="15" text-anchor="middle">${clock(t)}</text>` : null}`)}
+    ${lanes.map((l, i) => {
+      const y = 28 + i * lh;
+      const color = (r) => r.failed ? "var(--bad)" : r.published && r.online && r.published - r.online > 45 * 60 ? "var(--warn)" : "var(--ok)";
+      return html`<g class=${"row" + (sel === l.name ? " sel" : "")} onClick=${() => setSel(l.name)} style="cursor:pointer">
+        <rect class="hit" x="0" y=${y - 2} width="1260" height=${lh} fill="transparent" rx="4"/>
+        <circle cx="8" cy=${y + 9} r="4" fill=${l.status === "bad" ? "var(--bad)" : l.status === "proc" ? "var(--accent)" : l.status === "wait" ? "var(--warn)" : "var(--ok)"}/>
+        <text class="lname" x="18" y=${y + 13}>${l.label.length > 30 ? l.label.slice(0, 29) + "…" : l.label}</text>
+        ${l.runs.filter((r) => (r.published || r.online || r.run) >= t0 - 3600 && r.run <= t1).map((r) => {
+          const a = r.online || r.run, b = r.published || (r.failed ? a + 600 : now);
+          return html`${r.run >= t0 ? html`<line x1=${x(r.run)} x2=${x(a)} y1=${y + 9} y2=${y + 9} stroke="var(--faint)" stroke-width="2"/>` : null}
+            <rect x=${x(a)} y=${y + 4} width=${Math.max(x(b) - x(a), 2.5)} height="10" rx="2" fill=${r.published || r.failed ? "var(--accent)" : "var(--accent)"} opacity=${r.published || r.failed ? 0.55 : 1}><title>${l.label} ${runZ(r.run)}: online ${r.online ? clock(r.online) : "–"}, published ${r.published ? clock(r.published) : r.failed ? "failed" : "not yet"}</title></rect>
+            ${r.published || r.failed ? html`<rect x=${x(b) - 1.5} y=${y + 2} width="3" height="14" rx="1" fill=${color(r)}/>` : null}`;
+        })}
+        ${l.home && l.home.started ? html`<rect x=${x(l.home.started)} y=${y + 4} width=${Math.max(x(now) - x(l.home.started), 3)} height="10" rx="2" fill="var(--home)" opacity=${l.home.live ? 1 : 0.45}><title>at home: ${l.home.job} (${l.home.live ? "live" : "shadow"})</title></rect>` : null}
+        ${l.next && l.next > now && l.next < t1 ? html`<path d=${`M${x(l.next)} ${y + 2} l6 7 -6 7 -6 -7 Z`} fill="none" stroke="var(--faint)"><title>next expected ${clock(l.next)}</title></path>` : null}
+      </g>`;
+    })}
+    <line x1=${x(now)} x2=${x(now)} y1="20" y2=${H - 18} stroke="var(--warn)" stroke-width="2"/><text x=${x(now) + 5} y=${H - 6} style="fill:var(--warn)">now ${clock(now)}</text>
+  </svg></div>`;
+}
+
+function LaneDetail({ l, now }) {
+  if (!l) return html`<div class="panel"><p class="note" style="margin:0">Tap a lane for its runs, its usual times and its actions.</p></div>`;
+  const fr = l.fresh;
+  const recent = [...l.runs].reverse().slice(0, 6);
+  const d = l.delays.slice(-60);
+  const maxH = Math.max(4, ...d, (l.median || 0) * 1.5);
+  return html`<div class="panel"><div class="dhead"><b>${l.label}</b><span class=${"st " + l.status}>${STATUS[l.status] || l.status}</span></div>
+      <div class="kv" style="margin-top:10px">
+        ${fr ? html`<span>Maker's newest</span><span>${dayRunZ(fr.maker_run, now)}${fr.maker_done ? " · " + clock(fr.maker_done) : ""}</span>
+          <span>Ours</span><span>${dayRunZ(fr.ours, now)}${fr.published ? " · " + clock(fr.published) : ""} · ${fr.where}</span>
+          ${fr.processing ? html`<span>Now</span><span>${fr.processing}</span>` : null}
+          <span>Usual</span><span>${usualText(fr)}</span>` : null}
+        <span>Runs</span><span>every ${l.interval} h · usually out ${l.delay} h after</span>
+        <span>Next expected</span><span>${l.next ? clock(l.next) : "–"}</span>
+        ${l.home ? html`<span>At home</span><span>${l.home.job} · ${l.home.live ? "live" : "shadow"} · ${l.home.started ? dur(now - l.home.started) : ""}</span>` : null}
+      </div></div>
+    <div class="panel"><h2>Last runs</h2><div class="tablewrap"><table><thead><tr><th>Run</th><th>Online</th><th>Published</th><th class="r">From the run</th></tr></thead>
+      <tbody>${recent.map((r) => html`<tr><td class="num">${dayRunZ(r.run, now)}</td><td class="num">${r.online ? clock(r.online) : "–"}</td>
+        <td class="num" style=${r.failed ? "color:var(--bad)" : ""}>${r.published ? clock(r.published) : r.failed ? "failed" : "not yet"}</td>
+        <td class="r num">${r.published ? ((r.published - r.run) / 3600).toFixed(1) + " h" : "–"}</td></tr>`)}</tbody></table></div></div>
+    <div class="panel"><h2>Run → published, 14 days · hours</h2>
+      <svg viewBox="0 0 340 70" style="width:100%">
+        ${[0, 0.25, 0.5, 0.75, 1].map((p) => html`<line x1=${10 + p * 320} x2=${10 + p * 320} y1="6" y2="50" stroke="var(--line)"/><text x=${10 + p * 320} y="64" text-anchor="middle" style="font:10px var(--mono);fill:var(--muted)">${(p * maxH).toFixed(0)} h</text>`)}
+        ${d.map((v, i) => html`<circle cx=${10 + Math.min(v / maxH, 1) * 320} cy=${12 + (i * 37 % 34)} r="3" fill=${l.median && v > l.median + 1 ? "var(--warn)" : "var(--home)"}/>`)}
+        ${l.median ? html`<line x1=${10 + l.median / maxH * 320} x2=${10 + l.median / maxH * 320} y1="6" y2="50" stroke="var(--ink)" stroke-width="2"/>` : null}
+      </svg><p class="note" style="margin:0">${l.median ? `Median ${l.median.toFixed(1)} h over ${l.delays.length} runs. Yellow: over an hour slower.` : "No published runs recorded."}</p></div>
+    <div class="panel"><h2>Actions</h2><div class="btns">
+      <${ActButton} label="Run the helper now" run=${() => adminPost("run", { what: "helper" })} primary=${true} />
+      <${ActButton} label="Rebuild all maps" run=${() => adminPost("run", { what: "rebuild" })} />
+    </div><p class="note" style="margin:8px 0 0">Through admin's own routes; each asks once more.</p></div>`;
+}
+
+function Pipeline({ maps, fr, f, now }) {
+  const [sel, setSel] = useState(null);
+  const [filter, setFilter] = useState("all");
+  const all = laneData(maps, fr, f, now);
+  const lanes = all.filter((l) => filter === "all" || (filter === "bad" ? l.status === "bad" : filter === "proc" ? l.status === "proc" : filter === "home" ? !!l.home : true));
+  const picked = all.find((l) => l.name === sel);
+  const n = (s) => all.filter((l) => l.status === s).length;
+  return html`<div class="pipe">
+    <section class="panel" aria-label="Pipeline"><h2>Every map: run → online → published · last 24 h and next 12 · ${zoneName()} time</h2>
+      ${!maps ? html`<p class="empty">Reading admin's map history…</p>` : html`
+      <div class="filters">${[["all", `All ${all.length}`], ["bad", `Behind ${n("bad")}`], ["proc", `Processing ${n("proc")}`], ["home", `At home ${all.filter((l) => l.home).length}`]].map(([k, label]) =>
+        html`<span class=${"chip" + (filter === k ? " on" : "")} onClick=${() => setFilter(k)}>${label}</span>`)}</div>
+      <${Lanes} lanes=${lanes} now=${now} sel=${sel} setSel=${setSel} />
+      <div class="plist">${lanes.map((l) => html`<div class="pitem" onClick=${() => setSel(l.name)}><b>${l.label}</b><span class=${"st " + l.status}>${STATUS[l.status] || l.status}</span>
+        <span class="s">last ${l.lastPub ? dayRunZ(l.lastPub.run, now) + " · " + clock(l.lastPub.published) : "–"} · next ${l.next ? clock(l.next) : "–"}</span></div>`)}</div>
+      <div class="legend"><span style="--c:var(--faint)">run started → online</span><span style="--c:var(--accent)">our processing</span><span style="--c:var(--home)">at home</span><span style="--c:var(--ok)">published</span><span style="--c:var(--warn)">over 45 min after online</span><span style="--c:var(--bad)">failed</span><span>◇ next expected</span></div>`}
+    </section>
+    <aside class="detail">${html`<${LaneDetail} l=${picked} now=${now} />`}</aside>
+  </div>
+  <div style="margin-top:16px"><${Freshness} fr=${fr} now=${now} /></div>`;
+}
+
+// MARK: Quality
+
+function Quality({ ad, now }) {
+  const o = ad && ad.overview;
+  if (!o) return html`<p class="empty">${ad && ad.error ? ad.error : "Reading admin's data…"}</p>`;
+  const rows = (o.ours || {}).rows || [];
+  const models = [...new Set(rows.map((r) => r.model))];
+  const cell = (m, lead) => rows.find((r) => r.model === m && r.lead === lead);
+  const limit = (m) => m.endsWith("#temp") ? 0.5 : 0.3;
+  const over = models.filter((m) => { const c = cell(m, "0-48"); return c && c.n >= 100 && c.mae > limit(m); });
+  const rs = o.rainSkill || [];
+  const lastRs = rs[rs.length - 1];
+  const sets = lastRs ? Object.entries(lastRs.sets).sort((a, b) => b[1].fss - a[1].fss) : [];
+  const skill = ((o.alerts || {}).skill || []);
+  const csi = (m, lead) => { const s = skill.find((x) => x.method === m && x.lead === lead); return s ? s.hits / Math.max(1, s.hits + s.misses + s.falses) : null; };
+  const W = 400, H = 170, X0 = 30, Y0 = 10, Y1 = 150;
+  const lines = [["rain-now+1", "var(--ok)"], ["composite", "var(--home)"], ["weighted", "var(--wrf)"], ["icon-eu-wx", "var(--warn)"]];
+  return html`<div class="grid">
+    <div class="panel s3"><h2>Ours vs Open-Meteo</h2><div class="big" style=${over.length ? "color:var(--warn)" : "color:var(--ok)"}>${over.length} <small>over the limit</small></div><p class="whytxt">Same run, first 48 h: 0.5 °C air, 0.3 m/s wind.</p></div>
+    <div class="panel s3"><h2>Rain map skill · last hour</h2><div class="big">${lastRs && lastRs.sets.weighted ? lastRs.sets.weighted.fss.toFixed(2) : "–"} <small>FSS, weighted</small></div><p class="whytxt">Best now: ${sets[0] ? sets[0][0] + " " + sets[0][1].fss.toFixed(2) : "–"}</p></div>
+    <div class="panel s3"><h2>Rain alerts</h2><div class="big">${csi("blend", 60) != null ? csi("blend", 60).toFixed(2) : "–"} <small>CSI at 60 min</small></div><p class="whytxt">Blend method, 7 days.</p></div>
+    <div class="panel s3"><h2>Spots on our data</h2><div class="big">${(o.stations || {}).total != null ? "" : ""}${rows.length ? models.length : "–"} <small>models compared</small></div><p class="whytxt">Last compared ${rows.length ? hrs(now - Math.max(...rows.map((r) => r.last || 0))) + " ago" : "–"}.</p></div>
+    <div class="panel s8"><h2>Ours vs Open-Meteo, same run · mean difference (bias: ours higher +)</h2><div class="tablewrap"><table>
+      <thead><tr><th>Model</th><th class="r">0-2 days</th><th class="r">2-5 days</th><th class="r">5+ days</th><th class="r">Spots</th><th></th></tr></thead>
+      <tbody>${models.sort((a, b) => ((cell(b, "0-48") || {}).mae || 0) - ((cell(a, "0-48") || {}).mae || 0)).map((m) => {
+        const u = m.endsWith("#temp") ? " °C" : m === "waves" ? " m" : " m/s";
+        const show = (c) => c ? html`${c.mae.toFixed(2)}${u} <span class="whytxt">(${c.bias >= 0 ? "+" : ""}${c.bias.toFixed(2)})</span>` : "–";
+        const c0 = cell(m, "0-48");
+        const bad = c0 && c0.n >= 100 && c0.mae > limit(m);
+        return html`<tr><td>${m.replace("#temp", " air").replace(/_/g, " ")}</td><td class="r num" style=${bad ? "color:var(--warn)" : ""}>${show(c0)}</td><td class="r num">${show(cell(m, "48-120"))}</td><td class="r num">${show(cell(m, "120+"))}</td>
+          <td class="r num">${c0 ? c0.spots : "–"}</td><td><span class=${"st " + (bad ? "wait" : "ok")}>${bad ? "look" : "fine"}</span></td></tr>`;
+      })}</tbody></table></div></div>
+    <div class="panel s4"><h2>Rain map vs radar · FSS by hour (24 h)</h2>
+      <svg class="chart" viewBox="0 0 ${W} ${H}">
+        ${[0, 0.5, 1].map((v) => html`<line x1=${X0} x2=${W - 5} y1=${Y1 - v * (Y1 - Y0)} y2=${Y1 - v * (Y1 - Y0)} stroke="var(--line)"/><text x=${X0 - 5} y=${Y1 - v * (Y1 - Y0) + 4} text-anchor="end">${v}</text>`)}
+        ${lines.map(([k, col]) => { const pts = rs.slice(-24).map((r, i, a) => r.sets[k] ? `${X0 + i / Math.max(a.length - 1, 1) * (W - X0 - 5)},${Y1 - r.sets[k].fss * (Y1 - Y0)}` : null).filter(Boolean);
+          return pts.length > 1 ? html`<polyline points=${pts.join(" ")} fill="none" stroke=${col} stroke-width="2"/>` : null; })}
+      </svg><div class="legend">${lines.map(([k, c]) => html`<span style=${"--c:" + c}>${k}</span>`)}</div></div>
+    <p class="note s12" style="margin:0">The rain nowcast's full charts and the blend's weights: <a href="/admin/" style="color:var(--accent)">full admin</a>, Overview.</p>
+  </div>`;
+}
+
+// MARK: App & riders
+
+function AppRiders({ ad, spots, roles, builds, refresh, now }) {
+  const o = ad && ad.overview;
+  const [notes, setNotes] = useState("");
+  const [num, setNum] = useState("");
+  const newest = builds && builds.builds && builds.builds[0];
+  const accounts = (roles && roles.accounts) || [];
+  const devices = (roles && roles.devices) || [];
+  const active = devices.filter((d) => now - d.last_seen < 7 * 86400).length;
+  const groups = (o && o.crashes && o.crashes.groups) || [];
+  return html`<div class="grid">
+    <div class="panel s4"><h2>Spots waiting for review · ${spots ? (spots.pending || []).length : "…"}</h2>
+      ${spots && (spots.pending || []).length ? spots.pending.map((p) => html`<div class="job" style="flex-direction:column;align-items:stretch;margin-bottom:8px">
+        <div><b>${p.name}</b> <span class="whytxt">by ${p.author || "a rider"} · ${hrs(now - (p.created || now))} ago</span></div>
+        <span class="whytxt">${(+p.lat).toFixed(3)}, ${(+p.lon).toFixed(3)}</span>
+        <div class="btns"><${ActButton} label="Approve" primary=${true} run=${async () => { const d = await adminPost("spots", { code: p.code, action: "approve" }); refresh(); return d; }} />
+          <a class="btn" href="/admin/#spots">Edit</a>
+          <${ActButton} label="Reject" danger=${true} run=${async () => { const d = await adminPost("spots", { code: p.code, action: "reject" }); refresh(); return d; }} /></div></div>`)
+        : html`<p class="whytxt">Nothing waiting.</p>`}
+      <p class="whytxt">Public rider spots ${spots ? (spots.published || []).length : "…"} · catalog ${spots ? (spots.official || []).length : "…"} · <a href="/admin/#spots" style="color:var(--accent)">all spots, weights</a></p></div>
+    <div class="panel s4"><h2>Builds and releases</h2>
+      <div class="kv">${newest ? html`<span>Newest build</span><span>${newest.number} · ${newest.result || newest.progress || ""}</span><span>Started</span><span>${newest.started ? hrs(now - newest.started) + " ago" : "–"}</span>` : html`<span>Builds</span><span>…</span>`}</div>
+      <div class="btns" style="margin-top:12px"><${ActButton} label="Start build" primary=${true} run=${() => adminPost("run", { what: "build" })} /></div>
+      <div class="confirm" style="margin-top:12px"><b>Release to Kite friends</b> (external TestFlight). Type the build number and the notes, then confirm twice.
+        <div class="form" style="margin-top:8px"><label>Build<input value=${num} onInput=${(e) => setNum(e.target.value)} placeholder=${newest ? String(newest.number) : ""}/></label>
+          <label>Notes<input value=${notes} onInput=${(e) => setNotes(e.target.value)} placeholder="What's in it"/></label></div>
+        <div style="margin-top:8px">${num && notes.length > 3 ? html`<${ActButton} label=${"Release build " + num} ask=${"Release " + num + " to Kite friends? Click again"} danger=${true} run=${() => adminPost("run", { what: "release", number: num, notes })} />` : html`<span class="whytxt">Fill both to release.</span>`}</div></div></div>
+    <div class="panel s4"><h2>Crashes · 30 days</h2><div class="tablewrap"><table><tbody>
+      ${groups.slice().sort((a, b) => b.last - a.last).slice(0, 8).map((g) => html`<tr><td><span class=${"st " + (g.kind === "crash" || g.kind === "anr" ? "bad" : "wait")}>${g.kind || "crash"}</span></td>
+        <td>${g.platform} ${g.builds || ""} · ${g.n}× · ${(g.summary || "").slice(0, 50)}</td><td class="r num">${hrs(now - g.last)}</td></tr>`)}</tbody></table></div></div>
+    <div class="panel s6"><h2>Riders</h2><div class="kv">
+      <span>Accounts</span><span>${accounts.length}</span><span>Devices</span><span>${devices.length}</span><span>Active 7 days</span><span>${active}</span>
+      <span>Admins</span><span>${accounts.filter((a) => a.role === "admin").length}</span>
+      <span>Rain alerts</span><span>${o ? `${(o.alerts.rain || {}).phones ?? 0} phones · ${(o.alerts.rain || {}).places ?? 0} places` : "…"}</span>
+      <span>Wind alerts</span><span>${o ? `${(o.alerts.wind || {}).phones ?? 0} phones` : "…"}</span></div>
+      <div class="tablewrap" style="margin-top:10px"><table><thead><tr><th>Rider</th><th>Role</th><th>Signed in with</th><th class="r">Last seen</th></tr></thead><tbody>
+        ${accounts.slice().sort((a, b) => b.last_seen - a.last_seen).map((a) => html`<tr><td>${a.nickname || [a.first, a.last].filter(Boolean).join(" ") || "–"}</td><td>${a.role}</td>
+          <td class="whytxt">${[a.apple ? "Apple" : null, a.google ? "Google" : null].filter(Boolean).join(", ") || "email"}</td><td class="r num">${a.last_seen ? hrs(now - a.last_seen) + " ago" : "–"}</td></tr>`)}</tbody></table></div>
+      <p class="whytxt">Roles and emails: <a href="/admin/#users" style="color:var(--accent)">full admin, Users</a>.</p></div>
+    <div class="panel s6"><h2>Features</h2><div class="tablewrap"><table><tbody>
+      ${((roles && roles.features) || []).map((x) => html`<tr><td>${x.name}</td><td class="whytxt">${x.grp || ""}</td><td class="whytxt">${(x.roles || []).join(", ") || "nobody"}</td><td class="whytxt">${x.release || ""}</td></tr>`)}</tbody></table></div>
+      <p class="whytxt">Change who sees a feature: <a href="/admin/#features" style="color:var(--accent)">full admin, Features</a>.</p></div>
+  </div>`;
+}
+
+// MARK: Stations
+
+function StationsSec({ ad, st, now }) {
+  const o = ad && ad.overview;
+  const s = (o && o.stations) || {};
+  const list = (st && st.stations) || [];
+  const silent = list.filter((x) => x.time && now - x.time > 1200 && !x.hidden).sort((a, b) => a.time - b.time);
+  const heat = (o && o.heat) || {};
+  return html`<div class="grid">
+    <div class="panel s3"><h2>Fresh in 20 min</h2><div class="big">${s.fresh ?? "–"} <small>of ${s.total ?? "–"}</small></div></div>
+    <div class="panel s3"><h2>Silent over 20 min</h2><div class="big" style=${silent.length ? "color:var(--warn)" : ""}>${silent.length}</div></div>
+    <div class="panel s3"><h2>Newest reading</h2><div class="big">${s.newest ? hrs(now - s.newest) : "–"} <small>ago</small></div></div>
+    <div class="panel s3"><h2>Stations listed</h2><div class="big">${list.length}</div><p class="whytxt">${((st && st.lists) || []).map((l) => `${l.source} ${l.n}`).join(" · ")}</p></div>
+    <div class="panel s6"><h2>Silent stations</h2><div class="tablewrap"><table><thead><tr><th>Station</th><th>Source</th><th class="r">Last reading</th></tr></thead><tbody>
+      ${silent.slice(0, 15).map((x) => html`<tr><td>${x.name}</td><td class="whytxt">${x.source}</td><td class="r num" style="color:var(--warn)">${hrs(now - x.time)} ago</td></tr>`)}</tbody></table></div></div>
+    <div class="panel s6"><h2>Readings per hour · worst first · 24 h</h2>${heat.stations ? html`<div class="heat">${(heat.stations || []).slice(0, 12).map((row) => {
+        const counts = row.counts || row.hours || [];
+        const usual = Math.max(1, ...counts);
+        return html`<span>${row.station || row.id || ""}</span>${counts.slice(-24).map((c) => html`<i style=${`background:${c === 0 ? "var(--bad)" : c < usual * 0.6 ? "var(--home-soft)" : "var(--home)"}`}></i>`)}`;
+      })}</div>` : html`<p class="whytxt">…</p>`}</div>
+    <div class="panel s12"><h2>All stations</h2><div class="tablewrap"><table><thead><tr><th>Station</th><th>Source</th><th>Code</th><th class="r">Last reading</th><th></th></tr></thead><tbody>
+      ${list.slice().sort((a, b) => (a.time || 0) - (b.time || 0)).map((x) => html`<tr><td>${x.name}${x.hidden ? html` <span class="whytxt">(hidden)</span>` : null}</td><td class="whytxt">${x.source}</td><td class="num whytxt">${x.code}</td>
+        <td class="r num" style=${x.time && now - x.time > 1200 ? "color:var(--warn)" : ""}>${x.time ? hrs(now - x.time) + " ago" : "–"}</td><td class="whytxt">${x.note || ""}</td></tr>`)}</tbody></table></div>
+      <p class="whytxt">Add or edit a station: <a href="/admin/#stations" style="color:var(--accent)">full admin, Stations</a>.</p></div>
+  </div>`;
+}
+
+// MARK: Costs
+
+function Costs({ ad, now }) {
+  const o = ad && ad.overview;
+  if (!o) return html`<p class="empty">Reading admin's data…</p>`;
+  const folders = Object.entries((o.storage || {}).folders || {}).map(([k, v]) => [k, v[0], v[1]]).sort((a, b) => b[1] - a[1]);
+  const total = folders.reduce((a, f) => a + f[1], 0);
+  const storeCost = Math.max(0, total / 1e9 - 10) * 0.015;
+  const om = o.openMeteo || [];
+  const days = [...new Set(om.map((x) => x.day))].sort((a, b) => a - b).slice(-14);
+  const perDay = days.map((d) => om.filter((x) => x.day === d && !x.kind.includes("refused")).reduce((a, x) => a + (x.weight || 0), 0));
+  const month = perDay.reduce((a, v) => a + v, 0);
+  const maxDay = Math.max(9000, ...perDay);
+  return html`<div class="grid">
+    <div class="panel s3"><h2>This month, estimated</h2><div class="big">$${(5 + storeCost).toFixed(2)}</div><p class="whytxt">Workers Paid $5 + file store $${storeCost.toFixed(2)}.</p></div>
+    <div class="panel s3"><h2>File store</h2><div class="big">${(total / 1e9).toFixed(1)} <small>GB · 10 free</small></div><p class="whytxt">$0.015 a GB a month after 10; counted ${o.storage && o.storage.time ? hrs(now - o.storage.time) + " ago" : "–"}.</p></div>
+    <div class="panel s3"><h2>Open-Meteo weight</h2><div class="big">${month.toLocaleString("en")} <small>14 days</small></div><p class="whytxt">Admins' vs OM and the server's comparisons; none for riders.</p></div>
+    <div class="panel s3"><h2>Database</h2><div class="big">${((o.collector || []).find((c) => c.key === "readings_rows") || {}).value?.toLocaleString?.("en") ?? "–"} <small>readings rows</small></div><p class="whytxt">Free tier: 5M rows read a day.</p></div>
+    <div class="panel s6"><h2>File store by folder</h2><div style="display:grid;gap:6px">${folders.slice(0, 18).map(([k, b, n]) => html`<div style="display:grid;grid-template-columns:minmax(0,1fr) 1fr 80px;gap:8px;align-items:center;font-size:13.5px">
+      <span style="overflow-wrap:anywhere">${k}</span><div class="hbar"><i style=${`width:${(b / folders[0][1] * 100).toFixed(1)}%`}></i></div><span class="num" style="text-align:right">${(b / 1e9).toFixed(2)} GB</span></div>`)}</div></div>
+    <div class="panel s6"><h2>Open-Meteo weight per day · 14 days (UTC)</h2>
+      <svg class="chart" viewBox="0 0 500 180">${perDay.map((v, i) => { const h = v / maxDay * 140; return html`<rect x=${20 + i * 34} y=${155 - h} width="24" height=${Math.max(h, 1)} rx="3" fill="var(--accent)"><title>${v}</title></rect>`; })}
+        <line x1="15" x2="495" y1=${155 - 9000 / maxDay * 140} y2=${155 - 9000 / maxDay * 140} stroke="var(--warn)" stroke-dasharray="4 4"/><text x="490" y=${150 - 9000 / maxDay * 140} text-anchor="end">9,000 a day</text></svg></div>
+    <div class="panel s12"><h2>Home machine</h2><div class="kv"><span>Power, the Tower (estimated)</span><span>~110 W · ~€15 a month</span><span>The Mac mini, when it runs everything</span><span>~25 W · ~€3 a month</span></div></div>
+  </div>`;
+}
+
 function App() {
   const [f, setF] = useState(null);
   const [s, setS] = useState(null);
   const [fr, setFr] = useState(null);
   const [cap, setCap] = useState(null);
   const [ad, setAd] = useState(null);
-  const pick = () => (TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "freshness");
-  const [tab, setTab] = useState(pick());
+  const [maps, setMaps] = useState(null);
+  const [spots, setSpots] = useState(null);
+  const [roles, setRoles] = useState(null);
+  const [builds, setBuilds] = useState(null);
+  const [st, setSt] = useState(null);
+  const pick = () => { const h = location.hash.slice(1); return SECTIONS.some(([k]) => k === h) ? h : "pipeline"; };
+  const [sec, setSec] = useState(pick());
   const [zone, setZoneState] = useState(ZONE);
   const [, tick] = useState(0);
   const setZone = (z) => { ZONE = z; try { localStorage.setItem("ops-zone", z); } catch (e) {} setZoneState(z); };
+  const load = async (list) => { for (const [k, fn] of list) { try { fn(await adminGet(k)); } catch (e) {} } };
+  const refresh = () => load([["spots", setSpots]]);
   useEffect(() => {
     let last = Date.now();
     const es = new EventSource("/api/stream");
@@ -680,14 +1070,18 @@ function App() {
     es.addEventListener("fresh", (e) => setFr(JSON.parse(e.data)));
     es.addEventListener("capacity", (e) => setCap(JSON.parse(e.data)));
     es.addEventListener("admin", (e) => setAd(JSON.parse(e.data)));
-    const onHash = () => setTab(pick());
+    const onHash = () => setSec(pick());
     addEventListener("hashchange", onHash);
+    // Admin's own data: the maps' history every 10 minutes (it reads ~3,000 rows), the rest every 5.
+    load([["maps", setMaps], ["spots", setSpots], ["roles", setRoles], ["builds", setBuilds], ["stations", setSt]]);
+    const slowAdmin = setInterval(() => load([["maps", setMaps]]), 600000);
+    const midAdmin = setInterval(() => load([["spots", setSpots], ["builds", setBuilds], ["stations", setSt], ["roles", setRoles]]), 300000);
     // Without the stream (a proxy holding it back), ask every 3 seconds instead.
     const poll = setInterval(async () => {
       if (Date.now() - last < 8000) return;
       try {
         setF(await (await fetch("/api/fast")).json());
-        if (!s || Date.now() % 30000 < 3000) {
+        if (Date.now() % 30000 < 3000) {
           setS(await (await fetch("/api/slow")).json());
           setFr(await (await fetch("/api/fresh")).json());
           setCap(await (await fetch("/api/capacity")).json());
@@ -696,15 +1090,19 @@ function App() {
       } catch (err) {}
     }, 3000);
     const clockTimer = setInterval(() => tick((n) => n + 1), 1000);
-    return () => { es.close(); clearInterval(poll); clearInterval(clockTimer); removeEventListener("hashchange", onHash); };
+    return () => { es.close(); clearInterval(poll); clearInterval(clockTimer); clearInterval(slowAdmin); clearInterval(midAdmin); removeEventListener("hashchange", onHash); };
   }, []);
   const now = Date.now() / 1000;
   if (!f) return html`<main class="wrap"><p class="empty">Connecting to the Tower…</p></main>`;
-  return html`<${Top} f=${f} zone=${zone} setZone=${setZone} tab=${tab} fr=${fr} cap=${cap} />
+  return html`<${TopBar} f=${f} fr=${fr} ad=${ad} spots=${spots} zone=${zone} setZone=${setZone} sec=${sec} />
     <main class="wrap">
-      ${tab === "freshness" ? html`<${Freshness} fr=${fr} now=${now} />` : tab === "capacity" ? html`<${Capacity} cap=${cap} now=${now} />`
-        : tab === "admin" ? html`<${Admin} ad=${ad} now=${now} />` : html`<${NowTab} f=${f} s=${s} now=${now} />`}
-    <div class="foot"><span>Read-only. Live every 2 seconds; freshness every 2 minutes.</span><span>On Now, tap a job for its live log.</span></div></main>`;
+      ${sec === "pipeline" ? html`<${Pipeline} maps=${maps} fr=${fr} f=${f} now=${now} />`
+        : sec === "machine" ? html`<${NowTab} f=${f} s=${s} now=${now} /><div style="margin-top:16px"><${Capacity} cap=${cap} now=${now} /></div>`
+        : sec === "quality" ? html`<${Quality} ad=${ad} now=${now} />`
+        : sec === "app" ? html`<${AppRiders} ad=${ad} spots=${spots} roles=${roles} builds=${builds} refresh=${refresh} now=${now} />`
+        : sec === "stations" ? html`<${StationsSec} ad=${ad} st=${st} now=${now} />`
+        : html`<${Costs} ad=${ad} now=${now} />`}
+    <div class="foot"><span>Live every 2 seconds; admin's data every 5-10 minutes.</span><span>Changes go through admin's own routes and ask once more.</span><a href="/admin/" style="color:var(--accent)">Full admin</a></div></main>`;
 }
 
 render(html`<${App} />`, document.getElementById("app"));
