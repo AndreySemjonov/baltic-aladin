@@ -19,7 +19,7 @@ on:
       worker:
         description: Which Worker
         type: choice
-        options: [station-history, meteogust-admin, helper-trigger, all]
+        options: [station-history, meteogust-admin, helper-trigger, meteogust-mirror, all]
         default: station-history
 
 permissions:
@@ -55,23 +55,36 @@ jobs:
             echo "::error::Add the repository secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID"
             exit 1
           fi
-          if [ "$WANTED" = "all" ]; then list="station-history meteogust-admin helper-trigger"; else list="$WANTED"; fi
+          if [ "$WANTED" = "all" ]; then list="station-history meteogust-admin helper-trigger meteogust-mirror"; else list="$WANTED"; fi
           echo "app master: $(git -C app rev-parse --short HEAD)"
           for name in $list; do
             case "$name" in
               station-history) dir=station-history ;;
               meteogust-admin) dir=admin ;;
               helper-trigger) dir=helper-trigger ;;
+              meteogust-mirror) dir=mirror ;;
               *) echo "::error::Unknown Worker $name"; exit 1 ;;
             esac
             file="app/tools/$dir/worker.js"
             # As Cloudflare reads it: a module (a plain script check let a broken string through once).
             cp "$file" "$RUNNER_TEMP/check.mjs"
             node --check "$RUNNER_TEMP/check.mjs" > /dev/null 2>&1 || { echo "::error::$name: not a valid module"; exit 1; }
-            reply=$(curl -sS -X PUT "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/workers/scripts/$name/content" \
-              -H "Authorization: Bearer $TOKEN" \
-              -F 'metadata={"main_module":"worker.js"};type=application/json' \
-              -F "worker.js=@$file;filename=worker.js;type=application/javascript+module")
+            if [ "$name" = "meteogust-mirror" ]; then
+              # The mirror (21.10.2026) brings its own settings: the file store's binding, room to stream big
+              # files, and its 5-minute cron (the older Workers keep theirs from the dashboard).
+              reply=$(curl -sS -X PUT "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/workers/scripts/$name" \
+                -H "Authorization: Bearer $TOKEN" \
+                -F 'metadata={"main_module":"worker.js","compatibility_date":"2026-10-01","bindings":[{"type":"r2_bucket","name":"FILES","bucket_name":"meteogust-files"}],"limits":{"cpu_ms":300000}};type=application/json' \
+                -F "worker.js=@$file;filename=worker.js;type=application/javascript+module")
+              curl -sS -X PUT "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/workers/scripts/$name/schedules" \
+                -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+                --data '[{"cron":"*/5 * * * *"}]' | python3 -c 'import json,sys; r=json.load(sys.stdin); print("schedule:", "ok" if r.get("success") else r.get("errors"))'
+            else
+              reply=$(curl -sS -X PUT "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/workers/scripts/$name/content" \
+                -H "Authorization: Bearer $TOKEN" \
+                -F 'metadata={"main_module":"worker.js"};type=application/json' \
+                -F "worker.js=@$file;filename=worker.js;type=application/javascript+module")
+            fi
             echo "$reply" | NAME="$name" python3 -c '
           import json, os, sys
           reply = json.load(sys.stdin)

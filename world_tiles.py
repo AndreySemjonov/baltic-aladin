@@ -39,6 +39,7 @@ import ecmwf_map
 import gfs_map
 import maplib
 import omremote
+import sources
 import temp_map
 
 ZOOMS = range(0, 4)
@@ -214,12 +215,12 @@ def ecmwf9_steps(run, steps):
     def fetch(step):
         # At home only the variables used, read in part (omremote.py; the owner, 21.10.2026: Oregon ~17 MB/s from home).
         if omremote.PARTIAL:
-            return step, omremote.Prefetched(ECMWF9 + files[step], [t for _, t, _ in ECMWF9_FIELDS] + ["sea_ice_thickness"])
+            return step, omremote.Prefetched(sources.om_url(files[step]), [t for _, t, _ in ECMWF9_FIELDS] + ["sea_ice_thickness"])
         handle = tempfile.NamedTemporaryFile(suffix=".om", delete=False)
         handle.close()
         for attempt in range(4):
             try:
-                request = urllib.request.Request(ECMWF9 + files[step], headers={"User-Agent": maplib.USER_AGENT})
+                request = urllib.request.Request(sources.om_url(files[step]), headers={"User-Agent": maplib.USER_AGENT})
                 with urllib.request.urlopen(request, timeout=600) as reply, open(handle.name, "wb") as out:
                     while True:
                         block = reply.read(1 << 22)
@@ -371,12 +372,12 @@ def icon_om_steps(run, keys):
     def fetch(key):
         # At home only the variables used, read in part (omremote.py; the owner, 21.10.2026: Oregon ~17 MB/s from home).
         if omremote.PARTIAL:
-            return key, omremote.Prefetched(ECMWF9 + key, [t for _, t, _, _ in ICON_OM_FIELDS])
+            return key, omremote.Prefetched(sources.om_url(key), [t for _, t, _, _ in ICON_OM_FIELDS])
         handle = tempfile.NamedTemporaryFile(suffix=".om", delete=False)
         handle.close()
         for attempt in range(4):
             try:
-                request = urllib.request.Request(ECMWF9 + key, headers={"User-Agent": maplib.USER_AGENT})
+                request = urllib.request.Request(sources.om_url(key), headers={"User-Agent": maplib.USER_AGENT})
                 with urllib.request.urlopen(request, timeout=600) as reply, open(handle.name, "wb") as out:
                     while True:
                         block = reply.read(1 << 22)

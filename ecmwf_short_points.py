@@ -22,6 +22,7 @@ import numpy as np
 import maplib
 import spot_cells
 import omremote
+import sources
 import spot_points
 import world_tiles
 
@@ -61,12 +62,12 @@ def run_time(name):
 def fetch(key):
     # At home only the variables used, read in part (omremote.py; the owner, 21.10.2026: Oregon ~17 MB/s from home).
     if omremote.PARTIAL:
-        return omremote.Prefetched(world_tiles.ECMWF9 + key, [theirs for _, theirs, _ in world_tiles.ECMWF9_FIELDS])
+        return omremote.Prefetched(sources.om_url(key), [theirs for _, theirs, _ in world_tiles.ECMWF9_FIELDS])
     handle = tempfile.NamedTemporaryFile(suffix=".om", delete=False)
     handle.close()
     for attempt in range(4):
         try:
-            request = urllib.request.Request(world_tiles.ECMWF9 + key, headers={"User-Agent": maplib.USER_AGENT})
+            request = urllib.request.Request(sources.om_url(key), headers={"User-Agent": maplib.USER_AGENT})
             with urllib.request.urlopen(request, timeout=600) as reply, open(handle.name, "wb") as out:
                 while block := reply.read(1 << 22):
                     out.write(block)
