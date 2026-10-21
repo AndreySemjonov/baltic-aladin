@@ -15,6 +15,11 @@ second threads), set again on the running ones as WRF starts and ends. The sched
 code changes (after a pull); a job whose container is still there (mg-<job>, e.g. from before a reload)
 counts as running.
 
+The failover (the owner, 21.10.2026): every 5 minutes a heartbeat to our file store (files.meteogust.com/runner/
+heartbeat.json, with INGEST_TOKEN from ENV_FILE): the jobs it runs live, less those whose last two runs failed.
+helper-trigger leaves GitHub's runs of those jobs out while the heartbeat is fresh, and starts them again when it
+is 20 minutes old or a job leaves the list; station-history tells the admins' phones when it stops.
+
 Written next to it: the jobs' measurements (STATS/<job>.jsonl), the scheduler's own record of each run
 (STATS/_runs.jsonl: when due, started, ended, live or not) and every minute each container's CPU and
 memory and the machine's load and free memory (STATS/_samples.jsonl); each run's log in LOGS.
@@ -47,6 +52,7 @@ REGION = os.environ.get("MG_REGION", "eu")
 LOW_SHARES = int(os.environ.get("MG_LOW_SHARES", "128"))
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUCKET = "https://openmeteo.s3.amazonaws.com/data_spatial/"
+HEARTBEAT = "https://data.meteogust.com/tiles/upload/runner/heartbeat.json"
 AGENT = {"User-Agent": "MeteoGust helper runner (data.meteogust.com)"}
 
 
@@ -84,6 +90,36 @@ def env_names():
     except OSError:
         pass
     return names
+
+
+def env_value(name):
+    """One variable's value from ENV_FILE (None when missing); never printed."""
+    try:
+        with open(ENV_FILE) as f:
+            for line in f:
+                if line.split("=", 1)[0].strip() == name and "=" in line:
+                    return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return None
+
+
+def heartbeat(state, live, running, wrf):
+    """The runner's heartbeat (see the top); False when it couldn't be sent."""
+    token = env_value("INGEST_TOKEN")
+    if not token:
+        return False
+    failing = sorted(name for name in live if state.get(name, {}).get("fails", 0) >= 2)
+    body = json.dumps({"t": round(time.time()), "host": os.uname().nodename, "live": sorted(set(live) - set(failing)),
+                       "failing": failing, "running": sorted(running), "wrf": wrf}).encode()
+    try:
+        request = urllib.request.Request(HEARTBEAT, data=body, method="PUT",
+                                         headers={"Authorization": "Bearer " + token, **AGENT})
+        with urllib.request.urlopen(request, timeout=30):
+            return True
+    except Exception as error:
+        log(f"heartbeat not sent ({error})")
+        return False
 
 
 def live_jobs():
@@ -218,7 +254,7 @@ def main():
     for folder in (HOME, STATS, LOGS, WORK):
         os.makedirs(folder, exist_ok=True)
     state = load(STATE, {})
-    running, last_pull, stamp, wrf_was = {}, 0, code_stamp(), None
+    running, last_pull, stamp, wrf_was, last_beat, beat_said = {}, 0, code_stamp(), None, 0, False
     threading.Thread(target=sampler, daemon=True).start()
     log(f"runner: {len(JOBS)} jobs, at most {MAX_TOTAL} at once ({MAX_HEAVY} heavy), work in {WORK}")
     while True:
@@ -240,6 +276,10 @@ def main():
             if code is None:
                 continue
             del running[name]
+            # Failures in a row (two leave the heartbeat's live list: GitHub runs the job meanwhile).
+            mine = state.setdefault(name, {})
+            mine["fails"] = 0 if code == 0 else mine.get("fails", 0) + 1
+            save(STATE, state)
             append(f"{STATS}/_runs.jsonl", {"job": name, "due": round(run.wanted), "start": round(run.started),
                                             "end": round(time.time()), "exit": code, "live": run.live})
             log(f"{name}: done in {(time.time() - run.started) / 60:.1f} min, exit {code}")
@@ -282,6 +322,11 @@ def main():
             heavy_now += job.heavy
             log(f"{job.name}: started ({'live' if is_live else 'shadow'})"
                 + (f", source run {datetime.fromtimestamp(wanted, timezone.utc):%d %H}Z" if job.watch else ""))
+        if now - last_beat >= 300:
+            last_beat = now
+            if not heartbeat(state, live, set(running) | set(others), wrf) and not beat_said:
+                log("no heartbeat: INGEST_TOKEN not in the env file yet (GitHub runs everything meanwhile)")
+                beat_said = True
         time.sleep(60)
 
 
