@@ -554,7 +554,7 @@ class Records:
         # The home runs of the last 36 hours, for the Pipeline's Tower line under GitHub's bars (the owner, 21.10.2026:
         # "those runs according github or tower pc?").
         home = [{"job": r["job"], "due": r.get("due"), "start": r["start"], "end": r["end"], "exit": r.get("exit"), "live": bool(r.get("live")),
-                 "source": r.get("source")} for r in jsonl(f"{STATS}/_runs.jsonl", 1500) if r.get("end", 0) >= now - 36 * 3600]
+                 "source": r.get("source"), "sources": r.get("sources")} for r in jsonl(f"{STATS}/_runs.jsonl", 1500) if r.get("end", 0) >= now - 36 * 3600]
         # The Pipeline's timeline (the owner, 21.10.2026: "our time", from a run being available to riders seeing it;
         # mockup docs/mockups/pipeline-timeline-2026-10-21.html): each maker's run and when it became complete on
         # Open-Meteo's open data (the first record of each), GitHub's map jobs (start, end), WRF's runs.

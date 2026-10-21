@@ -24,6 +24,7 @@ with the same alpha, uploaded as tiles/metnordic-wx/ (its index's frames carry "
 """
 import json
 import math
+import os
 import sys
 import time
 import urllib.request
@@ -174,8 +175,31 @@ class Unchanged(Exception):
     """A regional model whose newest run is published already (its own set left as it is)."""
 
 
+# The home runner's shadow mode (--local inside its container, MG_JOB set): the sets "published" are kept in its
+# stats folder, so a shadow run skips what it made already, like the live job (the owner, 21.10.2026, "make A": the
+# job starts on any regional model's new run; remade whole each time it was 9.5 GB, 4.2 GB downloaded, 17 CPU min).
+SHADOW = Path("/stats/shadow") if os.environ.get("MG_JOB") and os.path.isdir("/stats") else None
+shadowing = False  # main(): --local under the runner
+
+
+def shadow_read(folder):
+    try:
+        return json.loads((SHADOW / f"{folder}.json").read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def shadow_keep(folder, body):
+    """A set's index as the shadow run would have published it."""
+    if shadowing:
+        SHADOW.mkdir(parents=True, exist_ok=True)
+        (SHADOW / f"{folder}.json").write_bytes(body)
+
+
 def published_index(model):
     """A set's published index (its "run", "runName"), None when there's none or it can't be read."""
+    if shadowing:
+        return shadow_read(model)
     try:
         request = urllib.request.Request(PUBLISHED.format(model=model) + "?t=%d" % time.time(),
                                          headers={"User-Agent": "MeteoGust helper"})
@@ -190,13 +214,15 @@ def own_folder(folder, info, run_name, local):
     hourly, so a model's new run can come with MET Nordic's run unchanged and must not write over its last
     folder, whose packs are cached for a year), with a suffix when that run is published already."""
     own = own_run_name(info, run_name)
-    published = None if local else published_run(folder)
+    published = None if local and not shadowing else published_run(folder)
     if published and published.split("-")[0] == own:
         own += "-" + format(int(time.time()) % 36 ** 6, "x")
     return own
 
 
 def published_run(model):
+    if shadowing:
+        return (shadow_read(model) or {}).get("runName")
     try:
         # Our own user agent (the file store refuses Python's own: world_tiles.published).
         request = urllib.request.Request(PUBLISHED.format(model=model) + "?t=%d" % time.time(),
@@ -212,7 +238,8 @@ def main():
     local = Path(args[args.index("--local") + 1]) if "--local" in args else None
     limit = int(args[args.index("--hours") + 1]) if "--hours" in args else None
     which = args[args.index("--set") + 1] if "--set" in args else "wind"
-    global STRIDE
+    global STRIDE, shadowing
+    shadowing = bool(local) and SHADOW is not None
     STRIDE = SETS[which]["stride"]
     model = SETS[which]["model"]
     started = time.time()
@@ -229,8 +256,8 @@ def main():
     times = ask("time", "time")
     run = ask("forecast_reference_time", "forecast_reference_time")[0]
     run_name = datetime.fromtimestamp(run, timezone.utc).strftime("%Y%m%dT%HZ")
-    published = None if local else published_run(model)
-    force = bool(local) or "--force" in args
+    published = None if local and not shadowing else published_run(model)
+    force = (bool(local) and not shadowing) or "--force" in args
     # Hourly since 21.10.2026 (the owner: the regional models published up to 2 hours after their
     # makers, the job ran every 3 hours): the blend only for a new MET Nordic run, each model's own set
     # only for its own new run; with neither, done in a minute or two.
@@ -496,6 +523,7 @@ def main():
         body = json.dumps(index, separators=(",", ":")).encode()
         if local:
             (local / "index.json").write_bytes(body)
+            shadow_keep(model, body)
         else:
             print(world_tiles.upload(f"{model}/index.json", body).strip())
             try:
@@ -607,6 +635,7 @@ def model_weather_set(name, data, sample, parts, info, run_name, local, place=No
     if local:
         (local / folder).mkdir(parents=True, exist_ok=True)
         (local / folder / "index.json").write_bytes(body)
+        shadow_keep(folder, body)
     else:
         world_tiles.upload(f"{folder}/index.json", body)
     print(f"{label} air and rain: {len(keys)} tiles, {len(frames)} hours, {total / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
@@ -687,6 +716,7 @@ def model_set(name, data, sample, parts, info, run_name, local, place=None):
     body = json.dumps(index, separators=(",", ":")).encode()
     if local:
         (local / folder / "index.json").write_bytes(body)
+        shadow_keep(folder, body)
     else:
         world_tiles.upload(f"{folder}/index.json", body)
     print(f"{label} alone: {len(keys)} tiles, {len(frames)} hours, {total / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)

@@ -265,13 +265,20 @@ def due(job, state, cache, now):
     mine = state.get(job.name, {})
     if job.watch:
         best = None
+        sources = mine.get("sources") or {}
         for model, every in job.watch:
             run, done = newest_run(model, cache)
             if run is None or datetime.fromtimestamp(run, timezone.utc).hour % every:
                 continue
             if done and now - done < job.delay * 3600:
                 continue
-            if run > mine.get("source", 0) and (best is None or run > best):
+            # Each watched model against its own last run (one number for all: ICON-D2's 12Z against MET Nordic's
+            # 13Z never came due, 21.10.2026). Not recorded yet: the job's one source (one model), else new when it
+            # became complete after the job last started.
+            seen = sources.get(model)
+            if seen is None:
+                seen = mine.get("source", 0) if len(job.watch) == 1 else (run if done and done <= mine.get("started", 0) else 0)
+            if run > seen and (best is None or run > best):
                 best = run
         return best
     if job.every and now - mine.get("started", 0) >= job.every * 60:
@@ -349,6 +356,7 @@ def set_shares(names, shares):
 class Running:
     def __init__(self, job, live, source, wanted, shares=1024):
         self.job, self.live, self.source, self.wanted = job, live, source, wanted
+        self.sources = {}  # each watched model's newest run as it started
         self.started = time.time()
         self.name = f"mg-{job.name}"
         folder = f"{WORK}/{job.name}"
@@ -486,6 +494,7 @@ def main():
             save(STATE, state)
             append(f"{STATS}/_runs.jsonl", {"job": name, "due": round(run.wanted), "start": round(run.started),
                                             "source": round(run.source) if run.source else None,
+                                            **({"sources": {m: round(r) for m, r in run.sources.items()}} if run.sources else {}),
                                             "end": round(time.time()), "exit": code, "live": run.live})
             log(f"{name}: done in {(time.time() - run.started) / 60:.1f} min, exit {code}")
         # WRF started or ended: the running jobs' CPU share follows.
@@ -560,6 +569,9 @@ def main():
             mine["started"] = now
             if job.watch:
                 mine["source"] = wanted
+                # Every watched model's newest run as the job starts (it makes each model's newest it finds).
+                mine["sources"] = {model: newest_run(model, cache)[0] for model, _ in job.watch if newest_run(model, cache)[0]}
+                running[job.name].sources = mine["sources"]
             save(STATE, state)
             heavy_now += job.heavy
             log(f"{job.name}: started ({'live' if is_live else 'shadow'})"

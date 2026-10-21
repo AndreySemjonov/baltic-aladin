@@ -915,7 +915,9 @@ function laneData(maps, fr, f, now, s) {
       // The Tower's: a job that watches this model, its run made from this source run; the others ride along (the
       // regional job watches MET Nordic and makes the regional models it finds): its first good run within 3 h.
       if (!wrf && e.avail != null) {
-        const t = towerRuns.find((t) => JOB_WATCH[t.job] === om && t.source === e.run)
+        // (since 21.10.2026 evening each run records every watched model's run as it started: exact)
+        const t = towerRuns.filter((t) => t.sources && t.sources[om] === e.run).sort((a, b) => a.start - b.start)[0]
+          || towerRuns.find((t) => JOB_WATCH[t.job] === om && t.source === e.run)
           || towerRuns.filter((t) => JOB_WATCH[t.job] !== om && t.exit === 0 && t.start >= e.avail - 120 && t.start <= e.avail + 3 * 3600)
             .sort((a, b) => a.start - b.start)[0];
         if (t) { matched.add(t); e.tower = { start: t.start, end: t.end, due: t.due, ok: t.exit === 0, live: t.live, job: t.job }; }
