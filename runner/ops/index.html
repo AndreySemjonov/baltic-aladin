@@ -733,6 +733,15 @@ const JOB_SET = { "icon-eu": "icon-eu", "world-gfs": "gfs", "world-ecmwf": "ecmw
   "bucket-arome25": "arome25", "bucket-icon-ch2": "icon-ch2", "ukmo": "ukmo", "ewam": "ewam", "ecmwf-waves": "ecmwf-waves", "chance": "chance",
   "harm-fi": "harm-fi", "aladin": "aladin", "regional-wind": "metnordic", "regional-weather": "metnordic-wx", "sea": "sea", "waves": "waves" };
 
+// Each map's home jobs (regional_tiles.py's wind job makes the blend and each regional model's own set).
+const SET_JOBS = { metnordic: ["regional-wind"], "metnordic-wx": ["regional-weather"], dini: ["regional-wind"], arome: ["regional-wind"],
+  "icon-d2": ["regional-wind"], "harm-nl": ["regional-wind"], "icon-ch1": ["regional-wind"], "icon-2i": ["regional-wind"],
+  "icon-eu": ["icon-eu"], "icon-eu-wx": ["icon-eu"], "icon-eu-steer": ["icon-eu"], ecmwf: ["world-ecmwf"], gfs: ["world-gfs"],
+  icon: ["world-icon"], gdps: ["world-gdps"], ewam: ["ewam"], "ecmwf-waves": ["ecmwf-waves"], "metnordic-1km": ["nordic-1km"],
+  "harm-fi": ["harm-fi"], aladin: ["aladin"], mix: ["mix"], "mix-world": ["mix-world"], "mix-wx": ["weather-mix-europe"],
+  "mix-world-wx": ["weather-mix-world"], ukmo: ["ukmo"], "icon-ch2": ["bucket-icon-ch2"], arome25: ["bucket-arome25"],
+  "knmi-eu": ["bucket-knmi-eu"], chance: ["chance"], sea: ["sea"], waves: ["waves"] };
+
 async function adminGet(path) {
   const r = await fetch("/admin/api/" + path, { cache: "no-store" });
   if (!r.ok) throw new Error((await r.text()).slice(0, 200));
@@ -815,7 +824,7 @@ function TopBar(props) {
 
 // MARK: Pipeline
 
-function laneData(maps, fr, f, now) {
+function laneData(maps, fr, f, now, s) {
   if (!maps || !maps.maps) return [];
   const byMap = {};
   for (const r of maps.runs || []) {
@@ -839,7 +848,11 @@ function laneData(maps, fr, f, now) {
     else if (last && last.online && !last.published && !last.failed) status = "proc";
     const delays = runs.filter((r) => r.published).map((r) => (r.published - r.run) / 3600);
     const median = delays.length ? [...delays].sort((a, b) => a - b)[delays.length >> 1] : null;
-    return { ...m, set, runs, last, lastPub, next, fresh, status, home: homeBySet[set], delays, median };
+    const jobs = SET_JOBS[set] || [];
+    const towerRuns = ((s && s.home) || []).filter((r) => jobs.includes(r.job));
+    // Matched by the model run each worked on: the Tower's end against GitHub's publish (minutes; minus = the Tower sooner).
+    const vs = runs.filter((r) => r.published).map((r) => { const t = towerRuns.find((h) => h.source === r.run && h.exit === 0); return t ? Math.round((t.end - r.published) / 60) : null; }).filter((v) => v != null);
+    return { ...m, set, runs, last, lastPub, next, fresh, status, home: homeBySet[set], delays, median, jobs, towerRuns, vs };
   });
 }
 
@@ -864,7 +877,9 @@ function Lanes({ lanes, now, sel, setSel }) {
             <rect x=${x(a)} y=${y + 4} width=${Math.max(x(b) - x(a), 2.5)} height="10" rx="2" fill=${r.published || r.failed ? "var(--accent)" : "var(--accent)"} opacity=${r.published || r.failed ? 0.55 : 1}><title>${l.label} ${runZ(r.run)}: online ${r.online ? clock(r.online) : "–"}, published ${r.published ? clock(r.published) : r.failed ? "failed" : "not yet"}</title></rect>
             ${r.published || r.failed ? html`<rect x=${x(b) - 1.5} y=${y + 2} width="3" height="14" rx="1" fill=${color(r)}/>` : null}`;
         })}
-        ${l.home && l.home.started ? html`<rect x=${x(l.home.started)} y=${y + 4} width=${Math.max(x(now) - x(l.home.started), 3)} height="10" rx="2" fill="var(--home)" opacity=${l.home.live ? 1 : 0.45}><title>at home: ${l.home.job} (${l.home.live ? "live" : "shadow"})</title></rect>` : null}
+        ${l.towerRuns.filter((r) => r.end >= t0).map((r) => html`<rect x=${x(r.start)} y=${y + 16} width=${Math.max(x(r.end) - x(r.start), 2)} height="4" rx="1"
+          fill=${r.exit === 0 ? "var(--home)" : "var(--bad)"} opacity=${r.live ? 1 : 0.6}><title>Tower ${r.job} (${r.live ? "live" : "shadow"}): ${clock(r.start)}–${clock(r.end)}${r.source ? ", " + runZ(r.source) + " run" : ""}${r.exit === 0 ? "" : ", failed"}</title></rect>`)}
+        ${l.home && l.home.started ? html`<rect x=${x(l.home.started)} y=${y + 16} width=${Math.max(x(now) - x(l.home.started), 3)} height="4" rx="1" fill="var(--home)" opacity=${l.home.live ? 1 : 0.6} stroke="var(--home)"><title>at home now: ${l.home.job} (${l.home.live ? "live" : "shadow"})</title></rect>` : null}
         ${l.next && l.next > now && l.next < t1 ? html`<path d=${`M${x(l.next)} ${y + 2} l6 7 -6 7 -6 -7 Z`} fill="none" stroke="var(--faint)"><title>next expected ${clock(l.next)}</title></path>` : null}
       </g>`;
     })}
@@ -886,12 +901,17 @@ function LaneDetail({ l, now }) {
           <span>Usual</span><span>${usualText(fr)}</span>` : null}
         <span>Runs</span><span>every ${l.interval} h · usually out ${l.delay} h after</span>
         <span>Next expected</span><span>${l.next ? clock(l.next) : "–"}</span>
-        ${l.home ? html`<span>At home</span><span>${l.home.job} · ${l.home.live ? "live" : "shadow"} · ${l.home.started ? dur(now - l.home.started) : ""}</span>` : null}
+        ${l.home ? html`<span>At home now</span><span>${l.home.job} · ${l.home.live ? "live" : "shadow"} · ${l.home.started ? dur(now - l.home.started) : ""}</span>` : null}
+        ${l.jobs.length ? html`<span>Tower vs GitHub</span><span>${l.vs.length ? `${Math.abs(l.vs.slice().sort((a, b) => a - b)[l.vs.length >> 1])} min ${l.vs.slice().sort((a, b) => a - b)[l.vs.length >> 1] <= 0 ? "sooner" : "later"} (median of ${l.vs.length})` : "no matched runs yet"}</span>` : null}
       </div></div>
-    <div class="panel"><h2>Last runs</h2><div class="tablewrap"><table><thead><tr><th>Run</th>${recent.some((r) => r.online) ? html`<th>Online</th>` : null}<th>Published</th><th class="r">From the run</th></tr></thead>
+    <div class="panel"><h2>Last runs</h2><div class="tablewrap"><table><thead><tr><th>Run</th>${recent.some((r) => r.online) ? html`<th>Online</th>` : null}<th>Published</th><th class="r">From the run</th>${l.jobs.length ? html`<th class="r">Tower done</th>` : null}</tr></thead>
       <tbody>${recent.map((r) => html`<tr><td class="num">${dayRunZ(r.run, now)}</td>${recent.some((x) => x.online) ? html`<td class="num">${r.online ? clock(r.online) : "–"}</td>` : null}
         <td class="num" style=${r.failed ? "color:var(--bad)" : ""}>${r.published ? clock(r.published) : r.failed ? "failed" : "not yet"}</td>
-        <td class="r num">${r.published ? ((r.published - r.run) / 3600).toFixed(1) + " h" : "–"}</td></tr>`)}</tbody></table></div></div>
+        <td class="r num">${r.published ? ((r.published - r.run) / 3600).toFixed(1) + " h" : "–"}</td>
+        ${l.jobs.length ? (() => { const t = l.towerRuns.find((h) => h.source === r.run); if (!t) return html`<td class="r num whytxt">–</td>`;
+          const d = r.published ? Math.round((t.end - r.published) / 60) : null;
+          return html`<td class="r num" style=${t.exit !== 0 ? "color:var(--bad)" : d != null && d <= 0 ? "color:var(--ok)" : "color:var(--warn)"}>${clock(t.end)}${t.exit !== 0 ? " failed" : d != null ? ` · ${Math.abs(d)} min ${d <= 0 ? "sooner" : "later"}` : ""}</td>`; })() : null}</tr>`)}</tbody></table></div>
+      ${l.jobs.length ? html`<p class="whytxt" style="margin:6px 0 0">Tower: ${l.jobs.join(", ")} in shadow mode makes the whole set each time (the live jobs skip what's published), so its times are an upper bound. Recorded per model run from 21.10.2026 evening.</p>` : null}</div>
     <div class="panel"><h2>Run → published, 14 days · hours</h2>
       <svg viewBox="0 0 340 70" style="width:100%">
         ${[0, 0.25, 0.5, 0.75, 1].map((p) => html`<line x1=${10 + p * 320} x2=${10 + p * 320} y1="6" y2="50" stroke="var(--line)"/><text x=${10 + p * 320} y="64" text-anchor="middle" style="font:10px var(--mono);fill:var(--muted)">${(p * maxH).toFixed(0)} h</text>`)}
@@ -904,10 +924,10 @@ function LaneDetail({ l, now }) {
     </div><p class="note" style="margin:8px 0 0">Through admin's own routes; each asks once more.</p></div>`;
 }
 
-function Pipeline({ maps, fr, f, now }) {
+function Pipeline({ maps, fr, f, now, s }) {
   const [sel, setSel] = useState(null);
   const [filter, setFilter] = useState("all");
-  const all = laneData(maps, fr, f, now);
+  const all = laneData(maps, fr, f, now, s);
   const lanes = all.filter((l) => filter === "all" || (filter === "bad" ? l.status === "bad" : filter === "proc" ? l.status === "proc" : filter === "home" ? !!l.home : true));
   const picked = all.find((l) => l.name === sel);
   const n = (s) => all.filter((l) => l.status === s).length;
@@ -919,7 +939,7 @@ function Pipeline({ maps, fr, f, now }) {
       <${Lanes} lanes=${lanes} now=${now} sel=${sel} setSel=${setSel} />
       <div class="plist">${lanes.map((l) => html`<div class="pitem" onClick=${() => setSel(l.name)}><b>${l.label}</b><span class=${"st " + l.status}>${STATUS[l.status] || l.status}</span>
         <span class="s">last ${l.lastPub ? dayRunZ(l.lastPub.run, now) + " · " + clock(l.lastPub.published) : "–"} · next ${l.next ? clock(l.next) : "–"}</span></div>`)}</div>
-      <div class="legend"><span style="--c:var(--faint)">run started → online</span><span style="--c:var(--accent)">our processing</span><span style="--c:var(--home)">at home</span><span style="--c:var(--ok)">published</span><span style="--c:var(--warn)">over 45 min after online</span><span style="--c:var(--bad)">failed</span><span>◇ next expected</span></div>`}
+      <div class="legend"><span style="--c:var(--accent)">model run start → published (today: GitHub)</span><span style="--c:var(--home)">thin line: the Tower's own run (faint: shadow, not published)</span><span style="--c:var(--ok)">published</span><span style="--c:var(--warn)">over 45 min after online</span><span style="--c:var(--bad)">failed</span><span>◇ next expected</span></div>`}
     </section>
     <aside class="detail">${html`<${LaneDetail} l=${picked} now=${now} />`}</aside>
   </div>
@@ -1443,7 +1463,7 @@ function App() {
   if (!f) return html`<main class="wrap"><p class="empty">Connecting to the Tower…</p></main>`;
   return html`<${TopBar} f=${f} fr=${fr} ad=${ad} spots=${spots} zone=${zone} setZone=${setZone} sec=${sec} />
     <main class="wrap">
-      ${sec === "pipeline" ? html`<${Pipeline} maps=${maps} fr=${fr} f=${f} now=${now} />`
+      ${sec === "pipeline" ? html`<${Pipeline} maps=${maps} fr=${fr} f=${f} now=${now} s=${s} />`
         : sec === "machine" ? html`<${NowTab} f=${f} s=${s} now=${now} /><div style="margin-top:16px"><${Capacity} cap=${cap} now=${now} /></div>`
         : sec === "quality" ? html`<${Quality} ad=${ad} now=${now} />`
         : sec === "app" ? html`<${AppSection} ad=${ad} spots=${spots} roles=${roles} builds=${builds} refresh=${refresh} reloadSpots=${refresh} reloadRoles=${reloadRoles} now=${now} />`

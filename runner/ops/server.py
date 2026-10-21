@@ -519,7 +519,11 @@ class Records:
         typical = {}
         for c in (live or {}).get("running", []) + (live or {}).get("waiting", []):
             typical[c["job"]] = self.typical(c["job"])
-        self.slow = {"t": round(now), "from": round(since), "to": round(now + 6 * 3600), "lanes": [n for n, _ in LANES],
+        # The home runs of the last 36 hours, for the Pipeline's Tower line under GitHub's bars (the owner, 21.10.2026:
+        # "those runs according github or tower pc?").
+        home = [{"job": r["job"], "start": r["start"], "end": r["end"], "exit": r.get("exit"), "live": bool(r.get("live")),
+                 "source": r.get("source")} for r in jsonl(f"{STATS}/_runs.jsonl", 1500) if r.get("end", 0) >= now - 36 * 3600]
+        self.slow = {"home": home, "t": round(now), "from": round(since), "to": round(now + 6 * 3600), "lanes": [n for n, _ in LANES],
                      "items": items, "arrivals": arr, "runs": recent, "hosts": hosts, "typical": typical,
                      "github_at": round(self.github_at) or None}
         self.slow_at = now

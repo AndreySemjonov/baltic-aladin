@@ -485,6 +485,7 @@ def main():
             mine["fails"] = 0 if code == 0 else mine.get("fails", 0) + 1
             save(STATE, state)
             append(f"{STATS}/_runs.jsonl", {"job": name, "due": round(run.wanted), "start": round(run.started),
+                                            "source": round(run.source) if run.source else None,
                                             "end": round(time.time()), "exit": code, "live": run.live})
             log(f"{name}: done in {(time.time() - run.started) / 60:.1f} min, exit {code}")
         # WRF started or ended: the running jobs' CPU share follows.
