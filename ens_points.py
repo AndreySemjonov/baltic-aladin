@@ -102,6 +102,10 @@ def main():
     # Each catalog spot's ECMWF point (its csPoints, as the spot page's ECMWF row), else the spot.
     spots = []
     for spot in spot_points.spots():
+        # Riders' public spots have a share code, no id (KeyError since 20.10.2026 evening, two such spots): their
+        # cells come in through WANTED below.
+        if not spot.get("id"):
+            continue
         point = (spot.get("csPoints") or {}).get("ecmwf_ifs")
         lat, lon = (float(point[0]), float(point[1])) if isinstance(point, list) and len(point) == 2 else (float(spot["lat"]), float(spot["lon"]))
         spots.append((spot["id"], lat, lon))
