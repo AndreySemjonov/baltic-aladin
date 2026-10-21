@@ -51,7 +51,8 @@ MODEL_SIZES = {"icon": {0: 256, 1: 256, 2: 256, 3: 360}, "gdps": {0: 256, 1: 256
                "ecmwf": {0: 256, 1: 256, 2: 256, 3: 256, 4: 225}}
 # ECMWF IFS at its full 9 km (the owner, 18.10.2026: ECMWF's own free files are 0.25°, about 25 km):
 # Open-Meteo's open data on AWS (CC BY 4.0; not its API), one file an hour with every variable on
-# ECMWF's O1280 grid; the 00 and 12 UTC runs (to 15 days). ECMWF's own 0.25° files when it fails.
+# ECMWF's O1280 grid; the 00 and 12 UTC runs (to 15 days). ECMWF's own 9 km files when it fails (from
+# 21.10.2026; 3-hourly), then its 0.25° ones.
 ECMWF9 = "https://openmeteo.s3.amazonaws.com/"
 ECMWF9_RUNS = "data_spatial/ecmwf_ifs/"
 # Its variables: our names, theirs, how to make them ours (°C to K as ECMWF's files).
@@ -245,19 +246,20 @@ def ecmwf9_steps(run, steps):
             yield step, fields, ECMWF9_GRID
 
 
-def ecmwf_steps(run, steps):
-    """The same from ECMWF's open data: 10 m wind, the gust and (at step 0) the land-sea mask."""
+def ecmwf_steps(run, steps, res="0p25"):
+    """The same from ECMWF's open data (`res` "0p1": its 9 km files): 10 m wind, the gust and (at step
+    0) the land-sea mask."""
     def fetch(step):
         # The wind, and for the world's temperature and rain maps the air (2 m, its dew point),
         # the sea-level pressure, the precipitation so far and the cloud cover.
         wanted = ("10u", "10v", "10fg", "2t", "2d", "msl", "tp", "tcc") + (("lsm",) if step == 0 else ())
-        index = [json.loads(line) for line in ecmwf_map.get(ecmwf_map.file_url(run, step, "index")).decode().splitlines()
+        index = [json.loads(line) for line in ecmwf_map.get(ecmwf_map.file_url(run, step, "index", res)).decode().splitlines()
                  if line.strip()]
         messages = {}
         for entry in index:
             if entry.get("levtype") == "sfc" and entry.get("param") in wanted:
                 start, length = entry["_offset"], entry["_length"]
-                messages[entry["param"]] = ecmwf_map.get(ecmwf_map.file_url(run, step, "grib2"), start, start + length - 1)
+                messages[entry["param"]] = ecmwf_map.get(ecmwf_map.file_url(run, step, "grib2", res), start, start + length - 1)
         return step, messages
     with ThreadPoolExecutor(max_workers=4) as pool:
         for step, messages in pool.map(fetch, steps):
@@ -666,26 +668,37 @@ def main():
     local = Path(args[args.index("--local") + 1]) if "--local" in args else None
     sizes = MODEL_SIZES.get(model, SIZES)
     newest = {"gfs": gfs_map.newest_run, "ecmwf": ecmwf_map.newest_run, "icon": icon_newest_run, "gdps": gdps_newest_run}
-    # ECMWF at 9 km from Open-Meteo's open data; its own 0.25° files when that can't be read.
+    # ECMWF at 9 km from Open-Meteo's open data (hourly); when that can't be read ECMWF's own 9 km files
+    # (the owner, 21.10.2026: free from the 20.10.2026 06Z run, 3-hourly, two hours after real time),
+    # then its 0.25° ones.
     nine = model == "ecmwf" and "--open-data" not in args
+    own9 = False
     if nine:
         try:
             run = ecmwf9_newest_run()
         except BaseException as error:
-            print(f"ECMWF 9 km: {error}; ECMWF's own 0.25° files instead", flush=True)
+            print(f"ECMWF 9 km: {error}; ECMWF's own 9 km files instead", flush=True)
             nine = False
+    if model == "ecmwf" and not nine:
+        try:
+            run = ecmwf_map.newest_run("0p1")
+            own9 = True
+        except BaseException as error:
+            print(f"ECMWF's own 9 km files: {error}; its 0.25° ones instead", flush=True)
     icon_om = None
     if model == "icon" and "--dwd" not in args:
         try:
             run, icon_om = icon_om_newest_run()
         except BaseException as error:
             print(f"ICON open data: {error}; DWD's own files instead", flush=True)
-    if not nine and icon_om is None:
+    if own9:
+        info = {"name": "ECMWF 9 km", "credit": "ECMWF open data (CC BY 4.0)", "gust": "maximum since the previous step"}
+    elif not nine and icon_om is None:
         if model == "ecmwf":
             sizes = SIZES
             info = {"name": "ECMWF 0.25°", "credit": "ECMWF open data (CC BY 4.0)", "gust": "maximum since the previous step"}
         run = newest[model]()
-    run_name = run.strftime("%Y%m%dT%HZ") + ("-9km" if nine else "-od" if icon_om else "")
+    run_name = run.strftime("%Y%m%dT%HZ") + ("-9km" if nine else "-od9" if own9 else "-od" if icon_om else "")
     if "--check" in args:
         print(run_name)
         return
@@ -704,7 +717,8 @@ def main():
                                             - run).total_seconds() // 3600) in steps]
         source = icon_om_steps(run, keys)
     else:
-        source = (ecmwf9_steps if nine else {"gfs": gfs_steps, "ecmwf": ecmwf_steps, "icon": icon_steps, "gdps": gdps_steps}[model])(run, steps)
+        source = (ecmwf9_steps if nine else (lambda r, s: ecmwf_steps(r, s, "0p1")) if own9
+                  else {"gfs": gfs_steps, "ecmwf": ecmwf_steps, "icon": icon_steps, "gdps": gdps_steps}[model])(run, steps)
     sample, land, frames, size, started = None, False, [], 0, time.time()
     # The step and precipitation before (ECMWF's is the total since the run's start).
     previous = [0, None]

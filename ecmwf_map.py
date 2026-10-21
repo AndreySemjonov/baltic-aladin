@@ -29,9 +29,12 @@ STEPS = list(range(0, 145, 3)) + list(range(150, 361, 6))
 PARAMS = ("10u", "10v", "10fg")
 
 
-def file_url(run, step, suffix):
-    return (f"{BASE}/{run.strftime('%Y%m%d')}/{run.strftime('%H')}z/ifs/0p25/oper/"
-            f"{run.strftime('%Y%m%d%H')}0000-{step}h-oper-fc.{suffix}")
+def file_url(run, step, suffix, res="0p25"):
+    """A step's file (or its index). `res` "0p1": ECMWF's 9 km open data (from the 20.10.2026 06Z run,
+    two hours after real time; its surface fields in their own "-sfc" files)."""
+    name = "oper-fc-sfc" if res == "0p1" else "oper-fc"
+    return (f"{BASE}/{run.strftime('%Y%m%d')}/{run.strftime('%H')}z/ifs/{res}/oper/"
+            f"{run.strftime('%Y%m%d%H')}0000-{step}h-{name}.{suffix}")
 
 
 def get(url, start=None, end=None):
@@ -54,14 +57,14 @@ def get(url, start=None, end=None):
                 raise
 
 
-def newest_run():
+def newest_run(res="0p25"):
     """The newest 00/12 UTC run (the ones that go 15 days) with its last step published."""
     now = datetime.now(timezone.utc)
     start = now.replace(hour=now.hour // 12 * 12, minute=0, second=0, microsecond=0)
     for back in range(4):
         run = start - timedelta(hours=12 * back)
         try:
-            get(file_url(run, STEPS[-1], "index"))
+            get(file_url(run, STEPS[-1], "index", res))
             return run
         except urllib.error.URLError:
             continue

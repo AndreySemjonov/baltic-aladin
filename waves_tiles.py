@@ -2,8 +2,9 @@
 Baltic's only): the significant wave height, the period and the direction it comes from, through the
 shared tiler (tiler.waves_rgb) with the data checks (quality.waves):
 
-- `ecmwf`: ECMWF's wave model for the whole world (open data, the `wave` stream, 0.25 degrees, CC BY
-  4.0), every 3 hours to 6 days and every 6 to 10, at zooms 0-3: tiles/ecmwf-waves;
+- `ecmwf`: ECMWF's wave model for the whole world (open data, the `wave` stream, CC BY 4.0), every 3
+  hours to 6 days and every 6 to 10: at 0.1 degrees (the owner, 21.10.2026: free from the 20.10.2026
+  06Z run) at zooms 0-4, its 0.25 degrees at zooms 0-3 when those aren't there: tiles/ecmwf-waves;
 - `ewam`: DWD's European wave model EWAM (open data, CC BY 4.0: 30-66 N, 10.5 W-42 E, about 5 km,
   00 and 12 UTC, hourly for 2 days then every 3 hours to 78) at zooms 3-6, its weight fading over the last 100 km to its
   box's edge: tiles/ewam.
@@ -96,32 +97,37 @@ def encode_hour(placement, sample, height, period, direction):
 
 # MARK: ECMWF
 
-def ecmwf_url(run, step, suffix):
-    return (f"{ecmwf_map.BASE}/{run.strftime('%Y%m%d')}/{run.strftime('%H')}z/ifs/0p25/wave/"
-            f"{run.strftime('%Y%m%d%H')}0000-{step}h-wave-fc.{suffix}")
+def ecmwf_url(run, step, suffix, res="0p1"):
+    """A step's file or index: "0p1" the 9 km files ("-sfc" in their name), "0p25" the older ones."""
+    name = "wave-fc-sfc" if res == "0p1" else "wave-fc"
+    return (f"{ecmwf_map.BASE}/{run.strftime('%Y%m%d')}/{run.strftime('%H')}z/ifs/{res}/wave/"
+            f"{run.strftime('%Y%m%d%H')}0000-{step}h-{name}.{suffix}")
 
 
 def ecmwf_newest_run():
+    """The newest complete run and its resolution: the 0.1° files first (2 hours later than the 0.25°
+    ones), the 0.25° when a newer run has only those."""
     from datetime import timedelta
     now = datetime.now(timezone.utc)
     start = now.replace(hour=now.hour // 12 * 12, minute=0, second=0, microsecond=0)
     for back in range(4):
         run = start - timedelta(hours=12 * back)
-        try:
-            ecmwf_map.get(ecmwf_url(run, ECMWF_STEPS[-1], "index"))
-            return run
-        except Exception:
-            continue
+        for res in ("0p1", "0p25"):
+            try:
+                ecmwf_map.get(ecmwf_url(run, ECMWF_STEPS[-1], "index", res))
+                return run, res
+            except Exception:
+                continue
     raise SystemExit("No complete ECMWF wave run found")
 
 
-def ecmwf_fetch(run, step):
-    entries = [json.loads(line) for line in ecmwf_map.get(ecmwf_url(run, step, "index")).decode().splitlines() if line.strip()]
+def ecmwf_fetch(run, step, res):
+    entries = [json.loads(line) for line in ecmwf_map.get(ecmwf_url(run, step, "index", res)).decode().splitlines() if line.strip()]
     messages = {}
     for entry in entries:
         if entry.get("param") in ECMWF_PARAMS:
             start, length = entry["_offset"], entry["_length"]
-            messages[entry["param"]] = ecmwf_map.get(ecmwf_url(run, step, "grib2"), start, start + length - 1)
+            messages[entry["param"]] = ecmwf_map.get(ecmwf_url(run, step, "grib2", res), start, start + length - 1)
     return step, messages
 
 
@@ -143,8 +149,11 @@ def decode_masked(message):
 def run_ecmwf(args):
     local = args[args.index("--local") + 1] if "--local" in args else None
     limit = int(args[args.index("--hours") + 1]) if "--hours" in args else None
-    run = ecmwf_newest_run()
-    out = tiler.Run("ecmwf-waves", run, range(0, 4), "ECMWF waves 0.25°", CREDIT_ECMWF, "--force" in args, local)
+    run, res = ecmwf_newest_run()
+    # 0.1°: zoom 4 too (4096 pixels round the world: about its own detail); 0.25°: zooms 0-3.
+    zooms = range(0, 5) if res == "0p1" else range(0, 4)
+    out = tiler.Run("ecmwf-waves", run, zooms, "ECMWF waves 9 km" if res == "0p1" else "ECMWF waves 0.25°",
+                    CREDIT_ECMWF, "--force" in args, local)
     if not out.wanted:
         print(f"ECMWF waves {run:%Y%m%dT%HZ} already published")
         return
@@ -154,7 +163,7 @@ def run_ecmwf(args):
     for k in range(0, len(steps), 8):
         chunk = steps[k:k + 8]
         with ThreadPoolExecutor(4) as pool:
-            got = dict(pool.map(lambda s: ecmwf_fetch(run, s), chunk))
+            got = dict(pool.map(lambda s: ecmwf_fetch(run, s, res), chunk))
         for step in chunk:
             messages = got.get(step) or {}
             if set(messages) != set(ECMWF_PARAMS):
@@ -169,7 +178,7 @@ def run_ecmwf(args):
                 lon0 = grid["longitudeOfFirstGridPointInDegrees"]
                 dlat = grid["jDirectionIncrementInDegrees"] * (1 if grid["jScansPositively"] else -1)
                 place, sample = regular_grid(lat0, lon0, dlat, grid["iDirectionIncrementInDegrees"], grid["Nj"], grid["Ni"], True)
-                placement = tiler.Placement(tiler.tiles_in_box((-85, 85, -180, 180), range(0, 4)), place)
+                placement = tiler.Placement(tiler.tiles_in_box((-85, 85, -180, 180), zooms), place)
             t = int(run.timestamp()) + step * 3600
             height = np.where(missing, np.nan, fields["swh"])
             if not out.checked("ECMWF", t, quality.waves(height, np.where(missing, np.nan, fields["mwp"]))):
