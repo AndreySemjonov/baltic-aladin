@@ -45,8 +45,9 @@ STATS, LOGS, LIVE = f"{HOME}/stats", f"{HOME}/logs", f"{HOME}/live.json"
 WRF_LOGS, WRF_LOCK = "/root/wrf-logs", "/root/wrf-logs/.lock"
 HERE = os.path.dirname(os.path.abspath(__file__))
 RIGA = ZoneInfo("Europe/Riga")
-# The Tower's WRF tasks (Riga time; moved out of the 00Z/12Z peaks on 21.10.2026).
-WRF_AT = [(1, 15), (13, 15)]
+# The Tower's WRF tasks (Riga time; moved out of the 00Z/12Z peaks on 21.10.2026, then W1: start early and wait for
+# GFS's 06Z/18Z hours, so the run itself begins when NOAA has them, about 3 h 40 after the cycle).
+WRF_AT = [(11, 45), (23, 45)]
 GITHUB = "https://api.github.com/repos/AndreySemjonov/baltic-aladin/actions/workflows/"
 AGENT = {"User-Agent": "MeteoGust ops panel (data.meteogust.com)"}
 # Each job's GitHub workflow (and the last word of the run's title where one workflow runs several), for "On GitHub".
