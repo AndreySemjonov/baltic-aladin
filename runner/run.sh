@@ -14,4 +14,4 @@ if ! docker image inspect "meteogust-helper:$stamp" > /dev/null 2>&1; then
   echo "building the image ($stamp)"
   docker build -q -t "meteogust-helper:$stamp" -t meteogust-helper "$REPO/runner" || exit 1
 fi
-exec python3 "$REPO/runner/scheduler.py"
+exec python3 "$REPO/runner/scheduler.py"  # reloads itself when its code changes

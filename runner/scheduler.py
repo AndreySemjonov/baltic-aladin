@@ -9,6 +9,12 @@ Shadow mode (the default): every job writes to --local under the work folder, re
 nothing uploaded; GitHub stays live. A job named in LIVE_FILE runs live instead (uploads with INGEST_TOKEN
 from ENV_FILE): the switch, one job at a time, its GitHub schedule turned off then.
 
+While WRF runs here (its lock), the jobs' containers get a low CPU share (LOW_SHARES of Docker's 1024; the
+owner, 21.10.2026: WRF keeps the fast cores, the jobs use what's left: the slow cores and the fast ones'
+second threads), set again on the running ones as WRF starts and ends. The scheduler reloads itself when its
+code changes (after a pull); a job whose container is still there (mg-<job>, e.g. from before a reload)
+counts as running.
+
 Written next to it: the jobs' measurements (STATS/<job>.jsonl), the scheduler's own record of each run
 (STATS/_runs.jsonl: when due, started, ended, live or not) and every minute each container's CPU and
 memory and the machine's load and free memory (STATS/_samples.jsonl); each run's log in LOGS.
@@ -37,6 +43,8 @@ LIVE_FILE = os.environ.get("MG_LIVE", "/root/.meteogust-live")
 IMAGE = os.environ.get("MG_IMAGE", "meteogust-helper")
 MAX_TOTAL, MAX_HEAVY = int(os.environ.get("MG_MAX", "4")), int(os.environ.get("MG_MAX_HEAVY", "2"))
 WRF_LOCK = "/root/wrf-logs/.lock"
+LOW_SHARES = int(os.environ.get("MG_LOW_SHARES", "128"))
+HERE = os.path.dirname(os.path.abspath(__file__))
 BUCKET = "https://openmeteo.s3.amazonaws.com/data_spatial/"
 AGENT = {"User-Agent": "MeteoGust helper runner (data.meteogust.com)"}
 
@@ -126,15 +134,35 @@ def due(job, state, cache, now):
     return None
 
 
+def code_stamp():
+    """The runner's own code, to reload when a pull changed it."""
+    stamp = []
+    for name in sorted(os.listdir(HERE)):
+        if name.endswith(".py"):
+            stamp.append((name, os.path.getmtime(f"{HERE}/{name}")))
+    return stamp
+
+
+def containers():
+    """The jobs' containers there now (mg-<job>)."""
+    out = subprocess.run(["docker", "ps", "--format", "{{.Names}}"], capture_output=True, text=True).stdout
+    return {name[3:] for name in out.split() if name.startswith("mg-")}
+
+
+def set_shares(names, shares):
+    for name in names:
+        subprocess.run(["docker", "update", "--cpu-shares", str(shares), f"mg-{name}"], capture_output=True)
+
+
 class Running:
-    def __init__(self, job, live, source, wanted):
+    def __init__(self, job, live, source, wanted, shares=1024):
         self.job, self.live, self.source, self.wanted = job, live, source, wanted
         self.started = time.time()
         self.name = f"mg-{job.name}"
         folder = f"{WORK}/{job.name}"
         shutil.rmtree(folder, ignore_errors=True)
         os.makedirs(folder, exist_ok=True)
-        command = ["docker", "run", "--rm", "--name", self.name, "-e", f"MG_JOB={job.name}",
+        command = ["docker", "run", "--rm", "--name", self.name, "--cpu-shares", str(shares), "-e", f"MG_JOB={job.name}",
                    "-v", f"{REPO}:/code", "-v", f"{folder}:/work", "-v", f"{STATS}:/stats"]
         if os.path.exists(ENV_FILE):
             command += ["--env-file", ENV_FILE]
@@ -187,7 +215,7 @@ def main():
     for folder in (HOME, STATS, LOGS, WORK):
         os.makedirs(folder, exist_ok=True)
     state = load(STATE, {})
-    running, last_pull = {}, 0
+    running, last_pull, stamp, wrf_was = {}, 0, code_stamp(), None
     threading.Thread(target=sampler, daemon=True).start()
     log(f"runner: {len(JOBS)} jobs, at most {MAX_TOTAL} at once ({MAX_HEAVY} heavy), work in {WORK}")
     while True:
@@ -195,6 +223,9 @@ def main():
         if now - last_pull > 600:
             pull()
             last_pull = now
+            if code_stamp() != stamp:
+                log("the runner's code changed: reloading (running jobs go on in their containers)")
+                os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)])
             # The runs' logs a week (about 60 MB a day; the owner asked about the disks, 21.10.2026).
             for name in os.listdir(LOGS):
                 path = f"{LOGS}/{name}"
@@ -209,12 +240,21 @@ def main():
             append(f"{STATS}/_runs.jsonl", {"job": name, "due": round(run.wanted), "start": round(run.started),
                                             "end": round(time.time()), "exit": code, "live": run.live})
             log(f"{name}: done in {(time.time() - run.started) / 60:.1f} min, exit {code}")
-        # Due runs, as many as allowed.
-        heavy_now = sum(1 for r in running.values() if r.job.heavy)
-        total_max, heavy_max = (max(MAX_TOTAL // 2, 1), max(MAX_HEAVY // 2, 1)) if wrf_running() else (MAX_TOTAL, MAX_HEAVY)
+        # WRF started or ended: the running jobs' CPU share follows.
+        wrf = wrf_running()
+        there = containers()
+        if wrf != wrf_was:
+            set_shares(there, LOW_SHARES if wrf else 1024)
+            if wrf_was is not None:
+                log(f"WRF {'started' if wrf else 'ended'}: the jobs' CPU share {LOW_SHARES if wrf else 1024}")
+            wrf_was = wrf
+        # Due runs, as many as allowed (containers left from before a reload count too).
+        others = [name for name in there if name not in running]
+        heavy_now = sum(1 for r in running.values() if r.job.heavy) + sum(1 for j in JOBS if j.name in others and j.heavy)
+        total_max, heavy_max = (max(MAX_TOTAL // 2, 1), max(MAX_HEAVY // 2, 1)) if wrf else (MAX_TOTAL, MAX_HEAVY)
         names, live, cache = env_names(), live_jobs(), {}
         for job in JOBS:
-            if job.name in running or len(running) >= total_max:
+            if job.name in running or job.name in others or len(running) + len(others) >= total_max:
                 continue
             if job.heavy and heavy_now >= heavy_max:
                 continue
@@ -224,7 +264,7 @@ def main():
             if wanted is None:
                 continue
             is_live = job.name in live
-            running[job.name] = Running(job, is_live, wanted if job.watch else None, now)
+            running[job.name] = Running(job, is_live, wanted if job.watch else None, now, LOW_SHARES if wrf else 1024)
             mine = state.setdefault(job.name, {})
             mine["started"] = now
             if job.watch:
