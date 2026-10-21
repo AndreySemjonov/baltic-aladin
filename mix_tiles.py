@@ -128,6 +128,10 @@ MAX_GAP = 6 * 3600
 # Raised when a change here alters the tiles (the next run makes every tile again).
 VERSION = 1
 NONE = "------"
+# Hours past the first day remade at most every 3 hours (the owner, 21.10.2026, "make all next": an hour later 94 % of
+# the tiles had a newer model run, HARM-EU's and MET Nordic's every hour; riders look at today and tomorrow most).
+# Each frame says when its pack was made ("made").
+FAR_FROM, FAR_EVERY = 24 * 3600, 3 * 3600
 CREDIT = ("MET Nordic, MET Norway; HARMONIE DINI, DMI; HARMONIE, FMI; ALADIN, ČHMÚ; AROME, Météo-France (Etalab 2.0); "
           "ICON-D2 and ICON-EU, DWD; ICON-CH1, MeteoSwiss; HARMONIE-AROME, KNMI; ICON-2I, ItaliaMeteo; "
           "ECMWF open data (CC BY 4.0); GFS, NOAA; UKV, Met Office; ICON-CH2, MeteoSwiss; HARMONIE-AROME Europe, KNMI; "
@@ -590,7 +594,7 @@ def main():
                                          for i, name in enumerate(previous["srcModels"])})
     elif previous:
         print("Mix: the weights, the coast or the code changed since the published run: every tile made again", flush=True)
-    kept = partial = whole = 0
+    kept = partial = whole = far = 0
     # The tiles: zooms 4-6 over the box, zoom 7 where the 1 km models' tiles are (MET Nordic's; AROME's
     # and ICON-CH1's since 18.10.2026: the models' full detail on the map and at a tap; our WRF's
     # round Tarifa since 20.10.2026).
@@ -616,11 +620,19 @@ def main():
         todo, old_pack, old_models = keys, None, []
         if t in before:
             frame, was = before[t]
+            made = frame.get("made") or 0
+            if t - now >= FAR_FROM and time.time() - made < FAR_EVERY - 600:
+                # Its own marks kept: the next remake sees what changed since the pack was made.
+                out.frames[t] = {"time": t, "file": frame["file"], "models": frame.get("models", []), "src": frame["src"],
+                                 "made": made}
+                far += 1
+                continue
             changed = [m for m in models if was.get(m.name, NONE) != src[m.name]]
             # A model that left the hour: the tiles it was in are unknown here, all made again.
             left = any(mark_ != NONE and src.get(name, NONE) == NONE for name, mark_ in was.items())
             if not changed and not left:
-                out.frames[t] = {"time": t, "file": frame["file"], "models": frame.get("models", []), "src": code}
+                out.frames[t] = {"time": t, "file": frame["file"], "models": frame.get("models", []), "src": code,
+                                 "made": made}
                 kept += 1
                 continue
             if not left:
@@ -688,11 +700,12 @@ def main():
         out.put(t, tiler.world_tiles.encode(tiles, {z: SIZE for z in ZOOMS}))
         out.frames[t]["models"] = [m.label for m in models if m.label in used]
         out.frames[t]["src"] = code
+        out.frames[t]["made"] = round(time.time())
         print(f"  {datetime.fromtimestamp(t, timezone.utc):%d %H:%M}: {len(results)} of {len(tiles)} tiles made, "
               f"{', '.join(out.frames[t]['models'])}, {time.time() - started:.0f} s", flush=True)
     out.finish(weights={m.label: m.weight for m in models}, freshness={k: round(v, 3) for k, v in FRESH.items()},
                srcModels=[m.name for m in models], srcWeights=weights_mark)
-    print(f"Mix done in {time.time() - started:.0f} s: {kept} hours kept as published, {partial} in part, {whole} whole")
+    print(f"Mix done in {time.time() - started:.0f} s: {kept} hours kept as published, {far} far hours kept (remade every {FAR_EVERY // 3600} h), {partial} in part, {whole} whole")
 
 
 if __name__ == "__main__":
