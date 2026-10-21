@@ -472,8 +472,23 @@ class Records:
                     out[job] = round(statistics.median(minutes[:10]), 1)
         with self.lock:
             self.github, self.github_at = out, time.time()
+        try:
+            with open(f"{STATS}/_github_medians.json", "w") as f:
+                json.dump({"at": self.github_at, "github": out}, f)
+        except OSError:
+            pass
 
     def github_loop(self):
+        # The medians kept across the server's reloads: 22 calls each time otherwise (GitHub's 60 an hour ran out
+        # on 21.10.2026 from the reloads alone).
+        try:
+            with open(f"{STATS}/_github_medians.json") as f:
+                saved = json.load(f)
+            with self.lock:
+                self.github, self.github_at = saved["github"], saved["at"]
+            time.sleep(max(0, saved["at"] + 3 * 3600 - time.time()))
+        except (OSError, ValueError, KeyError):
+            pass
         while True:
             try:
                 self.fetch_github()

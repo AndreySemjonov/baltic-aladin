@@ -159,12 +159,23 @@ class GithubRuns:
     last 100 once, then every 5 minutes the newest 100 of all (about 2 hours of runs: 1685 runs in 36 h on 21.10.2026).
     Also what's running or queued now, for the freshness (it asked twice every 2 minutes before)."""
 
+    SAVED = f"{STATS}/_github_runs.json"  # kept across the server's reloads (each reload cost 13 calls otherwise)
+
     def __init__(self):
         self.lock = threading.Lock()
         self.runs = {}        # id -> [workflow, title, start, end or None, status, conclusion]
         self.page = set()     # the ids in the newest fetch (an old "in progress" off it is stale)
         self.at = 0
         self.backfilled = False
+        self.retry_at = 0
+        try:
+            with open(self.SAVED) as f:
+                saved = json.load(f)
+            self.runs = {int(k): v for k, v in saved["runs"].items()}
+            self.backfilled = bool(saved.get("backfilled"))
+            self.at = saved.get("at", 0)
+        except (OSError, ValueError, KeyError):
+            pass
 
     def take(self, items):
         for r in items:
@@ -177,13 +188,16 @@ class GithubRuns:
             return
         self.at = time.time()
         with self.lock:
-            if not self.backfilled:
-                self.backfilled = True  # once, even when rate-limited (13 calls)
+            if not self.backfilled and time.time() >= self.retry_at:
+                failed = 0
                 for wf in PIPE_WORKFLOWS:
                     try:
                         self.take(fetch(f"{GITHUB_WORKFLOWS}{wf}/runs?per_page=100").get("workflow_runs", []))
                     except Exception:
-                        pass
+                        failed += 1
+                        break  # (rate-limited: the rest would fail too)
+                self.backfilled = not failed
+                self.retry_at = time.time() + 1800
             try:
                 newest = fetch(f"{GITHUB_RUNS}?per_page=100").get("workflow_runs", [])
                 self.take(newest)
@@ -192,6 +206,12 @@ class GithubRuns:
                 pass
             cut = time.time() - 40 * 3600
             self.runs = {k: v for k, v in self.runs.items() if (v[2] or 0) >= cut}
+            try:
+                with open(self.SAVED + ".tmp", "w") as f:
+                    json.dump({"at": self.at, "backfilled": self.backfilled, "runs": self.runs}, f)
+                os.replace(self.SAVED + ".tmp", self.SAVED)
+            except OSError:
+                pass
 
     def running(self):
         with self.lock:
