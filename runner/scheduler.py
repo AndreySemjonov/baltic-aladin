@@ -64,6 +64,9 @@ LOW_SHARES = int(os.environ.get("MG_LOW_SHARES", "128"))
 MEM_SPARE = 1800
 MEM_DEFAULT = {True: 6000, False: 1500}
 SMALL_MB = 1500
+# After this long waiting for memory a job gets the machine drained for it: nothing new starts until it fits (the
+# Mix, 11.8 GB, never started after WRF, 21.10.2026: small jobs kept slipping in, series running nearly nonstop).
+DRAIN_AFTER = 20 * 60
 # WRF's own memory while it runs here (the Tower's 1 km Tarifa run: 8.4 GB), not counted in the jobs' peaks.
 WRF_MB = int(os.environ.get("MG_WRF_MB", "9000"))
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -505,6 +508,7 @@ def main():
             del _ids[name]
         waiting = None  # the priority of a due job left waiting for memory
         waiting_why = {}
+        drain = None  # the job the machine is being drained for
         # The riders' first models first (the owner, 21.10.2026: the 00Z/12Z peaks); within a priority the
         # order of jobs.py.
         for job in sorted(JOBS, key=lambda j: j.priority):
@@ -524,6 +528,9 @@ def main():
             need = mem_need(job)
             # A small job (SMALL_MB or less, mostly a few minutes) still goes when it fits: holding it back for a
             # bigger job waiting for memory left the spots' jobs queued behind it during WRF (21.10.2026).
+            if drain:
+                waiting_why[job.name] = f"held: making room for {drain} (waiting over {DRAIN_AFTER // 60} min)"
+                continue
             if waiting is not None and job.priority > waiting and (need > SMALL_MB or reserved + need > budget):
                 waiting_why[job.name] = "a job of higher priority waits for memory"
                 continue
@@ -537,6 +544,9 @@ def main():
                 if waiting is None:
                     log(f"{job.name}: due, waiting for memory ({need} MB; {reserved} of {budget} taken)")
                 waiting = job.priority if waiting is None else min(waiting, job.priority)
+                if now - _due_since.get(job.name, now) > DRAIN_AFTER and drain is None:
+                    drain = job.name
+                    waiting_why[job.name] += f"; nothing new starts until it fits"
                 continue
             reserved += need
             is_live = job.name in live

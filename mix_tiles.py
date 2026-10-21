@@ -151,22 +151,25 @@ def get(url, tries=3):
 
 
 class Pack:
-    """A published pack (MGT1): its tiles decoded when asked, kept."""
+    """A published pack (MGT1): its tiles decoded when asked, kept. `dtype`: float32 by default (weather_mix computes
+    on the tiles); the Mix keeps them as the PNG's own 8-bit values, a quarter of the memory (the owner, 21.10.2026:
+    the Mix needed ~12 GB, too much beside WRF and for the Mac mini), and sample() turns its window into floats."""
 
-    def __init__(self, data):
+    def __init__(self, data, dtype=np.float32):
         n = struct.unpack("<I", data[4:8])[0]
         head = json.loads(data[8:8 + n])
         self.tiles, self.start, self.data = head["tiles"], 8 + n, data
         self.sizes = {int(z): s for z, s in head["sizes"].items()}
         self.top = max(int(k.split("/")[0]) for k in self.tiles) if self.tiles else 0
         self.cache = {}
+        self.dtype = dtype
 
     def tile(self, z, x, y):
         key = (z, x, y)
         if key not in self.cache:
             r = self.tiles.get(f"{z}/{x}/{y}")
             self.cache[key] = None if r is None else np.asarray(
-                Image.open(io.BytesIO(self.data[self.start + r[0]:self.start + r[0] + r[1]])).convert("RGBA"), dtype=np.float32)
+                Image.open(io.BytesIO(self.data[self.start + r[0]:self.start + r[0] + r[1]])).convert("RGBA"), dtype=self.dtype)
         return self.cache[key]
 
 
@@ -238,7 +241,7 @@ class Coast:
     def pack(self, x5, y5):
         name = f"{x5}-{y5}"
         if name not in self.cache:
-            self.cache[name] = Pack(get(FILES + f"coast/{self.folder}5-{name}.pack")) if name in self.packs else None
+            self.cache[name] = Pack(get(FILES + f"coast/{self.folder}5-{name}.pack"), np.uint8) if name in self.packs else None
         return self.cache[name]
 
     def cached(self, z, px0, py0, w, h):
@@ -326,7 +329,7 @@ class Model:
 
     def pack(self, t):
         if t not in self.packs:
-            self.packs[t] = Pack(get(FILES + f"{self.name}/{self.files[t]}"))
+            self.packs[t] = Pack(get(FILES + f"{self.name}/{self.files[t]}"), np.uint8)
         return self.packs[t]
 
     def around(self, t):
