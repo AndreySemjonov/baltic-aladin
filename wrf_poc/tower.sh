@@ -16,6 +16,12 @@ LOG=/root/wrf-logs/$(date -u +%Y%m%dT%H%MZ)-$REGION.log
 exec > >(tee -a "$LOG") 2>&1
 log() { echo "$(date -u +%H:%M:%S) $*"; }
 
+# The GFS cycle waited for first, before WRF's lock (the owner, 21.10.2026, W1: the tasks start at 11:45 and 23:45
+# Riga and the run begins as soon as NOAA has the cycle's hours, about 40 minutes sooner than the old fixed start;
+# the runner treats a held lock as WRF running).
+export GFS_BACK=2 GFS_WAIT=100 GFS_POLL=120
+( cd "$HERE" && HOURS="$HOURS" "$HERE/.venv/bin/python" wrf_poc/gfs.py --wait ) || log "the GFS wait failed: WRF picks its cycle itself"
+
 exec 9> /root/wrf-logs/.lock
 if ! flock -n 9; then
   log "a run is going already: this one left out"

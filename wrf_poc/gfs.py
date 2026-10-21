@@ -36,9 +36,11 @@ def newest_cycle(hours, now=None):
     always the cycle 5 hours back or more, so the Tower's 04:15 and 16:15 UTC runs took the 18Z and 06Z
     when the 00Z and 12Z were out: Windguru's run that day was 6 hours fresher). GFS 0.25° is out about
     3.5-4 hours after its cycle: the newest cycle 3 hours back, waited for up to GFS_WAIT minutes
-    (default 40) when it is due soon, else the one before."""
+    (default 40) when it is due soon, else the one before. GFS_BACK (hours, default 3): the Tower's runs start
+    early with 2 and wait for their cycle (the owner, 21.10.2026, W1: WRF starts when NOAA has the hours, not at a
+    fixed time ~40 minutes after)."""
     now = now or datetime.now(timezone.utc)
-    back = now - timedelta(hours=3)
+    back = now - timedelta(hours=float(os.environ.get("GFS_BACK", "3")))
     newest = back.replace(hour=back.hour // 6 * 6, minute=0, second=0, microsecond=0)
     deadline = time.time() + 60 * float(os.environ.get("GFS_WAIT", "40"))
     while True:
@@ -49,12 +51,17 @@ def newest_cycle(hours, now=None):
             print(f"GFS {newest:%d %H}Z not out: the cycle before", flush=True)
             return newest - timedelta(hours=6)
         print(f"GFS {newest:%d %H}Z not out yet: waiting", flush=True)
-        time.sleep(300)
+        time.sleep(float(os.environ.get("GFS_POLL", "300")))
 
 
 def main():
-    work = Path(sys.argv[1] if len(sys.argv) > 1 else "work")
     hours = int(os.environ.get("HOURS", "12"))
+    if "--wait" in sys.argv:
+        # Only wait for the cycle (tower.sh, before it takes WRF's lock: the runner counts a WRF that only waits
+        # as running).
+        print(f"GFS {newest_cycle(hours):%Y-%m-%d %H}Z: out", flush=True)
+        return
+    work = Path(sys.argv[1] if len(sys.argv) > 1 else "work")
     folder = work / "gfs"
     folder.mkdir(parents=True, exist_ok=True)
     cycle = newest_cycle(hours)
