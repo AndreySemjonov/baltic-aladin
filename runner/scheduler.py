@@ -298,6 +298,28 @@ def mem_need(job, _cache={}):
     return need
 
 
+_ids = {}
+
+
+def used_mb(name):
+    """A running job's memory now (MB, its container's resident memory; 0 when unknown)."""
+    try:
+        if name not in _ids:
+            _ids[name] = subprocess.run(["docker", "inspect", "-f", "{{.Id}}", f"mg-{name}"], capture_output=True,
+                                        text=True, timeout=10).stdout.strip()
+        cid = _ids[name]
+        for path, key in ((f"/sys/fs/cgroup/memory/docker/{cid}/memory.stat", "total_rss"),
+                          (f"/sys/fs/cgroup/docker/{cid}/memory.stat", "anon")):
+            if os.path.exists(path):
+                with open(path) as f:
+                    for line in f:
+                        if line.startswith(key + " "):
+                            return int(line.split()[1]) // 2**20
+    except Exception:
+        pass
+    return 0
+
+
 def code_stamp():
     """The runner's own code, to reload when a pull changed it."""
     stamp = []
@@ -470,7 +492,11 @@ def main():
         names, live, cache = env_names(), live_jobs(), {}
         by_name = {j.name: j for j in JOBS}
         budget = mem_budget() - (WRF_MB if wrf else 0)
-        reserved = sum(mem_need(by_name[n]) for n in list(running) + others if n in by_name)
+        # A running job counts its plan or what it uses now, whichever is bigger (a job without measured runs is
+        # planned at a guess: mix-world at 1.5 GB used 4.0 during WRF, 21.10.2026).
+        reserved = sum(max(mem_need(by_name[n]), used_mb(n)) for n in list(running) + others if n in by_name)
+        for name in [n for n in _ids if n not in running and n not in others]:
+            del _ids[name]
         waiting = None  # the priority of a due job left waiting for memory
         waiting_why = {}
         # The riders' first models first (the owner, 21.10.2026: the 00Z/12Z peaks); within a priority the
