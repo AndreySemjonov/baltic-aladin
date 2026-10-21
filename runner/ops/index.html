@@ -205,8 +205,7 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 :root { --home: #2b6fd6; --home-soft: #dde8fb }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --home: #6ea2f5; --home-soft: #1b2c4a } }
 :root[data-theme="dark"] { --home: #6ea2f5; --home-soft: #1b2c4a }
-.pipe { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) 380px; align-items: start }
-@media (max-width: 1100px) { .pipe { grid-template-columns: minmax(0, 1fr) } }
+.pipe { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); align-items: start }
 .filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px }
 .chip { font: 500 12.5px/1 var(--body); padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer }
 .chip.on { background: var(--ink); color: var(--panel); border-color: var(--ink) }
@@ -215,7 +214,7 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 .lanes text { font: 11px var(--mono); fill: var(--muted) }
 .lanes .lname { font: 600 12.5px var(--display); fill: var(--ink) }
 .lanes .row:hover rect.hit, .lanes .row.sel rect.hit { fill: var(--accent-soft) }
-.detail { position: sticky; top: 140px; display: grid; gap: 14px }
+.detail { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-items: start; scroll-margin-top: 150px }
 .dhead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap }
 .dhead b { font: 700 21px/1 var(--display) }
 .plist { display: none }
@@ -853,6 +852,11 @@ const SET_SRC = { metnordic: ["metno_nordic_pp", "regional.yml"], "metnordic-wx"
   gdps: ["cmc_gem_gdps_15km", "world.yml", "gdps"], ewam: ["dwd_ewam", "world.yml", "ewam"], "ecmwf-waves": ["ecmwf_wam", "world.yml", "ecmwf-waves"],
   mix: [null, "mix.yml"], "mix-world": [null, "mix-world.yml"], "mix-wx": [null, "weather-mix.yml"], "mix-world-wx": [null, "weather-mix.yml"],
   chance: [null, "chance.yml"], sea: [null, "sea.yml"], waves: [null, "waves.yml"], water: [null, "water.yml"], "wrf-tarifa": ["ncep_gfs025", null] };
+// The model each home job watches (runner/jobs.py's watch).
+const JOB_WATCH = { "regional-wind": "metno_nordic_pp", "regional-weather": "metno_nordic_pp", "nordic-1km": "metno_nordic_pp",
+  "icon-eu": "dwd_icon_eu", "world-gfs": "ncep_gfs025", "world-ecmwf": "ecmwf_ifs", "world-icon": "dwd_icon", "world-gdps": "cmc_gem_gdps_15km",
+  "ecmwf-waves": "ecmwf_wam", ewam: "dwd_ewam", "bucket-icon-ch2": "meteoswiss_icon_ch2", "bucket-knmi-eu": "knmi_harmonie_arome_europe",
+  "bucket-arome25": "meteofrance_arome_france0025", ukmo: "ukmo_uk_deterministic_2km" };
 const GROUPS = ["Regional", "World and Europe", "Waves and seas", "Mixes and products", "Our own"];
 const groupOf = (set) => set === "wrf-tarifa" ? "Our own"
   : ["ewam", "ecmwf-waves", "waves", "sea", "water"].includes(set) ? "Waves and seas"
@@ -888,10 +892,12 @@ function laneData(maps, fr, f, now, s) {
     const avails = (om && arrBy[om]) || {};
     // Each model run: when it was available (Open-Meteo's record), GitHub's publish, the Tower's run.
     const byRun = {};
-    for (const [r, d] of Object.entries(avails)) {
-      if (wrf && new Date(+r * 1000).getUTCHours() % 12 !== 6) continue;  // WRF runs from GFS 06Z and 18Z
-      byRun[+r] = { run: +r, avail: d };
-    }
+    if (wrf) {
+      // WRF reads GFS from NOAA, hours before Open-Meteo's record: available is when its log had GFS in hand after
+      // waiting for it, else WRF's start (GFS was out by then).
+      for (const [a, b, ok, ready, waited, cycle] of pipe.wrf) if (cycle) byRun[cycle] = { run: cycle, avail: waited && ready ? ready : a, early: !waited,
+        tower: { start: a, end: b, ok: ok !== false, going: ok === "going", live: true, job: "wrf" } };
+    } else for (const [r, d] of Object.entries(avails)) byRun[+r] = { run: +r, avail: d };
     for (const r of runs) if ((r.published || r.run) >= since) {
       const e = byRun[r.run] = byRun[r.run] || { run: r.run, avail: null };
       e.pub = r.published; e.failed = r.failed;
@@ -906,14 +912,12 @@ function laneData(maps, fr, f, now, s) {
           : e.avail != null ? ghRuns.find((g) => g[3] == null && g[2] >= e.avail - 120) : null;
         if (g) e.gh = { start: g[2], end: g[3] };
       }
-      // The Tower's: WRF's run from that GFS; else the first good run of the map's jobs once it was available
-      // (the one made from this source run first: the regional job watches MET Nordic, the others come along).
-      if (wrf) {
-        const w = pipe.wrf.find((w) => w[0] >= e.run && w[0] <= e.run + 14 * 3600);
-        if (w) e.tower = { start: w[0], end: w[1], ok: w[2] !== false, going: w[2] === "going", live: true, job: "wrf" };
-      } else if (e.avail != null) {
-        const c = towerRuns.filter((t) => t.start >= e.avail - 120 && t.start <= e.avail + 8 * 3600);
-        const t = c.find((t) => t.source === e.run) || c.filter((t) => t.exit === 0).sort((a, b) => a.start - b.start)[0];
+      // The Tower's: a job that watches this model, its run made from this source run; the others ride along (the
+      // regional job watches MET Nordic and makes the regional models it finds): its first good run within 3 h.
+      if (!wrf && e.avail != null) {
+        const t = towerRuns.find((t) => JOB_WATCH[t.job] === om && t.source === e.run)
+          || towerRuns.filter((t) => JOB_WATCH[t.job] !== om && t.exit === 0 && t.start >= e.avail - 120 && t.start <= e.avail + 3 * 3600)
+            .sort((a, b) => a.start - b.start)[0];
         if (t) { matched.add(t); e.tower = { start: t.start, end: t.end, due: t.due, ok: t.exit === 0, live: t.live, job: t.job }; }
       }
       e.ghTime = !wrf && e.avail != null && e.pub ? e.pub - e.avail : null;
@@ -933,7 +937,7 @@ function laneData(maps, fr, f, now, s) {
     if (fresh) status = fresh.status;
     else if (last && now - (runs.filter((r) => r.published).pop() || last).run > (m.interval + m.delay) * 3600 + 3600) status = "bad";
     // Without an "available" moment (our own products, sources Open-Meteo doesn't have): the jobs' own minutes.
-    const procOnly = !runTimes.length;
+    const procOnly = !wrf && !runTimes.length;
     return { ...m, set, om, wf, wrf, group: groupOf(set), entries, jobs, towerRuns, fresh, status, cad, next, procOnly,
       loose: procOnly ? towerRuns : [], home: homeBySet[set], isLive: wrf || jobs.some((j) => live.has(j)),
       towerT: procOnly ? med(towerRuns.filter((t) => t.exit === 0 && t.end >= day).map((t) => t.end - t.start)) : med(recent.map((e) => e.towerTime).filter((v) => v != null)),
@@ -965,7 +969,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead }) {
     const a = e.avail, out = [];
     const end = Math.max(e.pub || 0, e.tower ? e.tower.end : 0, e.gh ? e.gh.end || now : 0, a || 0);
     if (end < t0 || (a || e.pub || e.run) > t1) return out;
-    if (a != null) out.push(html`<path d=${`M${x(a) - 4} ${y + 1} L${x(a) + 4} ${y + 1} L${x(a)} ${y + 6} Z`} fill="var(--muted)"><title>${runTip(l, e)} (Open-Meteo's record)</title></path>`);
+    if (a != null) out.push(html`<path d=${`M${x(a) - 4} ${y + 1} L${x(a) + 4} ${y + 1} L${x(a)} ${y + 6} Z`} fill="var(--muted)"><title>${runTip(l, e)} (${l.wrf ? (e.early ? "GFS was already out at NOAA when WRF started" : "GFS out at NOAA: WRF had waited for it") : "Open-Meteo's record"})</title></path>`);
     if (e.skipped) {
       out.push(html`<text x=${x(a) + 3} y=${y + 20} class="skip">×<title>${runTip(l, e)}: not taken (no publish on GitHub or at home)</title></text>`);
       return out;
@@ -1046,7 +1050,7 @@ function LaneDetail({ l, now, cap, all }) {
       <${RunBars} l=${l} />
       <div class="legend"><span style="--c:var(--gh)">GitHub</span><span style="--c:var(--home)">Tower</span><span style="--c:var(--wait)">waiting</span></div></div>
     ${last ? html`<div class="panel"><h2>The last run · ${runZ(last.run)}</h2><div class="kv">
-      <span>Available to us</span><span>${clock(last.avail)}</span>
+      <span>Available to us</span><span>${clock(last.avail)}${l.wrf ? (last.early ? " (GFS out by then)" : " (GFS out at NOAA)") : ""}</span>
       ${l.wrf ? null : html`<span>GitHub published</span><span>${last.pub ? `${clock(last.pub)} · ${mins(last.pub - last.avail)}` : "–"}</span>
         ${last.gh && last.pub ? html`<span>· waited, then the job</span><span>${mins(gw)} · ${mins(last.pub - last.avail - gw)}</span>` : null}`}
       ${t ? html`<span>${l.wrf ? "WRF ran" : "Tower done"}</span><span>${t.going ? "running" : `${clock(t.end)} · ${mins(t.end - last.avail)}`}</span>
@@ -1080,6 +1084,8 @@ function Pipeline({ maps, fr, f, now, s, cap }) {
     skip: (l) => l.skipped > 0, home: (l) => l.isLive || !!l.home, bad: (l) => l.status === "bad" };
   const lanes = all.filter(pick[filter]);
   const picked = all.find((l) => l.name === sel);
+  // A tapped lane's detail sits under the chart: brought into view.
+  const choose = (name) => { setSel(name); setTimeout(() => { const d = document.getElementById("lanedetail"); if (d) d.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, 50); };
   // Today's summary: our time on each machine, GitHub's waiting share, runs skipped, the Tower against GitHub.
   const day = all.filter((l) => !l.procOnly).flatMap((l) => l.entries.filter((e) => e.avail != null && e.avail >= now - 24 * 3600));
   const tMed = med(day.map((e) => e.towerTime).filter((v) => v != null)), gMed = med(day.map((e) => e.ghTime).filter((v) => v != null));
@@ -1101,12 +1107,12 @@ function Pipeline({ maps, fr, f, now, s, cap }) {
       ${!maps ? html`<p class="empty">Reading admin's map history…</p>` : html`
       <div class="filters">${RANGES.map(([b]) => html`<span class=${"chip" + (range === b ? " on" : "")} onClick=${() => setRange(b)}>${b} h</span>`)}<span style="width:10px"></span>
         ${chips.map(([k, label]) => html`<span class=${"chip" + (filter === k ? " on" : "")} onClick=${() => setFilter(k)}>${label}</span>`)}</div>
-      <${Lanes} lanes=${lanes} now=${now} sel=${sel} setSel=${setSel} back=${back} ahead=${ahead} />
+      <${Lanes} lanes=${lanes} now=${now} sel=${sel} setSel=${choose} back=${back} ahead=${ahead} />
       <div class="legend"><span class="t">▼ run available to us (Open-Meteo's record)</span><span style="--c:var(--gh)">GitHub (upper bar)</span><span style="--c:var(--home)">Tower (lower bar; faint: shadow, not published)</span>
         <span style="--c:var(--wait)">waiting to start</span><span style="--c:var(--ok)">published</span><span class="t" style="color:var(--bad)">× a source run nobody took</span><span class="t">◇ next run expected</span><span class="t">right: our time, median of 24 h (italic: the job's own time, no "available" moment)</span></div>
       <p class="note" style="margin:8px 0 0">Each bar starts when the run was complete on Open-Meteo's open data, where our jobs read it, and ends when riders could see it. The maker's own time before that is left out. Sooner is better. "Available" is recorded for every model from 21.10.2026 evening; older runs start at GitHub's job.</p>`}
     </section>
-    <aside class="detail">${html`<${LaneDetail} l=${picked} now=${now} cap=${cap} all=${all} />`}</aside>
+    <aside class="detail" id="lanedetail">${html`<${LaneDetail} l=${picked} now=${now} cap=${cap} all=${all} />`}</aside>
   </div>
   <div style="margin-top:16px"><${Freshness} fr=${fr} now=${now} /></div>`;
 }

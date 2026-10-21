@@ -416,6 +416,23 @@ def wrf_runs(since):
     return out
 
 
+def wrf_gfs(start):
+    """From the WRF run's log: when GFS was in hand (the WPS line), whether it had to wait for NOAA ("not out yet":
+    then that moment is when GFS was out; else GFS was out before WRF started), and the GFS cycle (unix)."""
+    paths = glob.glob(f"{WRF_LOGS}/{datetime.fromtimestamp(start, timezone.utc):%Y%m%dT%H%M}Z-*.log")
+    text = (read(paths[0], "") or "") if paths else ""
+    ready = cycle = None
+    m = re.search(r"^(\d\d):(\d\d):(\d\d) WPS", text, re.M)
+    if m:
+        ready = start - start % 86400 + int(m[1]) * 3600 + int(m[2]) * 60 + int(m[3])
+        if ready < start - 60:
+            ready += 86400
+    c = re.search(r"^GFS (\d{4}-\d\d-\d\d) (\d\d)Z", text, re.M)
+    if c:
+        cycle = int(datetime.strptime(f"{c[1]} {c[2]}", "%Y-%m-%d %H").replace(tzinfo=timezone.utc).timestamp())
+    return ready, "not out yet" in text, cycle
+
+
 def wrf_next(now, count=3):
     """The next WRF starts (unix), from the Tower's tasks in Riga time."""
     out = []
@@ -546,7 +563,7 @@ class Records:
             if a.get("done", 0) >= now - 40 * 3600:
                 arrived.setdefault((a["model"], a["run"]), a["done"])
         pipe = {"arrivals": [[m, r, d] for (m, r), d in arrived.items()], "gh": views.GH.pipe(),
-                "wrf": [[round(a), round(b), ok if ok == "going" else bool(ok)] for a, b, ok in wrf_runs(now - 36 * 3600)]}
+                "wrf": [[round(a), round(b), ok if ok == "going" else bool(ok), *wrf_gfs(a)] for a, b, ok in wrf_runs(now - 36 * 3600)]}
         self.slow = {"home": home, "pipe": pipe, "t": round(now), "from": round(since), "to": round(now + 6 * 3600), "lanes": [n for n, _ in LANES],
                      "items": items, "arrivals": arr, "runs": recent, "hosts": hosts, "typical": typical,
                      "github_at": round(self.github_at) or None}
