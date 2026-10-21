@@ -104,7 +104,7 @@ def main():
     started, previous = time.time(), 0
     print(f"ECMWF {run_name}: {len(steps)} hours", flush=True)
     with ThreadPoolExecutor(max_workers=4) as pool:
-        for step, path in zip(steps, pool.map(fetch, [files[s] for s in steps])):
+        for step, path in zip(steps, omremote.bounded_map(fetch, [files[s] for s in steps], 4, ahead=5)):
             reader = omremote.reader(path)
             values = {}
             for ours, theirs, add in world_tiles.ECMWF9_FIELDS:

@@ -87,7 +87,8 @@ def main():
     cells = spot_cells.SpotCells("gfs", "gfs_global")
     started, previous, grid = time.time(), 0, None
     with ThreadPoolExecutor(max_workers=6) as pool:
-        for step, path in zip(hours, pool.map(fetch, [files[h] for h in hours])):
+        # Reads in part are many small requests: more files at once (omremote.py), a few ahead at most.
+        for step, path in zip(hours, omremote.bounded_map(fetch, [files[h] for h in hours], 16 if omremote.PARTIAL else 6)):
             reader = omremote.reader(path)
             fields = {}
             for ours, theirs, add in FIELDS:

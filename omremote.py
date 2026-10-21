@@ -176,3 +176,20 @@ def done(path_or_prefetched):
             os.unlink(path_or_prefetched)
         except OSError:
             pass
+
+
+def bounded_map(fn, items, workers, ahead=None):
+    """fn over items on `workers` threads, results in order, at most `ahead` waiting (a Prefetched holds its
+    variables in memory: ThreadPoolExecutor.map would read every hour of a run at once; ECMWF's are ~400 MB)."""
+    from collections import deque
+    from concurrent.futures import ThreadPoolExecutor
+    ahead = ahead or workers * 2
+    items = iter(items)
+    with ThreadPoolExecutor(workers) as pool:
+        waiting = deque(pool.submit(fn, item) for _, item in zip(range(ahead), items))
+        while waiting:
+            result = waiting.popleft().result()
+            for item in items:
+                waiting.append(pool.submit(fn, item))
+                break
+            yield result

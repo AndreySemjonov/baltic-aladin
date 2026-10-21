@@ -237,7 +237,7 @@ def ecmwf9_steps(run, steps):
     # the sea ice has no value (28.5% of the world, 18.10.2026), from the run's first file.
     land = None
     with ThreadPoolExecutor(max_workers=3) as pool:
-        for step, path in pool.map(fetch, wanted):
+        for step, path in omremote.bounded_map(fetch, wanted, 3, ahead=4):
             reader = omremote.reader(path)
             fields = {}
             if land is None:
@@ -391,7 +391,7 @@ def icon_om_steps(run, keys):
 
     before = 0
     with ThreadPoolExecutor(max_workers=3) as pool:
-        for key, path in pool.map(fetch, keys):
+        for key, path in omremote.bounded_map(fetch, keys, 6, ahead=8):
             valid = datetime.strptime(key.rsplit("/", 1)[-1][:-3], "%Y-%m-%dT%H%M").replace(tzinfo=timezone.utc)
             step = int((valid - run).total_seconds() // 3600)
             reader = omremote.reader(path)
