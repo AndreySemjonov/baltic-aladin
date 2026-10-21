@@ -521,9 +521,18 @@ class Records:
             typical[c["job"]] = self.typical(c["job"])
         # The home runs of the last 36 hours, for the Pipeline's Tower line under GitHub's bars (the owner, 21.10.2026:
         # "those runs according github or tower pc?").
-        home = [{"job": r["job"], "start": r["start"], "end": r["end"], "exit": r.get("exit"), "live": bool(r.get("live")),
+        home = [{"job": r["job"], "due": r.get("due"), "start": r["start"], "end": r["end"], "exit": r.get("exit"), "live": bool(r.get("live")),
                  "source": r.get("source")} for r in jsonl(f"{STATS}/_runs.jsonl", 1500) if r.get("end", 0) >= now - 36 * 3600]
-        self.slow = {"home": home, "t": round(now), "from": round(since), "to": round(now + 6 * 3600), "lanes": [n for n, _ in LANES],
+        # The Pipeline's timeline (the owner, 21.10.2026: "our time", from a run being available to riders seeing it;
+        # mockup docs/mockups/pipeline-timeline-2026-10-21.html): each maker's run and when it became complete on
+        # Open-Meteo's open data (the first record of each), GitHub's map jobs (start, end), WRF's runs.
+        arrived = {}
+        for a in jsonl(f"{STATS}/_arrivals.jsonl", 6000):
+            if a.get("done", 0) >= now - 40 * 3600:
+                arrived.setdefault((a["model"], a["run"]), a["done"])
+        pipe = {"arrivals": [[m, r, d] for (m, r), d in arrived.items()], "gh": views.GH.pipe(),
+                "wrf": [[round(a), round(b), ok if ok == "going" else bool(ok)] for a, b, ok in wrf_runs(now - 36 * 3600)]}
+        self.slow = {"home": home, "pipe": pipe, "t": round(now), "from": round(since), "to": round(now + 6 * 3600), "lanes": [n for n, _ in LANES],
                      "items": items, "arrivals": arr, "runs": recent, "hosts": hosts, "typical": typical,
                      "github_at": round(self.github_at) or None}
         self.slow_at = now

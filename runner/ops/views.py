@@ -26,6 +26,7 @@ AGENT = {"User-Agent": "MeteoGust ops panel (data.meteogust.com)"}
 BUCKET = "https://openmeteo.s3.amazonaws.com/data_spatial/"
 FILES = "https://files.meteogust.com/"
 GITHUB_RUNS = "https://api.github.com/repos/AndreySemjonov/baltic-aladin/actions/runs"
+GITHUB_WORKFLOWS = "https://api.github.com/repos/AndreySemjonov/baltic-aladin/actions/workflows/"
 
 # [app key, label, group, Open-Meteo's model (None: not in its record), our set, every hours, GitHub workflow and
 #  title word, the runner's jobs]
@@ -146,6 +147,68 @@ def median(values):
     return statistics.median(values) if values else None
 
 
+# MARK: GitHub's runs
+
+# The workflows that make the maps, for the Pipeline's GitHub bars (when each job started and ended).
+PIPE_WORKFLOWS = ["regional.yml", "world.yml", "bucket.yml", "nordic.yml", "ukmo.yml", "update.yml", "mix.yml", "mix-world.yml",
+                  "weather-mix.yml", "chance.yml", "sea.yml", "waves.yml", "water.yml"]
+
+
+class GithubRuns:
+    """GitHub's runs of the last 40 hours from the public API (60 calls an hour without a token): each map workflow's
+    last 100 once, then every 5 minutes the newest 100 of all (about 2 hours of runs: 1685 runs in 36 h on 21.10.2026).
+    Also what's running or queued now, for the freshness (it asked twice every 2 minutes before)."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.runs = {}        # id -> [workflow, title, start, end or None, status, conclusion]
+        self.page = set()     # the ids in the newest fetch (an old "in progress" off it is stale)
+        self.at = 0
+        self.backfilled = False
+
+    def take(self, items):
+        for r in items:
+            done = r.get("status") == "completed"
+            self.runs[r["id"]] = [os.path.basename(r.get("path", "")), r.get("display_title") or "", run_unix(r.get("run_started_at")),
+                                  run_unix(r.get("updated_at")) if done else None, r.get("status"), r.get("conclusion")]
+
+    def refresh(self, every=300):
+        if time.time() - self.at < every:
+            return
+        self.at = time.time()
+        with self.lock:
+            if not self.backfilled:
+                self.backfilled = True  # once, even when rate-limited (13 calls)
+                for wf in PIPE_WORKFLOWS:
+                    try:
+                        self.take(fetch(f"{GITHUB_WORKFLOWS}{wf}/runs?per_page=100").get("workflow_runs", []))
+                    except Exception:
+                        pass
+            try:
+                newest = fetch(f"{GITHUB_RUNS}?per_page=100").get("workflow_runs", [])
+                self.take(newest)
+                self.page = {r["id"] for r in newest}
+            except Exception:
+                pass
+            cut = time.time() - 40 * 3600
+            self.runs = {k: v for k, v in self.runs.items() if (v[2] or 0) >= cut}
+
+    def running(self):
+        with self.lock:
+            return [{"wf": v[0], "title": v[1], "started": v[2], "status": v[4]} for k, v in self.runs.items()
+                    if v[4] in ("in_progress", "queued") and k in self.page]
+
+    def pipe(self):
+        """[workflow, the title's last word (world.yml runs one model or "(all)"), start, end or None] of the map
+        workflows' runs that didn't fail."""
+        with self.lock:
+            return sorted([[v[0], v[1].split()[-1] if v[1] else "", v[2], v[3]] for v in self.runs.values()
+                           if v[0] in PIPE_WORKFLOWS and v[2] and v[5] in (None, "success")], key=lambda r: r[2])
+
+
+GH = GithubRuns()
+
+
 # MARK: Freshness
 
 class Freshness:
@@ -156,19 +219,14 @@ class Freshness:
         self.seen = {}  # (key, kind) -> run, to record our published runs once
         for p in jsonl(f"{STATS}/_published.jsonl", 3000):
             self.seen[(p["key"], p["kind"])] = p["run"]
+        # The makers' runs already in _arrivals.jsonl (the scheduler writes those it watches; this, all the others:
+        # the Pipeline's "available" moment, 21.10.2026).
+        self.arrived = {(a.get("model"), a.get("run")) for a in jsonl(f"{STATS}/_arrivals.jsonl", 20000)}
 
     def github_running(self):
-        """GitHub's runs in progress or queued (public API, every 2 minutes)."""
-        if time.time() - self.github["at"] > 120:
-            runs = []
-            for status in ("in_progress", "queued"):
-                try:
-                    reply = fetch(f"{GITHUB_RUNS}?status={status}&per_page=50")
-                    runs += [{"wf": os.path.basename(r.get("path", "")), "title": r.get("display_title") or "",
-                              "started": run_unix(r.get("run_started_at")), "status": status} for r in reply.get("workflow_runs", [])]
-                except Exception:
-                    pass
-            self.github = {"at": time.time(), "runs": runs}
+        """GitHub's runs in progress or queued (GH's cache, every 5 minutes)."""
+        GH.refresh()
+        self.github = {"at": GH.at, "runs": GH.running()}
         return self.github["runs"]
 
     def refresh(self, wrf):
@@ -198,6 +256,11 @@ class Freshness:
             om_models = sorted({m[3] for m in MODELS if m[3]} | {"ncep_gfs025"})
             for model, value in zip(om_models, pool.map(maker, om_models)):
                 makers[model] = value
+                # Each complete run once, with when it became complete (latest.json's last change, whenever we look).
+                if value and value["run"] and value["complete"] and (model, value["run"]) not in self.arrived:
+                    self.arrived.add((model, value["run"]))
+                    append(f"{STATS}/_arrivals.jsonl", {"model": model, "run": value["run"], "done": value["done"] or round(now),
+                                                       "seen": round(now), "by": "panel"})
             sets = sorted({m[4] for m in MODELS} | {p[1] for p in PRODUCTS} | {s for p in PRODUCTS for s in p[2]})
             for set_name, value in zip(sets, pool.map(our_map, sets)):
                 maps[set_name] = value
