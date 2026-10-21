@@ -394,15 +394,20 @@ def wrf_state():
 def wrf_runs(since):
     """WRF's runs since `since` from its logs: [(start, end, ok)]."""
     out = []
-    for path in sorted(p for p in glob.glob(f"{WRF_LOGS}/*.log") if re.match(r"\d{8}T\d{4}Z-", os.path.basename(p)))[-12:]:
+    logs = sorted(p for p in glob.glob(f"{WRF_LOGS}/*.log") if re.match(r"\d{8}T\d{4}Z-", os.path.basename(p)))[-12:]
+    for path in logs:
         m = re.match(r"(\d{8}T\d{4})Z-", os.path.basename(path))
         if not m:
             continue
         start = datetime.strptime(m.group(1), "%Y%m%dT%H%M").replace(tzinfo=timezone.utc).timestamp()
         end = os.path.getmtime(path)
+        text = read(path, "") or ""
+        # The run going now: its log stops changing a few minutes in (the model's progress goes to rsl.out.*).
+        going = path == logs[-1] and wrf_state().get("running") and "the run took" not in text and "the run failed" not in text
+        if going:
+            end = time.time()
         if end >= since:
-            text = read(path, "") or ""
-            out.append((start, end, "the run failed" not in text))
+            out.append((start, end, "going" if going else "the run failed" not in text))
     return out
 
 
@@ -493,7 +498,7 @@ class Records:
             if c.get("started"):
                 items.append({"lane": lane(c["job"]), "job": c["job"], "a": c["started"], "b": now, "kind": "run"})
         for a, b, ok in wrf_runs(since):
-            items.append({"lane": "WRF", "job": "wrf", "a": a, "b": b, "kind": "wrf" if ok else "bad"})
+            items.append({"lane": "WRF", "job": "wrf", "a": a, "b": b, "kind": "run" if ok == "going" else "wrf" if ok else "bad"})
         wrf_typ = 3.5 * 3600
         for t in wrf_next(now):
             if t < now + 6 * 3600:

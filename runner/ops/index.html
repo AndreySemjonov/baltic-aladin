@@ -315,7 +315,7 @@ function Timeline({ s, now }) {
       ${s.items.map((it) => {
         const i = lanes.indexOf(it.lane); if (i < 0) return null;
         const xa = x(Math.max(it.a, t0)), xb = Math.max(x(Math.min(it.b, t1)), xa + 3);
-        return html`<rect x=${xa.toFixed(1)} y=${top + i * lh + 7} width=${(xb - xa).toFixed(1)} height="16" rx="3" fill=${color(it.kind)} opacity=${it.kind === "wrfplan" ? 0.35 : 1}
+        return html`<rect x=${xa.toFixed(1)} y=${top + i * lh + 7} width=${(xb - xa).toFixed(1)} height="16" rx="3" fill=${it.lane === "WRF" && it.kind === "run" ? "var(--wrf)" : color(it.kind)} opacity=${it.kind === "wrfplan" ? 0.35 : 1}
           stroke=${it.kind === "run" ? "var(--ink)" : "none"} stroke-width="1.5"><title>${it.job} ${clock(it.a)}–${clock(it.b)}</title></rect>`;
       })}
       <line x1=${x(now)} x2=${x(now)} y1=${top - 8} y2=${top + lanes.length * lh + 4} stroke="var(--warn)" stroke-width="2"/>
