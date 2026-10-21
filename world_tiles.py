@@ -38,6 +38,7 @@ from PIL import Image
 import ecmwf_map
 import gfs_map
 import maplib
+import omremote
 import temp_map
 
 ZOOMS = range(0, 4)
@@ -211,6 +212,9 @@ def ecmwf9_steps(run, steps):
     wanted = [s for s in steps if s in files] if steps is not None else sorted(files)
 
     def fetch(step):
+        # At home only the variables used, read in part (omremote.py; the owner, 21.10.2026: Oregon ~17 MB/s from home).
+        if omremote.PARTIAL:
+            return step, omremote.Prefetched(ECMWF9 + files[step], [t for _, t, _ in ECMWF9_FIELDS] + ["sea_ice_thickness"])
         handle = tempfile.NamedTemporaryFile(suffix=".om", delete=False)
         handle.close()
         for attempt in range(4):
@@ -234,7 +238,7 @@ def ecmwf9_steps(run, steps):
     land = None
     with ThreadPoolExecutor(max_workers=3) as pool:
         for step, path in pool.map(fetch, wanted):
-            reader = omfiles.OmFileReader.from_path(path)
+            reader = omremote.reader(path)
             fields = {}
             if land is None:
                 try:
@@ -255,7 +259,7 @@ def ecmwf9_steps(run, steps):
                 if ours in ("10u", "10v", "gust", "2t", "rain", "tcc", "low", "mid", "high"):
                     native[ours] = values + add
             reader.close()
-            os.unlink(path)
+            omremote.done(path)
             # The rain over the step (an hour, then 3 and 6), as mm an hour.
             if "rain" in fields:
                 fields["rain_step"] = fields.pop("rain")
@@ -365,6 +369,9 @@ def icon_om_steps(run, keys):
     import omfiles
 
     def fetch(key):
+        # At home only the variables used, read in part (omremote.py; the owner, 21.10.2026: Oregon ~17 MB/s from home).
+        if omremote.PARTIAL:
+            return key, omremote.Prefetched(ECMWF9 + key, [t for _, t, _, _ in ICON_OM_FIELDS])
         handle = tempfile.NamedTemporaryFile(suffix=".om", delete=False)
         handle.close()
         for attempt in range(4):
@@ -387,7 +394,7 @@ def icon_om_steps(run, keys):
         for key, path in pool.map(fetch, keys):
             valid = datetime.strptime(key.rsplit("/", 1)[-1][:-3], "%Y-%m-%dT%H%M").replace(tzinfo=timezone.utc)
             step = int((valid - run).total_seconds() // 3600)
-            reader = omfiles.OmFileReader.from_path(path)
+            reader = omremote.reader(path)
             fields = {}
             for ours, theirs, add, scale in ICON_OM_FIELDS:
                 try:
@@ -396,7 +403,7 @@ def icon_om_steps(run, keys):
                     continue
                 fields[ours] = np.nan_to_num(values.astype(np.float32)) * scale + add
             reader.close()
-            os.unlink(path)
+            omremote.done(path)
             # The dew point from the humidity (temp_pack's feels-like), the rain over the step an hour.
             if "rh" in fields and "2t" in fields:
                 c = fields["2t"] - 273.15

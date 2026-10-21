@@ -21,6 +21,7 @@ import numpy as np
 
 import maplib
 import spot_cells
+import omremote
 import spot_points
 import world_tiles
 
@@ -58,6 +59,9 @@ def run_time(name):
 
 
 def fetch(key):
+    # At home only the variables used, read in part (omremote.py; the owner, 21.10.2026: Oregon ~17 MB/s from home).
+    if omremote.PARTIAL:
+        return omremote.Prefetched(world_tiles.ECMWF9 + key, [theirs for _, theirs, _ in world_tiles.ECMWF9_FIELDS])
     handle = tempfile.NamedTemporaryFile(suffix=".om", delete=False)
     handle.close()
     for attempt in range(4):
@@ -101,7 +105,7 @@ def main():
     print(f"ECMWF {run_name}: {len(steps)} hours", flush=True)
     with ThreadPoolExecutor(max_workers=4) as pool:
         for step, path in zip(steps, pool.map(fetch, [files[s] for s in steps])):
-            reader = omfiles.OmFileReader.from_path(path)
+            reader = omremote.reader(path)
             values = {}
             for ours, theirs, add in world_tiles.ECMWF9_FIELDS:
                 if ours not in wanted:
@@ -112,7 +116,7 @@ def main():
                     continue
                 values[ours] = np.nan_to_num(np.asarray(v, dtype=np.float32)) + add
             reader.close()
-            os.unlink(path)
+            omremote.done(path)
             if "rain" in values:
                 values["rate"] = np.maximum(values.pop("rain"), 0) / max(step - previous, 1)
             previous = step

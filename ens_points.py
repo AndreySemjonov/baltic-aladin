@@ -28,12 +28,13 @@ from pathlib import Path
 import eccodes as ec
 import numpy as np
 
+import sources
 import spot_points
 import world_tiles
 
-# ECMWF's open data mirrors, the next one when one says "Slow Down" (AWS's did, all of it, 18.10.2026).
-MIRRORS = ["https://storage.googleapis.com/ecmwf-open-data/", "https://data.ecmwf.int/forecasts/",
-           "https://ecmwf-forecasts.s3.eu-central-1.amazonaws.com/"]
+# ECMWF's open data mirrors, the next one when one says "Slow Down" (AWS's did, all of it, 18.10.2026); the
+# nearest first (sources.py: Frankfurt and Google at home, 21.10.2026).
+MIRRORS = [m + "/" for m in sources.ECMWF]
 PUBLISHED = "https://files.meteogust.com/ens/index.json"
 # The cells riders' own spots asked for (station-history /ens/want; the owner, 18.10.2026: the chance
 # to ride at every spot): each as ens/cell-<row>-<col>.json.

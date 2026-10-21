@@ -147,14 +147,20 @@ class EnsembleChance:
             import tempfile, os
             import omfiles
             import model_heights
-            handle = tempfile.NamedTemporaryFile(suffix=".om", delete=False)
-            handle.close()
-            with open(handle.name, "wb") as out:
-                out.write(get(BUCKET + self.files[later]))
-            reader = omfiles.OmFileReader.from_path(handle.name)
-            values = reader.get_child_by_name("precipitation_probability").read_array((slice(None), slice(None))).astype(np.float32)
-            reader.close()
-            os.unlink(handle.name)
+            import omremote
+            # At home only this variable, read in part (omremote.py; the owner, 21.10.2026).
+            if omremote.PARTIAL:
+                reader = omremote.Prefetched(BUCKET + self.files[later], ["precipitation_probability"])
+                values = reader.get_child_by_name("precipitation_probability").read_array((slice(None), slice(None))).astype(np.float32)
+            else:
+                handle = tempfile.NamedTemporaryFile(suffix=".om", delete=False)
+                handle.close()
+                with open(handle.name, "wb") as out:
+                    out.write(get(BUCKET + self.files[later]))
+                reader = omfiles.OmFileReader.from_path(handle.name)
+                values = reader.get_child_by_name("precipitation_probability").read_array((slice(None), slice(None))).astype(np.float32)
+                reader.close()
+                os.unlink(handle.name)
             if self.grid is None:
                 self.grid = model_heights.Grid(self.name, self.spec, values.shape)
             if len(self.cache) > 6:

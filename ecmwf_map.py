@@ -23,8 +23,10 @@ import numpy as np
 import gfs_map
 import iconeu_map
 import maplib
+import sources
 
-BASE = "https://data.ecmwf.int/forecasts"
+# ECMWF's own server, or at home its Frankfurt mirror (sources.py; the owner, 21.10.2026: 7 against 34 MB/s).
+BASE = sources.ECMWF[0]
 STEPS = list(range(0, 145, 3)) + list(range(150, 361, 6))
 PARAMS = ("10u", "10v", "10fg")
 

@@ -23,6 +23,7 @@ import quality
 import spot_cells
 import temp_map
 import tiler
+import omremote
 import world_tiles
 
 BUCKET = "https://openmeteo.s3.amazonaws.com/"
@@ -93,9 +94,14 @@ def main():
     for key in keys:
         valid = datetime.strptime(key.rsplit("/", 1)[-1][:-3], "%Y-%m-%dT%H%M").replace(tzinfo=timezone.utc)
         t = int(valid.timestamp())
-        handle = tempfile.NamedTemporaryFile(suffix=".om", delete=False)
-        handle.close()
-        for attempt in range(4):
+        handle = None
+        # At home only the variables used, read in part (omremote.py; the owner, 21.10.2026).
+        if omremote.PARTIAL:
+            reader = omremote.Prefetched(BUCKET + key, ["wind_speed_10m", "wind_direction_10m", "wind_gusts_10m", "temperature_2m", "precipitation", "cloud_cover", "relative_humidity_2m", "pressure_msl"])
+        else:
+            handle = tempfile.NamedTemporaryFile(suffix=".om", delete=False)
+            handle.close()
+        for attempt in range(4 if handle is not None else 0):
             try:
                 request = urllib.request.Request(BUCKET + key, headers={"User-Agent": "MeteoGust helper"})
                 with urllib.request.urlopen(request, timeout=600) as reply, open(handle.name, "wb") as file:
@@ -109,7 +115,8 @@ def main():
                 if attempt == 3:
                     raise
                 time.sleep(10 * (attempt + 1))
-        reader = omfiles.OmFileReader.from_path(handle.name)
+        if handle is not None:
+            reader = omfiles.OmFileReader.from_path(handle.name)
 
         def field(name):
             try:
@@ -120,7 +127,8 @@ def main():
         air, rain, cloud = field("temperature_2m"), field("precipitation"), field("cloud_cover")
         humidity, msl = field("relative_humidity_2m"), field("pressure_msl")
         reader.close()
-        os.unlink(handle.name)
+        if handle is not None:
+            os.unlink(handle.name)
         if speed is None or direction is None:
             print(f"  {valid:%d %H:%M}: no wind", flush=True)
             continue

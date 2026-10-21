@@ -43,6 +43,7 @@ LIVE_FILE = os.environ.get("MG_LIVE", "/root/.meteogust-live")
 IMAGE = os.environ.get("MG_IMAGE", "meteogust-helper")
 MAX_TOTAL, MAX_HEAVY = int(os.environ.get("MG_MAX", "4")), int(os.environ.get("MG_MAX_HEAVY", "2"))
 WRF_LOCK = "/root/wrf-logs/.lock"
+REGION = os.environ.get("MG_REGION", "eu")
 LOW_SHARES = int(os.environ.get("MG_LOW_SHARES", "128"))
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUCKET = "https://openmeteo.s3.amazonaws.com/data_spatial/"
@@ -162,7 +163,9 @@ class Running:
         folder = f"{WORK}/{job.name}"
         shutil.rmtree(folder, ignore_errors=True)
         os.makedirs(folder, exist_ok=True)
+        # MG_REGION: the European mirrors and partial reads (sources.py, omremote.py; 21.10.2026).
         command = ["docker", "run", "--rm", "--name", self.name, "--cpu-shares", str(shares), "-e", f"MG_JOB={job.name}",
+                   "-e", f"MG_REGION={REGION}",
                    "-v", f"{REPO}:/code", "-v", f"{folder}:/work", "-v", f"{STATS}:/stats"]
         if os.path.exists(ENV_FILE):
             command += ["--env-file", ENV_FILE]

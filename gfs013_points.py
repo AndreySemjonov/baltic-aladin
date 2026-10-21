@@ -20,6 +20,7 @@ import numpy as np
 
 import maplib
 import spot_cells
+import omremote
 import spot_points
 import world_tiles
 
@@ -51,6 +52,9 @@ def newest_run():
 
 
 def fetch(key):
+    # At home only the variables used, read in part (omremote.py; the owner, 21.10.2026: Oregon ~17 MB/s from home).
+    if omremote.PARTIAL:
+        return omremote.Prefetched(BUCKET + key, [theirs for _, theirs, _ in FIELDS])
     handle = tempfile.NamedTemporaryFile(suffix=".om", delete=False)
     handle.close()
     for attempt in range(4):
@@ -84,7 +88,7 @@ def main():
     started, previous, grid = time.time(), 0, None
     with ThreadPoolExecutor(max_workers=6) as pool:
         for step, path in zip(hours, pool.map(fetch, [files[h] for h in hours])):
-            reader = omfiles.OmFileReader.from_path(path)
+            reader = omremote.reader(path)
             fields = {}
             for ours, theirs, add in FIELDS:
                 try:
@@ -95,7 +99,7 @@ def main():
                 fields[ours] = values[0] if values.ndim == 3 else values
                 fields[ours] = fields[ours] + add
             reader.close()
-            os.unlink(path)
+            omremote.done(path)
             if grid is None and "10u" in fields:
                 print("  fields:", ", ".join(sorted(fields)), "shape", fields["10u"].shape, flush=True)
                 rows, cols = fields["10u"].shape

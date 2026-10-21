@@ -28,6 +28,7 @@ import quality
 import spot_cells
 import temp_map
 import tiler
+import omremote
 import world_tiles
 
 BUCKET = "https://openmeteo.s3.amazonaws.com/"
@@ -120,14 +121,23 @@ def main():
     for key in keys:
         valid = datetime.strptime(key.rsplit("/", 1)[-1][:-3], "%Y-%m-%dT%H%M").replace(tzinfo=timezone.utc)
         t = int(valid.timestamp())
-        handle = tempfile.NamedTemporaryFile(suffix=".om", delete=False)
-        handle.close()
-        data = world_tiles.fetch_bytes(BUCKET + key)
-        if data is None:
-            continue
-        with open(handle.name, "wb") as file:
-            file.write(data)
-        reader = omfiles.OmFileReader.from_path(handle.name)
+        # At home only the variables used, read in part (omremote.py; the owner, 21.10.2026).
+        if omremote.PARTIAL:
+            try:
+                reader = omremote.Prefetched(BUCKET + key, ["wind_u_component_10m", "wind_v_component_10m", "wind_speed_10m", "wind_direction_10m", "wind_gusts_10m", "temperature_2m", "precipitation", "cloud_cover", "relative_humidity_2m", "pressure_msl"])
+            except Exception as error:
+                print(f"  {valid:%d %H:%M}: not read ({error})", flush=True)
+                continue
+            handle = None
+        else:
+            handle = tempfile.NamedTemporaryFile(suffix=".om", delete=False)
+            handle.close()
+            data = world_tiles.fetch_bytes(BUCKET + key)
+            if data is None:
+                continue
+            with open(handle.name, "wb") as file:
+                file.write(data)
+            reader = omfiles.OmFileReader.from_path(handle.name)
 
         def field(variable):
             try:
@@ -143,7 +153,8 @@ def main():
         gust, air, rain, cloud = field("wind_gusts_10m"), field("temperature_2m"), field("precipitation"), field("cloud_cover")
         humidity, msl = field("relative_humidity_2m"), field("pressure_msl")
         reader.close()
-        os.unlink(handle.name)
+        if handle is not None:
+            os.unlink(handle.name)
         if east is None or north is None:
             print(f"  {valid:%d %H:%M}: no wind", flush=True)
             continue
