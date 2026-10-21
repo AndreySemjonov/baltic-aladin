@@ -176,7 +176,7 @@ function Top({ f, zone, setZone }) {
       ${f.wrf && f.wrf.running
         ? html`<span class="pill wrf">WRF ${f.wrf.region || ""} running · ${dur(now - (f.wrf.started || now))}</span>`
         : html`<span class="pill">WRF idle · next ${clock((f.wrf && f.wrf.next || [])[0])}</span>`}
-      <span class="pill">${busy} of ${f.slots || "?"} job slots${f.wrf && f.wrf.running ? " (halved for WRF)" : ""}</span>
+      <span class="pill">${busy} of ${f.slots || "?"} job slots${f.wrf && f.wrf.running ? " (1 big job during WRF)" : ""}</span>
       ${waitingMem ? html`<span class="pill warn">${waitingMem} waiting for memory</span>` : null}
       ${stale ? html`<span class="pill bad">scheduler quiet for ${dur(now - f.live_t)}</span>` : null}
       <span class="pill">heartbeat ${beatAge == null ? "not sent" : dur(beatAge) + " ago"}</span>

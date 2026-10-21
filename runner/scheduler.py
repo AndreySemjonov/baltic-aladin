@@ -2,7 +2,7 @@
 Mac mini from the end of the week; GitHub only for the code, tests and deploys). Every minute: each job in
 runner/jobs.py that's due (its source has a newer complete run, or its interval passed) starts in its own
 container (runner/Dockerfile; measured by runner/measure.py), at most MAX_TOTAL at once and MAX_HEAVY big
-ones (fewer while WRF runs on this machine), in the jobs' priority order (jobs.py; a priority 3 only while
+ones (one while WRF runs on this machine), in the jobs' priority order (jobs.py; a priority 3 only while
 a slot stays free), and only while the memory they'll need fits (each job's peak from its own last runs; the
 owner's Tower, 21.10.2026: the regional wind (8.4 GB) and the Mix (8.5 GB) side by side in 15.5 GB, one killed;
 the Mac mini has 16). A job a bigger one is waiting for memory doesn't jump ahead of it from a lower priority.
@@ -463,7 +463,9 @@ def main():
         # Due runs, as many as allowed (containers left from before a reload count too).
         others = [name for name in there if name not in running]
         heavy_now = sum(1 for r in running.values() if r.job.heavy) + sum(1 for j in JOBS if j.name in others and j.heavy)
-        total_max, heavy_max = (max(MAX_TOTAL // 2, 1), max(MAX_HEAVY // 2, 1)) if wrf else (MAX_TOTAL, MAX_HEAVY)
+        # While WRF runs: all the slots, one big job (the owner, 21.10.2026: halving the slots left 14 jobs waiting,
+        # spot points and rain now among them; the memory budget and the low CPU share keep WRF safe).
+        total_max, heavy_max = (MAX_TOTAL, max(MAX_HEAVY // 2, 1)) if wrf else (MAX_TOTAL, MAX_HEAVY)
         names, live, cache = env_names(), live_jobs(), {}
         by_name = {j.name: j for j in JOBS}
         budget = mem_budget() - (WRF_MB if wrf else 0)
