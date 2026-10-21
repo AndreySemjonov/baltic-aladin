@@ -63,6 +63,7 @@ LOW_SHARES = int(os.environ.get("MG_LOW_SHARES", "128"))
 # The jobs' memory: all but this much of the machine's (MB), unless MG_MEM_MB says.
 MEM_SPARE = 1800
 MEM_DEFAULT = {True: 6000, False: 1500}
+SMALL_MB = 1500
 # WRF's own memory while it runs here (the Tower's 1 km Tarifa run: 8.4 GB), not counted in the jobs' peaks.
 WRF_MB = int(os.environ.get("MG_WRF_MB", "9000"))
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -485,13 +486,15 @@ def main():
                 continue
             if any(n not in names for n in job.needs):
                 continue
-            if waiting is not None and job.priority > waiting:
-                waiting_why[job.name] = "a job of higher priority waits for memory"
-                continue
             wanted = due(job, state, cache, now)
             if wanted is None:
                 continue
             need = mem_need(job)
+            # A small job (SMALL_MB or less, mostly a few minutes) still goes when it fits: holding it back for a
+            # bigger job waiting for memory left the spots' jobs queued behind it during WRF (21.10.2026).
+            if waiting is not None and job.priority > waiting and (need > SMALL_MB or reserved + need > budget):
+                waiting_why[job.name] = "a job of higher priority waits for memory"
+                continue
             # Too big to fit beside WRF at all (the regional wind's 9.7 GB in 5 GB, 21.10.2026): waits for WRF to end,
             # never starts beside it, and holds nobody back meanwhile.
             if wrf and need > budget:
