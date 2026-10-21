@@ -56,6 +56,8 @@ LOW_SHARES = int(os.environ.get("MG_LOW_SHARES", "128"))
 # The jobs' memory: all but this much of the machine's (MB), unless MG_MEM_MB says.
 MEM_SPARE = 1800
 MEM_DEFAULT = {True: 6000, False: 1500}
+# WRF's own memory while it runs here (the Tower's 1 km Tarifa run: 8.4 GB), not counted in the jobs' peaks.
+WRF_MB = int(os.environ.get("MG_WRF_MB", "9000"))
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUCKET = "https://openmeteo.s3.amazonaws.com/data_spatial/"
 HEARTBEAT = "https://data.meteogust.com/tiles/upload/runner/heartbeat.json"
@@ -328,7 +330,7 @@ def main():
         total_max, heavy_max = (max(MAX_TOTAL // 2, 1), max(MAX_HEAVY // 2, 1)) if wrf else (MAX_TOTAL, MAX_HEAVY)
         names, live, cache = env_names(), live_jobs(), {}
         by_name = {j.name: j for j in JOBS}
-        budget = mem_budget()
+        budget = mem_budget() - (WRF_MB if wrf else 0)
         reserved = sum(mem_need(by_name[n]) for n in list(running) + others if n in by_name)
         waiting = None  # the priority of a due job left waiting for memory
         # The riders' first models first (the owner, 21.10.2026: the 00Z/12Z peaks); within a priority the
