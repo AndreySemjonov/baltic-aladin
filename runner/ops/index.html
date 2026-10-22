@@ -960,7 +960,7 @@ function laneData(maps, fr, f, now, s) {
           || towerRuns.find((t) => JOB_WATCH[t.job] === om && t.source === e.run)
           || towerRuns.filter((t) => JOB_WATCH[t.job] !== om && t.exit === 0 && t.start >= e.avail - 120 && t.start <= e.avail + 3 * 3600)
             .sort((a, b) => a.start - b.start)[0];
-        if (t) { matched.add(t); e.tower = { start: t.start, end: t.end, due: t.due, ok: t.exit === 0, live: t.live, job: t.job }; }
+        if (t) { matched.add(t); e.tower = { start: t.start, end: t.end, due: t.due, ok: t.exit === 0, live: t.live, job: t.job, cpu: t.cpu, peak: t.peak, net: t.net }; }
       }
       e.ghTime = !wrf && e.avail != null && e.pub ? e.pub - e.avail : null;
       e.towerTime = e.avail == null ? null : wrf ? (e.pub ? e.pub - e.avail : null) : e.tower && e.tower.ok ? e.tower.end - e.avail : null;
@@ -1255,7 +1255,8 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
     <line x1=${x(now)} x2=${x(now)} y1="20" y2=${H - 18} stroke="var(--warn)" stroke-width="2"/><text x=${x(now) + 5} y=${H - 6} style="fill:var(--warn)">now ${clock(now)}</text>
     ${tip ? html`<line x1=${x(tip.row[0] + 60)} x2=${x(tip.row[0] + 60)} y1="20" y2=${30 + BH - 10} stroke="var(--ink)" opacity=".45"/>` : null}
   </svg>${tip ? html`<${BandTip} band=${band} row=${tip.row} left=${tip.left} top=${tip.top} />` : null}
-    ${pop ? html`<${BarPop} d=${pop.d} now=${now} left=${pop.left} top=${pop.top} />` : null}</div>`;
+    ${pop ? html`<${BarPop} d=${{ ...pop.d, w: wrf, j: (pop.d.kind === "running" && (lanes.find((o) => o.name === pop.d.l.name) || {}).home) || pop.d.j }}
+      now=${now} left=${pop.left} top=${pop.top} />` : null}</div>`;
 }
 
 function RunBars({ l }) {
