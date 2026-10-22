@@ -206,6 +206,8 @@ _runs_seen, _arrived = {}, set()
 # When each due job first became due and couldn't start (the ops panel's Capacity: from due to started is the
 # wait, where the machine runs short); STATS/_runs.jsonl's "due".
 _due_since = {}
+# The live file's jobs kept in shadow for a missing variable, as last logged (logged again only when it changes).
+_held_said = set()
 # When the queue was last recorded (STATS/_queue.jsonl, once a minute: the panel's machine band; the owner, 22.10.2026:
 # "with the scheduler recording why jobs wait").
 _queue_at = [0.0]
@@ -584,6 +586,17 @@ def main():
         flex_left = 1  # starts beyond MAX_TOTAL this minute
         names, live, cache = env_names(), live_jobs(), {}
         by_name = {j.name: j for j in JOBS}
+        # A job in the live file whose variables are missing (jobs.py needs, live_needs) stays in shadow and off the
+        # heartbeat's live list, so GitHub keeps publishing it (22.10.2026: the blend without KNMI_API_KEY would have
+        # left HARM-NL out of the Auto map).
+        held = {n for n in live if n in by_name and any(v not in names for v in by_name[n].needs + by_name[n].live_needs)}
+        if held != _held_said:
+            for name in sorted(held - _held_said):
+                job = by_name[name]
+                log(f"{name}: in the live file but kept in shadow: needs " + ", ".join(v for v in job.needs + job.live_needs if v not in names))
+            _held_said.clear()
+            _held_said.update(held)
+        live -= held
         budget = mem_budget() - (WRF_MB if wrf else 0)
         # A running job counts its plan or what it uses now, whichever is bigger (a job without measured runs is
         # planned at a guess: mix-world at 1.5 GB used 4.0 during WRF, 21.10.2026).

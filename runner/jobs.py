@@ -8,7 +8,9 @@ the Tower first, then the Mac mini). Each job: its script and arguments, and whe
   files) or sources without a run record here.
 
 `heavy`: a big job (several GB of memory, long): at most a few at once. `needs`: environment variables it
-can't run without (skipped while missing). The same cadences as the GitHub workflows (21.10.2026).
+can't run without (skipped while missing). `live_needs`: variables it runs without but mustn't go live without
+(the blend leaves HARM-NL out without KNMI_API_KEY): while missing it runs in shadow only and stays off the
+heartbeat's live list, so GitHub keeps publishing it. The same cadences as the GitHub workflows (21.10.2026).
 
 `priority` (the owner, 21.10.2026: in the 00Z/12Z peaks the models riders look at first go first): 1 what a
 rider opens first (the spots' forecasts and their inputs, the Mix, the Baltic's fine models, the rain now),
@@ -27,11 +29,15 @@ class Job:
     delay: float = 0
     heavy: bool = False
     needs: list = field(default_factory=list)
+    live_needs: list = field(default_factory=list)
     timeout: int = 150
     priority: int = 2
 
 
 COPERNICUS = ["COPERNICUSMARINE_SERVICE_USERNAME", "COPERNICUSMARINE_SERVICE_PASSWORD"]
+# HARM-NL comes from KNMI's own API with a key (knmi.py; GitHub's secret). The Tower ran its jobs without it from
+# 21.10 to 22.10.2026, each "Nothing new" in a minute, and the blend left HARM-NL out (the owner, 22.10.2026).
+KNMI = ["KNMI_API_KEY"]
 # The models regional_tiles.py makes besides MET Nordic: its --only name and Open-Meteo's open-data model (when each
 # run is complete there).
 REGIONAL_MODELS = [("icon-d2", "dwd_icon_d2"), ("dini", "dmi_harmonie_arome_europe"), ("harm-nl", "knmi_harmonie_arome_netherlands"),
@@ -56,12 +62,14 @@ JOBS = [
     # hour it comes (the owner, 21.10.2026: one job watching MET Nordic only left ICON-D2's 12Z waiting 58 min; "B":
     # ICON-D2's own set alone is ~1-3 GB, not the 9.5-11 GB whole). Each makes only what's new, in shadow mode too
     # (regional_tiles.py keeps the shadow's own record in /stats/shadow).
-    Job("regional-wind", ["regional_tiles.py", "--set", "wind", "--blend"], watch=[("metno_nordic_pp", 1)], heavy=True, priority=1),
-    Job("regional-weather", ["regional_tiles.py", "--set", "weather", "--blend"], watch=[("metno_nordic_pp", 1)], heavy=True),
-    *[Job(f"regional-{name}", ["regional_tiles.py", "--set", "wind", "--only", name], watch=[(model, 1)], priority=1)
-      for name, model in REGIONAL_MODELS],
-    *[Job(f"regional-{name}-wx", ["regional_tiles.py", "--set", "weather", "--only", name], watch=[(model, 1)])
-      for name, model in REGIONAL_MODELS],
+    Job("regional-wind", ["regional_tiles.py", "--set", "wind", "--blend"], watch=[("metno_nordic_pp", 1)], heavy=True, priority=1,
+        live_needs=KNMI),
+    Job("regional-weather", ["regional_tiles.py", "--set", "weather", "--blend"], watch=[("metno_nordic_pp", 1)], heavy=True,
+        live_needs=KNMI),
+    *[Job(f"regional-{name}", ["regional_tiles.py", "--set", "wind", "--only", name], watch=[(model, 1)], priority=1,
+          needs=KNMI if name == "harm-nl" else []) for name, model in REGIONAL_MODELS],
+    *[Job(f"regional-{name}-wx", ["regional_tiles.py", "--set", "weather", "--only", name], watch=[(model, 1)],
+          needs=KNMI if name == "harm-nl" else []) for name, model in REGIONAL_MODELS],
     Job("harm-fi", ["harmfi_tiles.py"], every=180),
     Job("aladin", ["aladin_tiles.py"], every=360),
     Job("nordic-1km", ["metnordic_tiles.py"], watch=[("metno_nordic_pp", 1)], priority=1),
