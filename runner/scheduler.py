@@ -234,6 +234,8 @@ def why_kind(why):
         return "wrf"
     if why.startswith("waits for planned memory"):
         return "planned"
+    if why.startswith("big jobs:"):
+        return "heavy"
     if why.startswith("waits for memory"):
         return "memory"
     if why.startswith("a job of higher priority"):
@@ -300,7 +302,8 @@ def expected(job, state, cache, now, lags):
                 best = (at, why)
         return best or (None, "its source's run isn't known yet")
     if job.every and job.inputs:
-        return mine.get("started", now) + job.every * 60, f"on a new input ({len(job.inputs)} sets), else every {job.every} min"
+        what = f"{len(job.inputs)} sets" if not job.inputs[0].startswith("http") else "its source's new run"
+        return mine.get("started", now) + job.every * 60, f"on a new input ({what}), else every {job.every} min"
     if job.every:
         return mine.get("started", now) + job.every * 60, f"every {job.every} min"
     return None, ""
@@ -428,17 +431,24 @@ _inputs_seen = {}
 
 
 def input_stamp(set_name):
-    """A map set's last publish ("updated", else its run) from its index (through Cloudflare's 2-minute cache), asked
-    at most every 2 minutes; None when unknown."""
+    """A map set's last publish ("updated", else its run) from its index (through Cloudflare's 2-minute cache), or for a
+    URL a fingerprint of its answer (MEPS's description: its creation time); asked at most every 2 minutes; None when
+    unknown."""
     seen = _inputs_seen.get(set_name)
     if seen and time.time() - seen[0] < 120:
         return seen[1]
     stamp = None
     try:
-        request = urllib.request.Request(f"{FILES}tiles/{set_name}/index.json", headers=AGENT)
+        url = set_name if set_name.startswith("http") else f"{FILES}tiles/{set_name}/index.json"
+        request = urllib.request.Request(url, headers=AGENT)
         with urllib.request.urlopen(request, timeout=20) as reply:
-            index = json.load(reply)
-        stamp = index.get("updated") or index.get("runName") or index.get("run")
+            body = reply.read(1 << 20)
+        if set_name.startswith("http"):
+            import hashlib
+            stamp = hashlib.sha1(body).hexdigest()[:16]
+        else:
+            index = json.loads(body)
+            stamp = index.get("updated") or index.get("runName") or index.get("run")
     except Exception:
         stamp = seen[1] if seen else None
     _inputs_seen[set_name] = (time.time(), stamp)
@@ -705,12 +715,14 @@ def main():
             # A slot kept for a 1 or 2 that comes in next minute.
             if prio(job) >= 3 and busy >= total_max - 1:
                 continue
-            if job.heavy and heavy_now >= heavy_max:
-                continue
             if any(n not in names for n in job.needs):
                 continue
             wanted = due(job, state, cache, now)
             if wanted is None:
+                continue
+            # Big jobs at their limit (it showed as "starting" for minutes, 22.10.2026).
+            if job.heavy and heavy_now >= heavy_max:
+                waiting_why[job.name] = f"big jobs: {heavy_now} of {heavy_max} running"
                 continue
             need = mem_need(job)
             # Short of real memory (B): only that holds the jobs behind and drains the machine (C); a plan over its cap

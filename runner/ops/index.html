@@ -1033,7 +1033,7 @@ function laneData(maps, fr, f, now, s) {
 
 // The machine band's reasons (the scheduler's queue record, runner/scheduler.py why_kind).
 const WHY = { slots: "all slots busy", priority3: "priority 3 (a slot kept free)", memory: "memory", behind: "behind one waiting for memory",
-  drain: "held for one waiting long", wrf: "too big beside WRF", planned: "the jobs' plans over their cap", starting: "starting",
+  drain: "held for one waiting long", wrf: "too big beside WRF", planned: "the jobs' plans over their cap", heavy: "big jobs at their limit", starting: "starting",
   "?": "not recorded" };
 const BAND_H = 196;
 

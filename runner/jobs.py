@@ -6,9 +6,10 @@ the Tower first, then the Mac mini). Each job: its script and arguments, and whe
   (a source we don't read from that bucket, e.g. ECMWF's own wave files 2 hours later);
 - `every`: minutes between runs, for jobs built from our own published sets (the mixes, the places'
   files) or sources without a run record here.
-- `inputs`: our map sets a job is made from (tiles/<set>/index.json): due as soon as one of them has published since
-  the job last started, `min_gap` minutes after that start at the earliest; `every` stays the latest (the owner,
-  22.10.2026, "D": the mixes waited for their hour while a new model run sat there).
+- `inputs`: our map sets a job is made from (tiles/<set>/index.json), or a source's URL whose answer changes with each
+  new run (MEPS's description, its creation time): due as soon as one of them has changed since the job last started,
+  `min_gap` minutes after that start at the earliest; `every` stays the latest (the owner, 22.10.2026, "D": the mixes
+  waited for their hour while a new model run sat there; chance of rain on each new MEPS run).
 
 `heavy`: a big job (several GB of memory, long): at most a few at once. `needs`: environment variables it
 can't run without (skipped while missing). `live_needs`: variables it runs without but mustn't go live without
@@ -49,6 +50,9 @@ MIX_INPUTS = ["wrf-tarifa", "metnordic-1km", "dini", "harm-fi", "arome", "icon-d
 WEATHER_EUROPE_INPUTS = ["metnordic-1km-wx", "dini-wx", "arome-wx", "icon-d2-wx", "icon-ch1-wx", "harm-nl-wx", "icon-2i-wx",
                          "ukmo", "icon-ch2", "arome25", "knmi-eu", "icon-eu-wx"]
 WEATHER_WORLD_INPUTS = ["icon-eu-wx", "ecmwf", "gfs", "icon", "gdps"]
+# MEPS's newest run at MET Norway (rain_chance.py SOURCE): its description's "history" has the file's creation time,
+# new each hourly run.
+MEPS_LATEST = "https://thredds.met.no/thredds/dodsC/mepslatest/meps_lagged_6_h_latest_2_5km_latest.nc.das"
 # The models regional_tiles.py makes besides MET Nordic: its --only name and Open-Meteo's open-data model (when each
 # run is complete there).
 REGIONAL_MODELS = [("icon-d2", "dwd_icon_d2"), ("dini", "dmi_harmonie_arome_europe"), ("harm-nl", "knmi_harmonie_arome_netherlands"),
@@ -103,7 +107,9 @@ JOBS = [
     Job("icon-eu-short", ["iconeu_short_points.py"], watch=[("dwd_icon_eu", 3)], priority=1),
     Job("ens", ["ens_points.py"], watch=[("ecmwf_ifs", 12)], delay=1.5, heavy=True, priority=3),
     # Rain, air, seas.
-    Job("chance", ["chance_tiles.py"], every=180),
+    # On each new MEPS run (hourly; the owner, 22.10.2026: "make chance of rain hourly at home, on each new MEPS
+    # run"; ICON-EU-EPS under it every 6 h comes with them), every 3 h at the latest.
+    Job("chance", ["chance_tiles.py"], every=180, inputs=[MEPS_LATEST], min_gap=30),
     Job("rain-now", ["rain_now.py"], every=60, priority=1),
     Job("air", ["air_points.py"], every=180, priority=3),
     Job("sea", ["water_composite.py"], every=720, heavy=True, needs=COPERNICUS, priority=3),
