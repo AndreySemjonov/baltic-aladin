@@ -57,6 +57,15 @@ ENV_FILE = os.environ.get("MG_ENV", "/root/.meteogust.env")
 LIVE_FILE = os.environ.get("MG_LIVE", "/root/.meteogust-live")
 IMAGE = os.environ.get("MG_IMAGE", "meteogust-helper")
 MAX_TOTAL, MAX_HEAVY = int(os.environ.get("MG_MAX", "4")), int(os.environ.get("MG_MAX_HEAVY", "2"))
+# Outside WRF the slots follow the machine (the owner, 22.10.2026, from the Pipeline's machine band: with WRF off jobs
+# waited 314 of 342 minutes while CPU was under 50% and over 6 GB free): beyond MAX_TOTAL, up to MAX_FLEX at once
+# while the machine's CPU over the last minute is under FLEX_CPU %, one more a minute (a new job's load shows the
+# minute after); the memory budget still decides. While WRF runs: MAX_TOTAL as before.
+MAX_FLEX = int(os.environ.get("MG_MAX_FLEX", "8"))
+FLEX_CPU = float(os.environ.get("MG_FLEX_CPU", "75"))
+# A priority-3 job due this long counts as a 2 (the same day: the world weather mix had never run, the waves and the
+# ensembles not in a day).
+AGE_AFTER = 60 * 60
 WRF_LOCK = "/root/wrf-logs/.lock"
 REGION = os.environ.get("MG_REGION", "eu")
 LOW_SHARES = int(os.environ.get("MG_LOW_SHARES", "128"))
@@ -103,6 +112,23 @@ def save(path, value):
 def append(path, record):
     with open(path, "a") as f:
         f.write(json.dumps(record) + "\n")
+
+
+_cpu_last = [None]
+
+
+def cpu_busy():
+    """The machine's CPU busy share (%) since the last call (the loop's minute), from /proc/stat; None the first time."""
+    try:
+        with open("/proc/stat") as f:
+            values = [int(v) for v in f.readline().split()[1:9]]
+    except (OSError, ValueError):
+        return None
+    idle, total = values[3] + values[4], sum(values)
+    last, _cpu_last[0] = _cpu_last[0], (idle, total)
+    if not last or total <= last[1]:
+        return None
+    return 100.0 * (1 - (idle - last[0]) / (total - last[1]))
 
 
 def trim(path, keep):
@@ -552,7 +578,10 @@ def main():
         heavy_now = sum(1 for r in running.values() if r.job.heavy) + sum(1 for j in JOBS if j.name in others and j.heavy)
         # While WRF runs: all the slots, one big job (the owner, 21.10.2026: halving the slots left 14 jobs waiting,
         # spot points and rain now among them; the memory budget and the low CPU share keep WRF safe).
-        total_max, heavy_max = (MAX_TOTAL, max(MAX_HEAVY // 2, 1)) if wrf else (MAX_TOTAL, MAX_HEAVY)
+        cpu_now = cpu_busy()
+        flex = not wrf and cpu_now is not None and cpu_now < FLEX_CPU
+        total_max, heavy_max = (MAX_TOTAL, max(MAX_HEAVY // 2, 1)) if wrf else (MAX_FLEX if flex else MAX_TOTAL, MAX_HEAVY)
+        flex_left = 1  # starts beyond MAX_TOTAL this minute
         names, live, cache = env_names(), live_jobs(), {}
         by_name = {j.name: j for j in JOBS}
         budget = mem_budget() - (WRF_MB if wrf else 0)
@@ -564,14 +593,20 @@ def main():
         waiting = None  # the priority of a due job left waiting for memory
         waiting_why = {}
         drain = None  # the job the machine is being drained for
+        def prio(job):
+            """Its priority, a 3 due over AGE_AFTER counting as a 2."""
+            return 2 if job.priority >= 3 and now - _due_since.get(job.name, now) > AGE_AFTER else job.priority
+
         # The riders' first models first (the owner, 21.10.2026: the 00Z/12Z peaks); within a priority the
         # order of jobs.py.
-        for job in sorted(JOBS, key=lambda j: j.priority):
+        for job in sorted(JOBS, key=prio):
             busy = len(running) + len(others)
             if job.name in running or job.name in others or busy >= total_max:
                 continue
+            if busy >= MAX_TOTAL and flex_left <= 0:
+                continue
             # A slot kept for a 1 or 2 that comes in next minute.
-            if job.priority >= 3 and busy >= total_max - 1:
+            if prio(job) >= 3 and busy >= total_max - 1:
                 continue
             if job.heavy and heavy_now >= heavy_max:
                 continue
@@ -582,11 +617,12 @@ def main():
                 continue
             need = mem_need(job)
             # A small job (SMALL_MB or less, mostly a few minutes) still goes when it fits: holding it back for a
-            # bigger job waiting for memory left the spots' jobs queued behind it during WRF (21.10.2026).
-            if drain:
+            # bigger job waiting for memory left the spots' jobs queued behind it during WRF (21.10.2026); the drain
+            # too holds only the big ones (22.10.2026: it held nine jobs behind the rain nowcast).
+            if drain and need > SMALL_MB:
                 waiting_why[job.name] = f"held: making room for {drain} (waiting over {DRAIN_AFTER // 60} min)"
                 continue
-            if waiting is not None and job.priority > waiting and (need > SMALL_MB or reserved + need > budget):
+            if waiting is not None and prio(job) > waiting and (need > SMALL_MB or reserved + need > budget):
                 waiting_why[job.name] = "a job of higher priority waits for memory"
                 continue
             # Too big to fit beside WRF at all (the regional wind's 9.7 GB in 5 GB, 21.10.2026): waits for WRF to end,
@@ -598,12 +634,14 @@ def main():
                 waiting_why[job.name] = f"waits for memory: needs {need / 1000:.1f} GB, {max(budget - reserved, 0) / 1000:.1f} free"
                 if waiting is None:
                     log(f"{job.name}: due, waiting for memory ({need} MB; {reserved} of {budget} taken)")
-                waiting = job.priority if waiting is None else min(waiting, job.priority)
+                waiting = prio(job) if waiting is None else min(waiting, prio(job))
                 if now - _due_since.get(job.name, now) > DRAIN_AFTER and drain is None:
                     drain = job.name
                     waiting_why[job.name] += f"; nothing new starts until it fits"
                 continue
             reserved += need
+            if busy >= MAX_TOTAL:
+                flex_left -= 1
             is_live = job.name in live
             running[job.name] = Running(job, is_live, wanted if job.watch else None, _due_since.pop(job.name, now),
                                         LOW_SHARES if wrf else 1024)
