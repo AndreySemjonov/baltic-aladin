@@ -1010,8 +1010,12 @@ function laneData(maps, fr, f, now, s) {
     const cad = wrf ? 12 * 3600 : runTimes.length > 1 ? med(runTimes.slice(1).map((r, i) => r - runTimes[i])) : null;
     const lastAvail = runTimes.length ? avails[runTimes[runTimes.length - 1]] : null;
     const last = runs[runs.length - 1];
+    // Without a source's rhythm (a job on a clock: chance of rain, the seas): the Tower's own planned start, the
+    // scheduler's "next" (the owner, 22.10.2026: chance of rain looked unscheduled; a guess from its last run fell in
+    // the past and drew nothing).
+    const towerNext = ((f && f.next) || []).filter((n) => jobs.includes(n.job) && n.at).map((n) => n.at).sort((a, b) => a - b)[0] || null;
     const next = wrf ? ((f && f.wrf && f.wrf.next) || [])[0] || null
-      : cad && lastAvail ? lastAvail + cad : last ? last.run + (m.interval + m.delay) * 3600 : null;
+      : cad && lastAvail ? lastAvail + cad : towerNext || (last ? last.run + (m.interval + m.delay) * 3600 : null);
     const fresh = freshBySet[set];
     let status = "ok";
     if (fresh) status = fresh.status;
