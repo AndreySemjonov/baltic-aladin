@@ -165,6 +165,7 @@ class GithubRuns:
         self.lock = threading.Lock()
         self.runs = {}        # id -> [workflow, title, start, end or None, status, conclusion]
         self.page = set()     # the ids in the newest fetch (an old "in progress" off it is stale)
+        self.asked = {}       # id -> when a stale one was last asked for by itself
         self.at = 0
         self.backfilled = False
         self.retry_at = 0
@@ -205,10 +206,14 @@ class GithubRuns:
             except Exception:
                 pass
             # A run that fell off the newest page while in progress never got its end (the weather mix's 21:48 run
-            # read "going" for 7 h in the Pipeline, 22.10.2026): asked for by itself, a few each refresh.
+            # read "going" for 7 h in the Pipeline, 22.10.2026): asked for by itself, each at most every 30 minutes and
+            # 3 a refresh (the public API's 60 calls an hour, shared with the newest page and the workflows' records).
             if self.page:
-                stale = [k for k, v in self.runs.items() if v[4] in ("in_progress", "queued") and k not in self.page]
-                for k in stale[:8]:
+                now = time.time()
+                stale = [k for k, v in self.runs.items() if v[4] in ("in_progress", "queued") and k not in self.page
+                         and now - self.asked.get(k, 0) > 1800]
+                for k in stale[:3]:
+                    self.asked[k] = now
                     try:
                         self.take([fetch(f"{GITHUB_RUNS}/{k}")])
                     except Exception:
