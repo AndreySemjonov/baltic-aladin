@@ -977,7 +977,8 @@ function laneData(maps, fr, f, now, s) {
     // A mix: each run's "available" from its inputs' publishes (the first since its previous run started; none: a run
     // with nothing new, e.g. its far hours remade), for GitHub's runs and the Tower's.
     const inputs = MIX_INPUTS[set];
-    let towerLoose = towerRuns;
+    let towerLoose = towerRuns, homeAvail = null;
+    const running = homeBySet[set];
     if (inputs) {
       const pubs = inputs.flatMap((name) => (byMap["tiles:" + name] || []).filter((r) => r.published).map((r) => [r.published, labels[name] || name]))
         .sort((a, b) => a[0] - b[0]);
@@ -995,6 +996,14 @@ function laneData(maps, fr, f, now, s) {
         prevT = t.start;
         return p ? { ...t, avail: p[0], availFrom: p[1] } : t;
       });
+      // The job running at home now: the same, from its last run's start (the owner, 22.10.2026: "have to have same
+      // for Tower ... later we will remove GitHub").
+      const p = running && running.started && prevT != null ? firstNew(prevT, running.started) : null;
+      if (p) homeAvail = { avail: p[0], availFrom: p[1] };
+    } else if (running && running.started && !wrf) {
+      // Else the newest run available by its start that the Tower hasn't made yet (within 6 h).
+      const cur = [...entries].reverse().find((o) => o.avail != null && o.avail <= running.started + 120);
+      if (cur && !cur.tower && running.started - cur.avail < 6 * 3600) homeAvail = { avail: cur.avail, run: cur.run };
     }
     const recent = entries.filter((e) => (e.avail || e.pub || e.run) >= day);
     const runTimes = Object.keys(avails).map(Number).sort((a, b) => a - b);
@@ -1010,7 +1019,7 @@ function laneData(maps, fr, f, now, s) {
     // Without an "available" moment (our own products, sources Open-Meteo doesn't have): the jobs' own minutes.
     const procOnly = !wrf && !runTimes.length && !inputs;
     return { ...m, set, om, wf, wrf, group: groupOf(set), entries, jobs, towerRuns, fresh, status, cad, next, procOnly,
-      loose: inputs ? towerLoose : procOnly ? towerRuns : [], home: homeBySet[set], isLive: wrf || jobs.some((j) => live.has(j)),
+      loose: inputs ? towerLoose : procOnly ? towerRuns : [], home: running, homeAvail, isLive: wrf || jobs.some((j) => live.has(j)),
       towerT: inputs ? med(towerLoose.filter((t) => t.avail && t.exit === 0 && t.end >= day).map((t) => t.end - t.avail))
         : procOnly ? med(towerRuns.filter((t) => t.exit === 0 && t.end >= day).map((t) => t.end - t.start)) : med(recent.map((e) => e.towerTime).filter((v) => v != null)),
       ghT: procOnly ? med(recent.filter((e) => e.gh && e.pub).map((e) => e.pub - e.gh.start)) : med(recent.map((e) => e.ghTime).filter((v) => v != null)),
@@ -1235,7 +1244,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
     }
     for (const r of l.loose) if (r.end >= t0 && r.start <= t1) tb.push({ key: r, from: r.avail || (r.due && r.start - r.due > 60 ? r.due : r.start), to: r.end });
     if (l.home && l.home.started) { const je = jobEnd(l.home, now);
-      tb.push({ key: "home", from: l.home.started, to: je ? labelEnd(je.late ? now : je.end, runningLabel({ ...je, start: l.home.started })) : now }); }
+      tb.push({ key: "home", from: l.homeAvail ? Math.min(l.homeAvail.avail, l.home.started) : l.home.started, to: je ? labelEnd(je.late ? now : je.end, runningLabel({ ...je, start: l.home.started })) : now }); }
     const pack = (list) => {
       const ends = [], at = new Map();
       list.sort((p, q) => Math.max(p.from, t0) - Math.max(q.from, t0) || p.to - q.to);
@@ -1247,7 +1256,30 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
       return [Math.max(1, ends.length), at];
     };
     const [kg, gAt] = pack(gb), [kt, tAt] = pack(tb);
-    return { kg, kt, g: (key) => PITCH * (gAt.get(key) || 0), t: (key) => PITCH * (kg - 1 + (tAt.get(key) || 0)), h: lh + PITCH * (kg + kt - 2) };
+    return { kg, kt, g: (key) => PITCH * (gAt.get(key) || 0), t: (key) => PITCH * (kg - 1 + (tAt.get(key) || 0)), h: lh + PITCH * (kg + kt - 2),
+      hasG: (key) => gAt.has(key), hasT: (key) => tAt.has(key) };
+  };
+  // Each run's "available" joined to its bars in a lane with sub-rows (the owner, 22.10.2026, red lines on a
+  // screenshot: "where indicated every task when it was available and to what it's related"), drawn over the bars it
+  // passes; the Tower's own triangles where its "available" is its own (a mix's home runs, the job running now).
+  const tri = (a, y, tip) => html`<path d=${`M${x(a) - 4} ${y + 1} L${x(a) + 4} ${y + 1} L${x(a)} ${y + 6} Z`} fill="var(--muted)"><title>${tip}</title></path>`;
+  const links = (l, y, lay) => {
+    const out = [], grown = lay.kg + lay.kt > 2;
+    const link = (a, top) => { if (grown && a >= t0 && a <= t1 && top > y + 10) out.push(html`<line x1=${x(a)} x2=${x(a)} y1=${y + 6} y2=${top + 3} stroke="var(--ink)" stroke-width="1" opacity=".55" pointer-events="none"/>`); };
+    for (const e of l.entries) if (e.avail != null && !e.skipped) {
+      if (lay.hasG(e)) link(e.avail, y + lay.g(e) + 8);
+      if (lay.hasT(e)) link(e.avail, y + lay.t(e) + 17);
+    }
+    for (const r of l.loose) if (r.avail && r.avail >= t0 && lay.hasT(r)) {
+      out.push(tri(r.avail, y, `${l.label} · at home: available ${clock(r.avail)} (a new input: ${r.availFrom} published)`));
+      link(r.avail, y + lay.t(r) + 17);
+    }
+    const h = l.homeAvail;
+    if (h && h.avail >= t0 && lay.hasT("home")) {
+      out.push(tri(h.avail, y, `${l.label} · running at home: available ${clock(h.avail)}${h.availFrom ? ` (a new input: ${h.availFrom} published)` : h.run ? ` (its ${runZ(h.run)} run)` : ""}`));
+      link(h.avail, y + lay.t("home") + 17);
+    }
+    return out;
   };
   const rows = [];
   let y = 30 + BH;
@@ -1326,10 +1358,12 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
         ${from ? html`<rect x=${x(from)} y=${yt + 17} width=${w(from, r.start, 1)} height="6" rx="1" fill="var(--wait)"/>` : null}
         <rect x=${x(r.start)} y=${yt + 17} width=${w(r.start, r.end)} height="6" rx="1" fill=${r.exit === 0 ? "var(--home)" : "var(--bad)"} opacity=${r.live ? 1 : 0.55}/></g>`; })}
       ${l.home && l.home.started ? (() => { const je = jobEnd(l.home, now);
-        const yt = y + lay.t("home"), cur = [...l.entries].reverse().find((o) => o.avail != null && o.avail <= l.home.started + 120);
-        return html`<g ...${hov({ kind: "running", l, j: l.home, e: cur })}><rect x=${x(l.home.started)} y=${yt + 17} width=${w(l.home.started, now, 3)} height="6" rx="1" fill="var(--home)" opacity=${l.home.live ? 1 : 0.55}/>
+        const yt = y + lay.t("home"), ha = l.homeAvail, cur = [...l.entries].reverse().find((o) => o.avail != null && o.avail <= l.home.started + 120);
+        return html`<g ...${hov({ kind: "running", l, j: l.home, e: ha ? { ...(cur || {}), ...(ha.run ? l.entries.find((o) => o.run === ha.run) : {}), avail: ha.avail, availFrom: ha.availFrom } : cur })}>
+          ${ha && l.home.started > ha.avail ? html`<rect x=${x(ha.avail)} y=${yt + 17} width=${w(ha.avail, l.home.started, 1)} height="6" rx="1" fill="var(--wait)"/>` : null}<rect x=${x(l.home.started)} y=${yt + 17} width=${w(l.home.started, now, 3)} height="6" rx="1" fill="var(--home)" opacity=${l.home.live ? 1 : 0.55}/>
           ${je ? (je.late ? expect(yt, now, "var(--home)", `${Math.round((now - l.home.started) / 60)} min · over its usual ${Math.round(je.typ / 60)}`, true)
             : expect(yt, je.end, "var(--home)", `${Math.round(je.pct * 100)}% · ~${clock(je.end)}`, false)) : null}</g>`; })() : null}
+      ${links(l, y, lay)}
       ${(() => { const out = []; if (l.next) for (let t = l.next; t < t1 && out.length < 30; t += l.cad || 1e9) if (t > now) out.push(html`<path d=${`M${x(t)} ${y + 6} l5 9 -5 9 -5 -9 Z`} fill="none" stroke="var(--faint)"><title>${l.label}: next run expected about ${clock(t)}</title></path>`); return out; })()}
       <text class="ours" x=${X1 + 22} y=${y + 19} style=${"fill:var(--home)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.towerT)}</text>
       <text class="ours" x=${X1 + 86} y=${y + 19} style=${"fill:var(--muted)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.ghT)}</text>
@@ -1441,7 +1475,7 @@ function Pipeline({ maps, fr, f, now, s, cap }) {
         ${chips.map(([k, label]) => html`<span class=${"chip" + (filter === k ? " on" : "")} onClick=${() => setFilter(k)}>${label}</span>`)}</div>
       <${Lanes} lanes=${lanes} now=${now} sel=${sel} setSel=${choose} back=${back} ahead=${ahead} band=${band} slots=${f && f.slots} wrf=${f && f.wrf} />
       <div class="legend"><span style="--c:var(--wrf)">CPU: WRF</span><span style="--c:var(--home)">CPU: jobs · jobs running</span><span style="--c:var(--wait)">jobs waiting · waiting to start</span><span style="--c:var(--accent)">memory used (dashed: the jobs' budget)</span><span style="--c:var(--room)">waiting with room (CPU &lt; 50%, &gt; 6 GB free)</span></div>
-      <div class="legend"><span class="t">▼ run available to us (Open-Meteo's record; a mix: a new input published)</span><span style="--c:var(--gh)">GitHub (upper bar)</span><span style="--c:var(--home)">Tower (lower bar; faint: shadow, not published)</span>
+      <div class="legend"><span class="t">▼ run available to us (Open-Meteo's record; a mix: a new input published; a line down: its bars in a lane with more rows)</span><span style="--c:var(--gh)">GitHub (upper bar)</span><span style="--c:var(--home)">Tower (lower bar; faint: shadow, not published)</span>
         <span style="--c:var(--wait)">waiting to start</span><span style="--c:var(--ok)">published</span><span class="t" style="color:var(--bad)">× a source run nobody took</span><span class="t">◇ next run expected</span><span class="t">right: our time, median of 24 h (italic: the job's own time, no "available" moment)</span></div>
       <p class="note" style="margin:8px 0 0">Each bar starts when the run was complete on Open-Meteo's open data, where our jobs read it, and ends when riders could see it. The maker's own time before that is left out. Sooner is better. "Available" is recorded for every model from 21.10.2026 evening; older runs start at GitHub's job.</p>`}
     </section>
