@@ -164,3 +164,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # Out without the libraries' clean-up, as bucket_tiles.py: omfiles crashed Python's exit after the work was done
+    # ("double free or corruption", every home run from 21.10.2026: the job marked failed; the owner, 22.10.2026).
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
