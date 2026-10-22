@@ -105,6 +105,19 @@ def append(path, record):
         f.write(json.dumps(record) + "\n")
 
 
+def trim(path, keep):
+    """A record file cut to its last `keep` lines (the minute records grew without end)."""
+    try:
+        with open(path) as f:
+            lines = f.readlines()
+        if len(lines) > keep * 1.2:
+            with open(path + ".tmp", "w") as f:
+                f.writelines(lines[-keep:])
+            os.replace(path + ".tmp", path)
+    except OSError:
+        pass
+
+
 def env_names():
     """The variables set in ENV_FILE (names only)."""
     names = set()
@@ -167,6 +180,27 @@ _runs_seen, _arrived = {}, set()
 # When each due job first became due and couldn't start (the ops panel's Capacity: from due to started is the
 # wait, where the machine runs short); STATS/_runs.jsonl's "due".
 _due_since = {}
+# When the queue was last recorded (STATS/_queue.jsonl, once a minute: the panel's machine band; the owner, 22.10.2026:
+# "with the scheduler recording why jobs wait").
+_queue_at = [0.0]
+
+
+def why_kind(why):
+    """A waiting job's reason as a word for the record: slots, priority3, memory, behind (a higher priority waits for
+    memory), drain (held for one waiting long), wrf (too big beside WRF), starting."""
+    if why.startswith("held:"):
+        return "drain"
+    if why.startswith("waits for WRF"):
+        return "wrf"
+    if why.startswith("waits for memory"):
+        return "memory"
+    if why.startswith("a job of higher priority"):
+        return "behind"
+    if why.startswith("priority 3"):
+        return "priority3"
+    if why.startswith("all ") and "slots busy" in why:
+        return "slots"
+    return "starting"
 
 
 def newest_run(model, cache):
@@ -451,6 +485,11 @@ def write_live(state, running, others, live, names, cache, now, wrf, budget, res
             at, why = expected(job, state, cache, now, lags)
             out_next.append({"job": job.name, "priority": job.priority, "at": round(at) if at else None, "why": why})
     out_next.sort(key=lambda n: (n["at"] is None, n["at"] or 0))
+    if now - _queue_at[0] >= 60:
+        _queue_at[0] = now
+        append(f"{STATS}/_queue.jsonl", {"t": round(now), "run": len(running) + len(others), "slots": total_max, "wrf": bool(wrf),
+                                         "bud": budget, "res": reserved,
+                                         "wait": [[w["job"], why_kind(w["why"]), w["priority"]] for w in out_waiting]})
     save(LIVE, {"t": round(now), "host": os.uname().nodename, "wrf": wrf, "budget": budget, "reserved": reserved,
                 "slots": total_max, "live": sorted(live), "beat": round(last_beat) or None,
                 "running": out_running, "waiting": sorted(out_waiting, key=lambda w: w["priority"]), "next": out_next,
@@ -482,6 +521,9 @@ def main():
                 path = f"{LOGS}/{name}"
                 if name != "runner.log" and now - os.path.getmtime(path) > 7 * 86400:
                     os.remove(path)
+            # The minute records about 8 days (the panel reads a day: its machine band, Capacity).
+            for name in ("_samples.jsonl", "_queue.jsonl"):
+                trim(f"{STATS}/{name}", 12000)
         # Finished runs.
         for name, run in list(running.items()):
             code = run.finished()

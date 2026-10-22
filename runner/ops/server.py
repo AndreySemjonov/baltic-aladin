@@ -614,6 +614,92 @@ def capacity():
     return _capacity["data"]
 
 
+_band = {"at": 0, "hours": 0, "data": {}}
+
+
+def band(hours=12):
+    """The machine band over the Pipeline (the owner, 22.10.2026: "on top we could add a total PC usage graph", to see
+    waiting that the machine doesn't cause): every 2 minutes of the last `hours`, [time, CPU of the jobs %, CPU of WRF %
+    (of the threads), memory used GB, jobs running, jobs waiting, WRF on 1/0, {why: count}, [waiting jobs' indexes in
+    `names`], the jobs' memory budget GB]. Why from STATS/_queue.jsonl (the scheduler, from 22.10.2026); before it, the
+    waits from the runs' due and start, why unknown ("?"). Kept a minute."""
+    now = time.time()
+    if now - _band["at"] < 60 and _band["hours"] == hours:
+        return _band["data"]
+    since = now - hours * 3600
+    threads = os.cpu_count() or 20
+    try:
+        with open("/proc/meminfo") as f:
+            total = int(f.read().split("MemTotal:")[1].split()[0]) / 1024 / 1024
+    except (OSError, IndexError, ValueError):
+        total = 0.0
+    samples = [x for x in jsonl(f"{STATS}/_samples.jsonl", hours * 60 + 120) if x.get("t", 0) >= since]
+    queue = [q for q in jsonl(f"{STATS}/_queue.jsonl", hours * 60 + 120) if q.get("t", 0) >= since]
+    first_queue = queue[0]["t"] if queue else now
+    waits = [(r["due"], r["start"], r["job"]) for r in jsonl(f"{STATS}/_runs.jsonl", 3000)
+             if r.get("start", 0) >= since - 6 * 3600 and r.get("due") and r["start"] - r["due"] > 60]
+    names, index = [], {}
+
+    def ix(name):
+        if name not in index:
+            index[name] = len(names)
+            names.append(name)
+        return index[name]
+    step = 120
+    rows, si, qi = [], 0, 0
+    for b in range(int(since // step * step), int(now), step):
+        jobs = wrf = used = 0.0
+        running, count, on = 0, 0, False
+        while si < len(samples) and samples[si]["t"] < b + step:
+            x = samples[si]
+            si += 1
+            if x["t"] < b:
+                continue
+            cj = cw = 0.0
+            n = 0
+            for c in x.get("containers") or []:
+                try:
+                    pct = float(str(c.get("cpu") or "0").rstrip("%"))
+                except ValueError:
+                    pct = 0
+                name = c.get("name") or ""
+                if name.startswith("mg-"):
+                    cj += pct
+                    n += 1
+                elif name != "meteogust-tunnel":
+                    cw += pct
+            jobs, wrf = jobs + cj / threads, wrf + cw / threads
+            used = max(used, total - (x.get("mem_free_mb") or 0) / 1024)
+            running = max(running, n)
+            on = on or bool(x.get("wrf"))
+            count += 1
+        if not count:
+            continue
+        last = None
+        while qi < len(queue) and queue[qi]["t"] < b + step:
+            if queue[qi]["t"] >= b:
+                last = queue[qi]
+            qi += 1
+        why, who = {}, []
+        if last is not None:
+            for job, kind, _priority in last.get("wait") or []:
+                why[kind] = why.get(kind, 0) + 1
+                who.append(ix(job))
+            budget = round((last.get("bud") or 0) / 1000, 1)
+        else:
+            if b < first_queue:
+                for due, start, job in waits:
+                    if due <= b < start:
+                        why["?"] = why.get("?", 0) + 1
+                        who.append(ix(job))
+            budget = round(total - 1.8 - (9.0 if on else 0), 1)
+        rows.append([b, round(jobs / count, 1), round(wrf / count, 1), round(used, 1), running, len(who), 1 if on else 0,
+                     why, who, budget])
+    data = {"t": round(now), "hours": hours, "step": step, "threads": threads, "total_gb": round(total, 1), "names": names, "rows": rows}
+    _band.update(at=now, hours=hours, data=data)
+    return data
+
+
 def live_state():
     try:
         return json.loads(read(LIVE, "{}") or "{}")
@@ -715,6 +801,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.reply(200, "application/json", json.dumps(FRESH.data).encode())
             elif url.path == "/api/capacity":
                 self.reply(200, "application/json", json.dumps(capacity()).encode())
+            elif url.path == "/api/band":
+                hours = urllib.parse.parse_qs(url.query).get("hours", ["12"])[0]
+                self.reply(200, "application/json", json.dumps(band(int(hours) if hours in ("6", "12", "24") else 12),
+                                                               separators=(",", ":")).encode())
             elif url.path == "/api/admin":
                 self.reply(200, "application/json", json.dumps(ADMIN.data).encode())
             elif url.path == "/api/stream":

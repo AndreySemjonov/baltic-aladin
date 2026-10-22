@@ -229,6 +229,14 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 .lanes .ours { font: 600 12px var(--mono) }
 .lanes .skip { fill: var(--bad); font: 700 12px var(--body) }
 .legend span.t::before { display: none }
+/* The machine band (22.10.2026): waiting with room, its tooltip. */
+:root { --room: rgba(214, 69, 69, .16) }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --room: rgba(240, 114, 114, .2) } }
+:root[data-theme="dark"] { --room: rgba(240, 114, 114, .2) }
+.lanes { position: relative }
+.btip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  font-size: 12.5px; line-height: 1.45; box-shadow: 0 6px 20px rgba(0,0,0,.25); width: 300px; z-index: 3 }
+.btip b { font: 600 13px var(--display) } .btip .k { color: var(--muted) } .btip .room { color: var(--bad); font-weight: 600 }
 .pstrip { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: baseline }
 .pstrip > div { display: flex; gap: 8px; align-items: baseline }
 .pstrip .v { font: 600 22px/1 var(--display) } .pstrip .l { font-size: 13px; color: var(--muted) }
@@ -989,15 +997,89 @@ function laneData(maps, fr, f, now, s) {
   });
 }
 
-function Lanes({ lanes, now, sel, setSel, back, ahead }) {
+// The machine band's reasons (the scheduler's queue record, runner/scheduler.py why_kind).
+const WHY = { slots: "all slots busy", priority3: "priority 3 (a slot kept free)", memory: "memory", behind: "behind one waiting for memory",
+  drain: "held for one waiting long", wrf: "too big beside WRF", starting: "starting", "?": "not recorded" };
+const BAND_H = 196;
+
+// The machine on top of the lanes (the owner, 22.10.2026: "on top we could add a total PC usage graph"; mockup
+// pipeline-machine-band-2026-10-22): CPU (WRF, jobs), jobs running and waiting against the slots, memory against the
+// jobs' budget, red where jobs waited while the machine had room (CPU under 50%, over 6 GB free).
+const roomy = (r, total) => r[5] > 0 && r[1] + r[2] < 50 && total - r[3] > 6;
+function bandLayer(band, x, t0, slots, X0, X1) {
+  const top = 24, step = band.step || 120, total = band.total_gb || 25;
+  const rows = band.rows.filter((r) => r[0] + step >= t0);
+  if (!rows.length) return null;
+  const CPU = [top, top + 56], JOBS = [top + 66, top + 122], MEM = [top + 132, top + 172];
+  const yCpu = (p) => CPU[1] - Math.min(p, 100) / 100 * (CPU[1] - CPU[0]);
+  const maxJobs = Math.max(8, ...rows.map((r) => r[4] + r[5]));
+  const yJobs = (n) => JOBS[1] - n / maxJobs * (JOBS[1] - JOBS[0]);
+  const yMem = (g) => MEM[1] - Math.min(g, total) / total * (MEM[1] - MEM[0]);
+  const xm = (r) => x(r[0] + step / 2);
+  const spans = (test) => {
+    const out = [];
+    let start = null;
+    rows.forEach((r, i) => {
+      if (test(r) && start == null) start = r[0];
+      const end = !test(r) || i === rows.length - 1;
+      if (start != null && end) { out.push([start, test(r) ? r[0] + step : r[0]]); start = null; }
+    });
+    return out;
+  };
+  const area = (f0, f1) => "M" + rows.map((r) => `${xm(r)},${f1(r)}`).join("L") + "L" + [...rows].reverse().map((r) => `${xm(r)},${f0(r)}`).join("L") + "Z";
+  const room = rows.filter((r) => roomy(r, total));
+  const avg = rows.reduce((a, r) => a + r[1] + r[2], 0) / rows.length;
+  return html`<g aria-label="The machine">
+    ${spans((r) => roomy(r, total)).map(([a, b]) => html`<rect x=${x(a)} y=${CPU[0]} width=${Math.max(x(b) - x(a), 1)} height=${MEM[1] - CPU[0]} fill="var(--room)"/>`)}
+    ${spans((r) => r[6]).map(([a, b]) => html`<rect x=${x(a)} y=${CPU[0] - 5} width=${Math.max(x(b) - x(a), 1)} height="3" fill="var(--wrf)"/>`)}
+    <path d=${area(() => yCpu(0), (r) => yCpu(r[2]))} fill="var(--wrf-soft)"/>
+    <path d=${area((r) => yCpu(r[2]), (r) => yCpu(r[1] + r[2]))} fill="var(--home-soft)"/>
+    <path d=${"M" + rows.map((r) => `${xm(r)},${yCpu(r[1] + r[2])}`).join("L")} fill="none" stroke="var(--home)" stroke-width="1.3"/>
+    ${[50, 100].map((p) => html`<line x1=${X0} x2=${X1} y1=${yCpu(p)} y2=${yCpu(p)} stroke="var(--line)" stroke-dasharray="3 3"/><text x=${X0 - 6} y=${yCpu(p) + 4} text-anchor="end">${p}%</text>`)}
+    ${rows.map((r) => { const a = x(r[0]), w = Math.max(x(r[0] + step) - a - 0.4, 0.8);
+      return html`${r[4] ? html`<rect x=${a} y=${yJobs(r[4])} width=${w} height=${JOBS[1] - yJobs(r[4])} fill="var(--home)" opacity=".7"/>` : null}
+        ${r[5] ? html`<rect x=${a} y=${yJobs(r[4] + r[5])} width=${w} height=${yJobs(r[4]) - yJobs(r[4] + r[5])} fill="var(--wait)"/>` : null}`; })}
+    <line x1=${X0} x2=${X1} y1=${yJobs(slots)} y2=${yJobs(slots)} stroke="var(--ink)" stroke-dasharray="5 4" stroke-width="1.2"/>
+    <text x=${X0 - 6} y=${yJobs(slots) + 4} text-anchor="end">${slots} slots</text><text x=${X0 - 6} y=${JOBS[0] + 8} text-anchor="end">${maxJobs}</text>
+    <path d=${"M" + rows.map((r) => `${xm(r)},${yMem(r[3])}`).join("L")} fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+    <path d=${"M" + rows.map((r) => `${x(r[0])},${yMem(r[9])}L${x(r[0] + step)},${yMem(r[9])}`).join("L")} fill="none" stroke="var(--accent)" stroke-dasharray="4 3"/>
+    <text x=${X0 - 6} y=${MEM[0] + 8} text-anchor="end">${Math.round(total)} GB</text>
+    <text class="grp" x="0" y=${CPU[0] + 12}>CPU</text><text x="0" y=${CPU[0] + 26}>${band.threads} threads</text>
+    <text class="grp" x="0" y=${JOBS[0] + 12}>JOBS</text><text x="0" y=${JOBS[0] + 26}>running · waiting</text>
+    <text class="grp" x="0" y=${MEM[0] + 12}>MEMORY</text><text x="0" y=${MEM[0] + 26}>used · budget</text>
+    <text x=${X1 + 22} y=${CPU[0] + 14}>avg ${Math.round(avg)}%</text>
+    <text x=${X1 + 22} y=${JOBS[0] + 14} style=${room.length ? "fill:var(--bad)" : ""}>${room.length * Math.round(step / 60)} min</text><text x=${X1 + 22} y=${JOBS[0] + 28}>waited with room</text>
+    <text x=${X1 + 22} y=${MEM[0] + 14}>peak ${Math.max(...rows.map((r) => r[3])).toFixed(1)} GB</text>
+    <line x1="0" x2=${X1 + 200} y1=${top + 182} y2=${top + 182} stroke="var(--line)"/>
+  </g>`;
+}
+
+function BandTip({ band, row, left, top }) {
+  const total = band.total_gb || 25, free = total - row[3];
+  const who = row[8].map((i) => band.names[i]);
+  const why = Object.entries(row[7] || {}).map(([k, n]) => `${WHY[k] || k} ${n}`).join(" · ");
+  return html`<div class="btip" style=${`left:${left}px;top:${top}px`}>
+    <b>${clock(row[0])} ${zoneName()}</b>${row[6] ? " · WRF running" : ""}<br/>
+    <span class="k">CPU</span> ${Math.round(row[1] + row[2])}% (jobs ${Math.round(row[1])}, WRF ${Math.round(row[2])})<br/>
+    <span class="k">memory</span> ${row[3].toFixed(1)} of ${total} GB, ${free.toFixed(1)} free · jobs' budget ${row[9]}<br/>
+    <span class="k">jobs</span> ${row[4]} running, ${row[5]} waiting${who.length ? ": " + who.slice(0, 8).join(", ") + (who.length > 8 ? "…" : "") : ""}<br/>
+    ${row[5] ? html`<span class="k">why</span> ${why}<br/>` : null}
+    ${roomy(row, total) ? html`<span class="room">waiting with room: the machine wasn't full</span>` : null}
+  </div>`;
+}
+
+function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots }) {
   const t0 = now - back * 3600, t1 = now + ahead * 3600, X0 = 210, X1 = 1250, W = 1460, lh = 30, gh = 24;
   const x = (t) => X0 + (Math.max(t0, Math.min(t1, t)) - t0) / (t1 - t0) * (X1 - X0);
   const w = (a, b, min = 1.5) => Math.max(x(b) - x(a), min);
   const step = back <= 6 ? 1 : back <= 12 ? 2 : 3;
   const box = useRef(null);
+  const svgRef = useRef(null);
+  const [tip, setTip] = useState(null);
   useEffect(() => { if (box.current) box.current.scrollLeft = box.current.scrollWidth; }, [back]);
+  const BH = band && band.rows && band.rows.length ? BAND_H : 0;
   const rows = [];
-  let y = 30;
+  let y = 30 + BH;
   for (const g of GROUPS) {
     const ls = lanes.filter((l) => l.group === g);
     if (!ls.length) continue;
@@ -1041,8 +1123,23 @@ function Lanes({ lanes, now, sel, setSel, back, ahead }) {
     }
     return out;
   };
-  return html`<div class="lanes" ref=${box}><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Every map's runs from available to published">
+  // The band's minute under the pointer (hover, or a tap on a phone).
+  const point = (ev) => {
+    if (!BH || !svgRef.current || !box.current) return setTip(null);
+    const pt = svgRef.current.createSVGPoint();
+    pt.x = ev.clientX; pt.y = ev.clientY;
+    const p = pt.matrixTransform(svgRef.current.getScreenCTM().inverse());
+    if (p.x < X0 || p.x > X1 || p.y > 30 + BH - 10) return setTip(null);
+    const t = t0 + (p.x - X0) / (X1 - X0) * (t1 - t0);
+    const near = band.rows.reduce((a, r) => Math.abs(r[0] - t) < Math.abs(a[0] - t) ? r : a, band.rows[0]);
+    if (Math.abs(near[0] - t) > 600) return setTip(null);
+    const b = box.current.getBoundingClientRect();
+    setTip({ row: near, left: Math.min(ev.clientX - b.left + box.current.scrollLeft + 14, box.current.scrollLeft + b.width - 310), top: ev.clientY - b.top + 12 });
+  };
+  return html`<div class="lanes" ref=${box}><svg ref=${svgRef} viewBox="0 0 ${W} ${H}" role="img" aria-label="Every map's runs from available to published"
+      onPointerMove=${point} onPointerDown=${point} onPointerLeave=${() => setTip(null)}>
     ${hours.map((t) => html`<line x1=${x(t)} x2=${x(t)} y1="22" y2=${H - 20} stroke="var(--line)"/>${Math.round(t / 3600) % step === 0 ? html`<text x=${x(t)} y="15" text-anchor="middle">${clock(t)}</text>` : null}`)}
+    ${BH ? bandLayer(band, x, t0, slots || 4, X0, X1) : null}
     <text x=${X1 + 22} y="15">Tower</text><text x=${X1 + 86} y="15">GitHub</text><text x=${X1 + 150} y="15">skipped</text>
     ${rows.map(({ g, l, y }) => g ? html`<text class="grp" x="0" y=${y + 16}>${g.toUpperCase()}</text>` : html`<g class=${"row" + (sel === l.name ? " sel" : "")} onClick=${() => setSel(l.name)} style="cursor:pointer">
       <rect class="hit" x="0" y=${y} width=${W} height=${lh} fill="transparent" rx="4"/>
@@ -1060,7 +1157,8 @@ function Lanes({ lanes, now, sel, setSel, back, ahead }) {
       ${l.skipped ? html`<text class="ours" x=${X1 + 150} y=${y + 19} style="fill:var(--bad)">${l.skipped} of ${l.offered}</text>` : null}
     </g>`)}
     <line x1=${x(now)} x2=${x(now)} y1="20" y2=${H - 18} stroke="var(--warn)" stroke-width="2"/><text x=${x(now) + 5} y=${H - 6} style="fill:var(--warn)">now ${clock(now)}</text>
-  </svg></div>`;
+    ${tip ? html`<line x1=${x(tip.row[0] + 60)} x2=${x(tip.row[0] + 60)} y1="20" y2=${30 + BH - 10} stroke="var(--ink)" opacity=".45"/>` : null}
+  </svg>${tip ? html`<${BandTip} band=${band} row=${tip.row} left=${tip.left} top=${tip.top} />` : null}</div>`;
 }
 
 function RunBars({ l }) {
@@ -1138,6 +1236,15 @@ function Pipeline({ maps, fr, f, now, s, cap }) {
   const skipped = all.reduce((a, l) => a + l.skipped, 0), offered = all.reduce((a, l) => a + l.offered, 0);
   const compared = all.filter(both), sooner = compared.filter((l) => l.towerT < l.ghT).length;
   const [back, ahead] = RANGES.find((r) => r[0] === range);
+  // The machine band (/api/band): when the Pipeline opens, every 2 minutes, and for each range.
+  const [band, setBand] = useState(null);
+  useEffect(() => {
+    let stop = false;
+    const load = () => fetch(`/api/band?hours=${back}`, { cache: "no-store" }).then((r) => r.json()).then((d) => { if (!stop) setBand(d); }).catch(() => {});
+    load();
+    const id = setInterval(load, 120000);
+    return () => { stop = true; clearInterval(id); };
+  }, [back]);
   const chips = [["all", `All ${all.length}`], ["sooner", `Tower sooner ${sooner}`], ["later", `GitHub sooner ${compared.length - sooner}`],
     ["skip", `Skipping runs ${all.filter((l) => l.skipped).length}`], ["home", `At home ${all.filter(pick.home).length}`], ["bad", `Behind ${all.filter(pick.bad).length}`]];
   return html`<div class="panel pstrip">
@@ -1151,7 +1258,8 @@ function Pipeline({ maps, fr, f, now, s, cap }) {
       ${!maps ? html`<p class="empty">Reading admin's map history…</p>` : html`
       <div class="filters">${RANGES.map(([b]) => html`<span class=${"chip" + (range === b ? " on" : "")} onClick=${() => setRange(b)}>${b} h</span>`)}<span style="width:10px"></span>
         ${chips.map(([k, label]) => html`<span class=${"chip" + (filter === k ? " on" : "")} onClick=${() => setFilter(k)}>${label}</span>`)}</div>
-      <${Lanes} lanes=${lanes} now=${now} sel=${sel} setSel=${choose} back=${back} ahead=${ahead} />
+      <${Lanes} lanes=${lanes} now=${now} sel=${sel} setSel=${choose} back=${back} ahead=${ahead} band=${band} slots=${f && f.slots} />
+      <div class="legend"><span style="--c:var(--wrf)">CPU: WRF</span><span style="--c:var(--home)">CPU: jobs · jobs running</span><span style="--c:var(--wait)">jobs waiting · waiting to start</span><span style="--c:var(--accent)">memory used (dashed: the jobs' budget)</span><span style="--c:var(--room)">waiting with room (CPU &lt; 50%, &gt; 6 GB free)</span></div>
       <div class="legend"><span class="t">▼ run available to us (Open-Meteo's record; a mix: a new input published)</span><span style="--c:var(--gh)">GitHub (upper bar)</span><span style="--c:var(--home)">Tower (lower bar; faint: shadow, not published)</span>
         <span style="--c:var(--wait)">waiting to start</span><span style="--c:var(--ok)">published</span><span class="t" style="color:var(--bad)">× a source run nobody took</span><span class="t">◇ next run expected</span><span class="t">right: our time, median of 24 h (italic: the job's own time, no "available" moment)</span></div>
       <p class="note" style="margin:8px 0 0">Each bar starts when the run was complete on Open-Meteo's open data, where our jobs read it, and ends when riders could see it. The maker's own time before that is left out. Sooner is better. "Available" is recorded for every model from 21.10.2026 evening; older runs start at GitHub's job.</p>`}
