@@ -251,7 +251,7 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 .bpop .pkv span:nth-child(odd) { color: var(--muted) } .bpop .pkv span:nth-child(even) { font: 12px var(--mono); text-align: right }
 .bpop .pspark { display: flex; gap: 8px; align-items: center; margin-top: 6px; font-size: 12px; color: var(--muted) } .bpop .pspark b { font: 500 12px var(--mono); color: var(--ink) }
 .bpop .psteps { display: grid; grid-template-columns: 44px auto 1fr; gap: 3px 8px; margin-top: 8px; align-items: baseline }
-.bpop .psteps .pt { font: 12px var(--mono); color: var(--muted) } .bpop .psteps .pw { font-weight: 600 } .bpop .psteps .pd { font: 11.5px var(--mono); text-align: right; color: var(--ink) }
+.bpop .psteps .st { font: 12px var(--mono); color: var(--muted) } .bpop .psteps .sw { font-weight: 600; white-space: nowrap } .bpop .psteps .sd { font: 11.5px var(--mono); color: var(--muted) }
 .bpop .pbar i.rest { background: repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px) }
 .bpop .plog { margin-top: 6px; font: 11px var(--mono); color: var(--muted); background: var(--bg); border-radius: 6px; padding: 5px 7px; overflow-wrap: anywhere } .btip .k { color: var(--muted) } .btip .room { color: var(--bad); font-weight: 600 }
 .pstrip { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: baseline }
@@ -1108,7 +1108,7 @@ function BarPop({ d, now, left, top }) {
   const secs = (v) => v != null && v < 120 ? `${Math.max(0, Math.round(v))} s` : mins(v);
   const kv = (rows) => html`<div class="pkv">${rows.filter(Boolean).map(([k, v]) => html`<span>${k}</span><span>${v}</span>`)}</div>`;
   // The steps: [time or null, what, detail].
-  const steps = (rows) => html`<div class="psteps">${rows.filter(Boolean).map(([t, what, detail]) => html`<span class="pt">${t ? clock(t) : ""}</span><span class="pw">${what}</span><span class="pd">${detail || ""}</span>`)}</div>`;
+  const steps = (rows) => html`<div class="psteps">${rows.filter(Boolean).map(([t, what, detail]) => html`<span class="st">${t ? clock(t) : ""}</span><span class="sw">${what}</span><span class="sd">${detail || ""}</span>`)}</div>`;
   // A bar of the parts: [seconds, colour], the last one maybe the expected rest (striped).
   const parts = (list, rest) => {
     const total = list.reduce((s, p) => s + Math.max(p[0], 0), 0) + (rest || 0);
