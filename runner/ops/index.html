@@ -204,7 +204,7 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 /* The header's rows as wide as the phone: its column wrapped (a wrapping column's line is as wide as its widest
    item's content: the tabs' 604 px), so a 375 px phone laid the page out at 620 (the owner, 22.10.2026). */
 .top .wrap { flex-wrap: nowrap } .row1 { min-width: 0 }
-@media (max-width: 639px) { .top nav.tabs { order: 3; flex: 1 0 100% }
+@media (max-width: 639px) { .top { position: static } .top nav.tabs { order: 3; flex: 1 0 100% }
   .clock { white-space: normal; display: flex; flex-wrap: wrap; align-items: center; gap: 6px } .theme { margin-left: 0 } }
 /* Zoomed in, the tabs keep their width and the clock moves to a line of its own; only a phone scrolls them. */
 @media (min-width: 640px) { .top nav.tabs { flex: 1 0 auto } }
@@ -1333,16 +1333,20 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
   // (the owner, 22.10.2026: "as the phone app's forecast keeps its days ... leave always on top the part with usage",
   // with a switch for it; remembered in this browser, on at first). The same coordinates as the lanes' drawing.
   const wrapRef = useRef(null), bandRef = useRef(null), bandSvg = useRef(null);
-  // Pinned at first on a wide screen; on a phone the header and the band would leave the lanes no room, so off there.
-  const [pinned, setPinnedState] = useState(() => { const first = innerWidth >= LANES_MIN_W;
-    try { const v = localStorage.getItem("ops-band-pinned"); return v == null ? first : v !== "0"; } catch (e) { return first; } });
+  const [pinned, setPinnedState] = useState(() => { try { return localStorage.getItem("ops-band-pinned") !== "0"; } catch (e) { return true; } });
   const setPinned = (v) => { try { localStorage.setItem("ops-band-pinned", v ? "1" : "0"); } catch (e) {} setPinnedState(v); };
-  useEffect(() => {
-    const set = () => { const top = document.querySelector(".top"); document.documentElement.style.setProperty("--top-h", (top ? top.offsetHeight : 0) + "px"); };
-    set();
-    addEventListener("resize", set);
-    return () => removeEventListener("resize", set);
-  }, []);
+  // On a phone the page's header scrolls away and only the processes stay (the owner, 22.10.2026: "on phone scroll
+  // away but we leave processes only"): the band sticks at the screen's top with its title and filters above it
+  // scrolled out (a negative top, their height). Measured after each render (the filters' lines change with the width).
+  const [phoneTop, setPhoneTop] = useState(null);
+  const measureTop = () => {
+    const top = document.querySelector(".top"), phone = top && getComputedStyle(top).position !== "sticky";
+    document.documentElement.style.setProperty("--top-h", (top && !phone ? top.offsetHeight : 0) + "px");
+    const off = phone && bandRef.current ? -(bandRef.current.offsetTop - 4) : null;
+    if (off !== phoneTop) setPhoneTop(off);
+  };
+  useEffect(measureTop);
+  useEffect(() => { addEventListener("resize", measureTop); return () => removeEventListener("resize", measureTop); });
   const [tip, setTip] = useState(null);
   const [pop, setPop] = useState(null);
   // A bar's popup on hover or tap (data-bar: the band's handler leaves it).
@@ -1493,7 +1497,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
   // coordinates shown from TOP down).
   const TOP = 30 + BH - 10;
   // The section's title and filters pinned with it (the owner, 22.10.2026: "lets pin this too"), the switch beside them.
-  return html`<div class=${"bandwrap" + (pinned ? " pinned" : "")} ref=${wrapRef}>
+  return html`<div class=${"bandwrap" + (pinned ? " pinned" : "")} ref=${wrapRef} style=${pinned && phoneTop != null ? `top:${phoneTop}px` : ""}>
     <div class="bandhead"><div class="bandtitle">${head}</div>
     <button class=${"pin" + (pinned ? " on" : "")} onClick=${() => setPinned(!pinned)} aria-pressed=${pinned}
       title=${pinned ? "The title, filters and machine band stay on top while you scroll: tap to let them scroll away" : "Keep the title, filters and machine band on top while you scroll"}>${pinned ? "● Pinned" : "○ Pin"}</button></div>
