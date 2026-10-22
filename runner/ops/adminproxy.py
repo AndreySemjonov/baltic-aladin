@@ -88,6 +88,16 @@ def pass_post(sub, query, body, content_type):
     return result
 
 
+# Served from here, the admin pages keep their theme (Auto / Light / Dark) under the panel's own key, so one switch
+# sets both on this site (the owner, 22.10.2026: "white theme of whole admin panel. available on switch").
+THEME_KEY = ('"admin-theme"', '"ops-theme"')
+_LIGHT_BAR = ".homebar{background:#fbefd9;color:#8a5a0b}.homebar a{color:#0f7f88}"
+BANNER = ('<style>.homebar{background:#3a2c14;color:#e3a447;font:14px system-ui;padding:6px 12px}.homebar a{color:#46c1c9}'
+          '@media (prefers-color-scheme: light){' + _LIGHT_BAR.replace(".homebar", ':root:not([data-theme="dark"]) .homebar') + '}'
+          + _LIGHT_BAR.replace(".homebar", ':root[data-theme="light"] .homebar') + '</style>'
+          '<div class="homebar">The old admin, served from home. <a href="/">Back to the control panel</a></div>')
+
+
 def page():
     """The old admin page, its calls pointed at /admin/api/ (and its own links at /admin/)."""
     status, kind, data = call("GET", "/")
@@ -95,11 +105,9 @@ def page():
         return status, kind, data
     text = data.decode("utf-8", "replace")
     for old, new in (('"/api/', '"/admin/api/'), ("'/api/", "'/admin/api/"), ("`/api/", "`/admin/api/"),
-                     ('href="/check"', 'href="/admin/check"')):
+                     ('href="/check"', 'href="/admin/check"'), THEME_KEY):
         text = text.replace(old, new)
-    banner = ('<div style="background:#3a2c14;color:#e3a447;font:14px system-ui;padding:6px 12px">The old admin, served from home. '
-              '<a href="/" style="color:#46c1c9">Back to the control panel</a></div>')
-    text = text.replace("<body>", "<body>" + banner, 1)
+    text = text.replace("<body>", "<body>" + BANNER, 1)
     return 200, "text/html; charset=utf-8", text.encode()
 
 
@@ -108,7 +116,7 @@ def check_page():
     if status != 200:
         return status, kind, data
     text = data.decode("utf-8", "replace")
-    for old, new in (('"/api/', '"/admin/api/'), ("'/api/", "'/admin/api/"), ("`/api/", "`/admin/api/")):
+    for old, new in (('"/api/', '"/admin/api/'), ("'/api/", "'/admin/api/"), ("`/api/", "`/admin/api/"), THEME_KEY):
         text = text.replace(old, new)
     return 200, "text/html; charset=utf-8", text.encode()
 
