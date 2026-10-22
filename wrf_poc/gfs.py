@@ -45,6 +45,8 @@ def newest_cycle(hours, now=None):
     deadline = time.time() + 60 * float(os.environ.get("GFS_WAIT", "40"))
     while True:
         if is_out(newest, hours):
+            # Timed for the ops panel (the owner, 22.10.2026: a run's popup with when GFS was out and the download).
+            print(f"{time.strftime('%H:%M:%S', time.gmtime())} GFS {newest:%d %H}Z out at NOAA", flush=True)
             return newest
         # Not due within the wait (more than 5 hours old and still missing): the one before.
         if time.time() > deadline or datetime.now(timezone.utc) - newest > timedelta(hours=5):
@@ -66,6 +68,7 @@ def main():
     folder.mkdir(parents=True, exist_ok=True)
     cycle = newest_cycle(hours)
     day, hour = cycle.strftime("%Y%m%d"), cycle.strftime("%H")
+    fetched, began = 0, time.time()
     for step in range(0, hours + 1, 3):
         name = f"gfs.t{hour}z.pgrb2.0p25.f{step:03d}"
         query = (f"?dir=%2Fgfs.{day}%2F{hour}%2Fatmos&file={name}&all_var=on&all_lev=on&subregion="
@@ -77,6 +80,7 @@ def main():
                 if len(data) < 100_000:
                     raise ValueError(f"only {len(data)} bytes")
                 (folder / name).write_bytes(data)
+                fetched += len(data)
                 print(f"{name}: {len(data) / 1e6:.1f} MB", flush=True)
                 break
             except Exception as error:
@@ -88,6 +92,7 @@ def main():
     stamp = "%Y-%m-%d_%H:00:00"
     (work / "env").write_text(f"REGION={os.environ.get('REGION', 'tarifa')}\nSTART={cycle.strftime(stamp)}\nEND={end.strftime(stamp)}\nHOURS={hours}\n"
                               f"CYCLE={cycle.strftime('%Y-%m-%dT%HZ')}\n")
+    print(f"{time.strftime('%H:%M:%S', time.gmtime())} GFS in hand: {fetched / 1e6:.0f} MB in {time.time() - began:.0f} s", flush=True)
     print(f"GFS {cycle:%Y-%m-%d %H}Z, {hours} hours", flush=True)
 
 

@@ -129,6 +129,10 @@ class Downloads:
         self.window = deque()   # (time, host, bytes) for the rates now
         self.day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         self.hosts = {}         # host -> {"bytes", "best"}
+        # Each job's run so far: its files, bytes and the spans it was downloading (the Pipeline's popups, the owner,
+        # 22.10.2026: "available time, waited time, download time, when started"); written to _downloads.jsonl when
+        # the run ends (sync).
+        self.acc = {}           # job -> {"files", "bytes", "spans": [[t0, t1]], "start"}
         saved = json.loads(read(f"{STATS}/_sources.json", "{}") or "{}")
         if saved.get("day") == self.day:
             self.hosts = saved.get("hosts", {})
@@ -154,6 +158,13 @@ class Downloads:
             delta = max(size - entry["b"], 0)
             entry["b"] = size
             h["bytes"] += delta
+            run = self.acc.setdefault(job, {"files": 0, "bytes": 0, "spans": [], "start": None})
+            if "span" not in entry:
+                entry["span"] = [now - seconds, now]
+                run["spans"].append(entry["span"])
+                run["files"] += 1
+            entry["span"][1] = now
+            run["bytes"] += delta
             if delta:
                 self.window.append((now, host, delta))
             speed = size / seconds if seconds > 0.2 else 0
@@ -184,6 +195,49 @@ class Downloads:
                 if now - t <= seconds:
                     out[host] = out.get(host, 0) + b / seconds
             return out
+
+    @staticmethod
+    def busy(spans):
+        """The time any download was going (the spans' union, seconds)."""
+        total, end = 0.0, None
+        for a, b in sorted(spans):
+            if end is None or a > end:
+                total += b - a
+                end = b
+            elif b > end:
+                total += b - end
+                end = b
+        return total
+
+    def summary(self, job):
+        """A running job's downloads so far: files, MB, busy seconds, the first one's start."""
+        with self.lock:
+            run = self.acc.get(job)
+            if not run or not run["spans"]:
+                return None
+            return {"files": run["files"], "mb": round(run["bytes"] / 1e6), "busy_s": round(self.busy(run["spans"])),
+                    "first": round(min(a for a, _ in run["spans"]))}
+
+    def sync(self, running):
+        """Runs ended (or a new one begun) written to _downloads.jsonl; `running`: {job: its start}."""
+        now, done = time.time(), []
+        with self.lock:
+            for job, run in list(self.acc.items()):
+                started = running.get(job)
+                if started and run["start"] is None:
+                    run["start"] = started
+                if started and run["start"] and abs(started - run["start"]) > 120:
+                    done.append((job, run))
+                    self.acc[job] = {"files": 0, "bytes": 0, "spans": [], "start": started}
+                elif not started and (not run["spans"] or now - max(b for _, b in run["spans"]) > 90):
+                    done.append((job, run))
+                    del self.acc[job]
+        for job, run in done:
+            if run["start"] and run["spans"]:
+                views.append(f"{STATS}/_downloads.jsonl", {"job": job, "start": round(run["start"]), "files": run["files"],
+                                                           "mb": round(run["bytes"] / 1e6), "busy_s": round(self.busy(run["spans"])),
+                                                           "first": round(min(a for a, _ in run["spans"])),
+                                                           "last": round(max(b for _, b in run["spans"]))})
 
     def job_rates(self, seconds=6):
         """Each job's download speed now (bytes a second) and its current file."""
@@ -374,6 +428,7 @@ def wrf_state():
             # (the owner, 22.10.2026: progress and the expected finish).
             try:
                 out["computing_from"] = wrf_gfs(out["started"])[0]
+                out["phases"] = wrf_phases(out["started"])
             except Exception:
                 pass
             out["region"] = m.group(2)
@@ -437,6 +492,27 @@ def wrf_gfs(start):
     if c:
         cycle = int(datetime.strptime(f"{c[1]} {c[2]}", "%Y-%m-%d %H").replace(tzinfo=timezone.utc).timestamp())
     return ready, "not out yet" in text, cycle
+
+
+def wrf_phases(start):
+    """WRF's steps from its run's log (the owner, 22.10.2026: the popup's timeline): GFS out at NOAA, GFS in hand
+    (its MB and seconds), WPS, the model's start, its end; times (unix) as found."""
+    paths = glob.glob(f"{WRF_LOGS}/{datetime.fromtimestamp(start, timezone.utc):%Y%m%dT%H%M}Z-*.log")
+    text = (read(paths[0], "") or "") if paths else ""
+
+    def at(pattern):
+        m = re.search(pattern, text, re.M)
+        if not m:
+            return None
+        h, mi, se = (int(v) for v in m.group(1).split(":"))
+        t = start - start % 86400 + h * 3600 + mi * 60 + se
+        return t + 86400 if t < start - 60 else t
+    out = {"gfs_out": at(r"^(\d\d:\d\d:\d\d) GFS .*out at NOAA"), "gfs_done": at(r"^(\d\d:\d\d:\d\d) GFS in hand"),
+           "wps": at(r"^(\d\d:\d\d:\d\d) WPS"), "model": at(r"^\[(\d\d:\d\d:\d\d)\] \d+ cores"), "end": at(r"^(\d\d:\d\d:\d\d) the run took")}
+    size = re.search(r"GFS in hand: (\d+) MB in (\d+) s", text)
+    if size:
+        out["gfs_mb"], out["gfs_s"] = int(size[1]), int(size[2])
+    return {k: round(v) for k, v in out.items() if v is not None}
 
 
 def wrf_next(now, count=3):
@@ -563,6 +639,14 @@ class Records:
                  "source": r.get("source"), "sources": r.get("sources")} for r in jsonl(f"{STATS}/_runs.jsonl", 1500) if r.get("end", 0) >= now - 36 * 3600]
         # Each run's cost from its job's stats (the Pipeline's popup, the owner, 22.10.2026): CPU minutes, peak MB, MB in.
         stats = {job: jsonl(f"{STATS}/{job}.jsonl", 120) for job in {r["job"] for r in home}}
+        downloads = {}
+        for d in jsonl(f"{STATS}/_downloads.jsonl", 3000):
+            downloads.setdefault(d["job"], []).append(d)
+        for r in home:
+            for d in downloads.get(r["job"], []):
+                if abs(d["start"] - r["start"]) < 180:
+                    r["dl_s"], r["dl_mb"], r["dl_files"] = d["busy_s"], d["mb"], d["files"]
+                    break
         for r in home:
             for st in stats.get(r["job"], []):
                 if abs((st.get("start") or 0) - r["start"]) < 120:
@@ -578,7 +662,7 @@ class Records:
             if a.get("done", 0) >= now - 40 * 3600:
                 arrived.setdefault((a["model"], a["run"]), a["done"])
         pipe = {"arrivals": [[m, r, d] for (m, r), d in arrived.items()], "gh": views.GH.pipe(),
-                "wrf": [[round(a), round(b), ok if ok == "going" else bool(ok), *wrf_gfs(a)] for a, b, ok in wrf_runs(now - 36 * 3600)]}
+                "wrf": [[round(a), round(b), ok if ok == "going" else bool(ok), *wrf_gfs(a), wrf_phases(a)] for a, b, ok in wrf_runs(now - 36 * 3600)]}
         self.slow = {"home": home, "pipe": pipe, "t": round(now), "from": round(since), "to": round(now + 6 * 3600), "lanes": [n for n, _ in LANES],
                      "items": items, "arrivals": arr, "runs": recent, "hosts": hosts, "typical": typical,
                      "github_at": round(self.github_at) or None}
@@ -609,6 +693,10 @@ def summaries_loop():
                 FRESH.refresh(wrf_state())
             except Exception as error:
                 log(f"freshness: {error}")
+        try:
+            DOWNLOADS.sync({r["job"]: r.get("started") for r in live_state().get("running", []) if r.get("started")})
+        except Exception as error:
+            log(f"downloads: {error}")
         # (admin's overview reads many database rows: every 5 minutes while watched, else every 30)
         if now - last_admin > (300 if watched else 1800):
             last_admin = now
@@ -737,7 +825,8 @@ def fast():
         d = current.get(r["job"])
         jobs.append({**r, "started": r.get("started") or c.get("started"), "cpu": c.get("cpu"), "mem": c.get("mem"),
                      "net_in": c.get("net_in"), "speeds": speeds.get(r["job"], []), "download": d,
-                     "typical": RECORDS.slow.get("typical", {}).get(r["job"]) if RECORDS.slow else None})
+                     "typical": RECORDS.slow.get("typical", {}).get(r["job"]) if RECORDS.slow else None,
+                     "dl": DOWNLOADS.summary(r["job"])})
     wrf = wrf_state()
     wc = next((c for c in snap.get("containers", []) if c["kind"] == "wrf"), None)
     if wc:

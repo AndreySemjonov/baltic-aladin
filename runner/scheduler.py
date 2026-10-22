@@ -482,7 +482,7 @@ def write_live(state, running, others, live, names, cache, now, wrf, budget, res
     lags = arrivals()
     out_running, out_waiting, out_next = [], [], []
     for name, run in running.items():
-        out_running.append({"job": name, "priority": run.job.priority, "started": round(run.started), "live": run.live,
+        out_running.append({"job": name, "priority": run.job.priority, "started": round(run.started), "due": round(run.wanted), "live": run.live,
                             "source": run.source, "need": mem_need(run.job), "log": run.log_path, "heavy": run.job.heavy})
     for name in others:
         job = next((j for j in JOBS if j.name == name), None)

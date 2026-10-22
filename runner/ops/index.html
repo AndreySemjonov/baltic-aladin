@@ -250,6 +250,9 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 .bpop .pkv { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin-top: 7px }
 .bpop .pkv span:nth-child(odd) { color: var(--muted) } .bpop .pkv span:nth-child(even) { font: 12px var(--mono); text-align: right }
 .bpop .pspark { display: flex; gap: 8px; align-items: center; margin-top: 6px; font-size: 12px; color: var(--muted) } .bpop .pspark b { font: 500 12px var(--mono); color: var(--ink) }
+.bpop .psteps { display: grid; grid-template-columns: 44px auto 1fr; gap: 3px 8px; margin-top: 8px; align-items: baseline }
+.bpop .psteps .pt { font: 12px var(--mono); color: var(--muted) } .bpop .psteps .pw { font-weight: 600 } .bpop .psteps .pd { font: 11.5px var(--mono); text-align: right; color: var(--ink) }
+.bpop .pbar i.rest { background: repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px) }
 .bpop .plog { margin-top: 6px; font: 11px var(--mono); color: var(--muted); background: var(--bg); border-radius: 6px; padding: 5px 7px; overflow-wrap: anywhere } .btip .k { color: var(--muted) } .btip .room { color: var(--bad); font-weight: 600 }
 .pstrip { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: baseline }
 .pstrip > div { display: flex; gap: 8px; align-items: baseline }
@@ -932,7 +935,7 @@ function laneData(maps, fr, f, now, s) {
       // WRF reads GFS from NOAA, hours before Open-Meteo's record: available is when its log had GFS in hand after
       // waiting for it, else WRF's start (GFS was out by then).
       for (const [a, b, ok, ready, waited, cycle] of pipe.wrf) if (cycle) byRun[cycle] = { run: cycle, avail: waited && ready ? ready : a, early: !waited,
-        tower: { start: a, end: b, ok: ok !== false, going: ok === "going", live: true, job: "wrf" } };
+        tower: { start: a, end: b, ok: ok !== false, going: ok === "going", live: true, job: "wrf", phases: pipe.wrf.find((x) => x[0] === a)?.[6] } };
     } else for (const [r, d] of Object.entries(avails)) byRun[+r] = { run: +r, avail: d };
     for (const r of runs) if ((r.published || r.run) >= since) {
       const e = byRun[r.run] = byRun[r.run] || { run: r.run, avail: null };
@@ -1096,52 +1099,85 @@ function wrfEnd(w, now) {
 }
 
 // What a bar is (the owner, 22.10.2026: "on hover on each line a popup ... if active, how much it uses, status ...
-// combining what we see in Machine; if finished, the same as on click at the bottom").
+// combining what we see in Machine; if finished, the same as on click at the bottom"; then "show also available time,
+// waited time, download time and when started"): its steps as a short timeline over a segmented bar.
 function BarPop({ d, now, left, top }) {
   const { kind, l } = d;
   const e = d.e || {}, a = e.avail;
+  const secs = (v) => v != null && v < 120 ? `${Math.max(0, Math.round(v))} s` : mins(v);
   const kv = (rows) => html`<div class="pkv">${rows.filter(Boolean).map(([k, v]) => html`<span>${k}</span><span>${v}</span>`)}</div>`;
-  const availRow = a != null ? ["Available", `${clock(a)}${e.availFrom ? ` (a new input: ${e.availFrom})` : l.wrf ? (e.early ? " (GFS out by then)" : " (GFS out at NOAA)") : " (Open-Meteo's record)"}`] : null;
-  const split = (wait, run, color) => wait + run > 0 ? html`<div class="pbar"><i style=${`width:${(wait / (wait + run) * 100).toFixed(1)}%;background:var(--wait)`}></i><i style=${`width:${(run / (wait + run) * 100).toFixed(1)}%;background:${color}`}></i></div>` : null;
+  // The steps: [time or null, what, detail].
+  const steps = (rows) => html`<div class="psteps">${rows.filter(Boolean).map(([t, what, detail]) => html`<span class="pt">${t ? clock(t) : ""}</span><span class="pw">${what}</span><span class="pd">${detail || ""}</span>`)}</div>`;
+  // A bar of the parts: [seconds, colour], the last one maybe the expected rest (striped).
+  const parts = (list, rest) => {
+    const total = list.reduce((s, p) => s + Math.max(p[0], 0), 0) + (rest || 0);
+    if (total <= 0) return null;
+    return html`<div class="pbar">${list.map(([v, c]) => v > 0 ? html`<i style=${`width:${(v / total * 100).toFixed(2)}%;background:${c}`}></i>` : null)}${rest > 0 ? html`<i class="rest" style=${`width:${(rest / total * 100).toFixed(2)}%`}></i>` : null}</div>`;
+  };
+  const source = (e.availFrom ? `a new input: ${e.availFrom}` : l.wrf ? "GFS at NOAA" : "Open-Meteo's record");
   let body;
-  if (kind === "running") {
-    const j = d.j, x = jobEnd(j, now);
-    const el = now - j.started;
-    body = html`<div class="ph"><b>${l.label}</b><span class=${"ptag" + (x && x.late ? " late" : "")}>${x && x.late ? "running long" : `running · ${j.live ? "live" : "shadow"}`}</span></div>
-      <div class="psub">${j.job} · priority ${j.priority} · started ${clock(j.started)}</div>
-      ${x ? html`<div class="pbar"><i style=${`width:${(x.pct * 100).toFixed(1)}%;background:${x.late ? "var(--wait)" : "var(--home)"}`}></i></div>` : null}
-      ${kv([x ? (x.late ? ["Running", `${Math.round(el / 60)} min · over its usual ${Math.round(x.typ / 60)}`] : ["Done", `~${Math.round(x.pct * 100)}% · ${Math.round(el / 60)} of its usual ${Math.round(x.typ / 60)} min`]) : ["Running", `${Math.round(el / 60)} min (no usual time yet)`],
-        x ? ["Expected end", x.late ? "soon (past its usual time)" : `~${clock(x.end)} ${zoneName()}`] : null,
-        ["CPU now", j.cpu != null ? `${j.cpu}%` : "–"], ["Memory", `${j.mem != null ? GB(j.mem) : "–"} GB${j.need ? ` of the ${(j.need / 1000).toFixed(1)} planned` : ""}`]])}
-      <div class="pspark"><span>↓ ${j.download ? j.download.host : "no download now"}</span><${Spark} values=${j.speeds} w=${150} h=${22} /><b>${MBs(j.net_in || 0)} MB/s</b></div>
-      ${j.download ? html`<div class="plog">${base(j.download.url)}${j.download.done ? " · done" : ""}</div>` : null}`;
-  } else if (kind === "wrf") {
-    const w = d.w || {}, x = wrfEnd(w, now);
-    body = html`<div class="ph"><b>${l.label}</b><span class="ptag wrf">running · at home</span></div>
-      <div class="psub">GFS ${runZ(e.run)} run · started ${w.started ? clock(w.started) : "–"}${x && x.from && w.started && x.from > w.started + 120 ? ` (GFS in hand ${clock(x.from)})` : ""}</div>
-      ${w.progress != null ? html`<div class="pbar"><i style=${`width:${(w.progress * 100).toFixed(1)}%;background:var(--wrf)`}></i></div>` : null}
-      ${kv([w.progress != null ? ["Done", `${Math.round(w.progress * 100)}%${w.model_time ? ` · model time ${w.model_time}` : ""}${w.box ? ` of ${w.box[0]} → ${w.box[1]}` : ""}`] : ["Done", "preparing (GFS, the boxes)"],
-        x ? ["Expected end", `~${clock(x.end)} ${zoneName()} (in ${hrs(x.end - now)})`] : null,
-        x ? ["Computing", dur(now - x.from)] : null,
-        ["CPU now", w.cpu != null ? `${w.cpu}%` : "–"], ["Memory", w.mem != null ? `${GB(w.mem)} GB` : "–"]])}
-      ${w.last_line ? html`<div class="plog">${w.last_line}</div>` : null}`;
-  } else if (kind === "tower") {
-    const t = d.t, from = a != null ? a : t.due && t.start - t.due > 60 ? t.due : t.start;
-    const ran = t.end - Math.max(t.start, from), waited = Math.max(0, t.start - from);
-    body = html`<div class="ph"><b>${l.label}${d.e ? ` · ${runZ(e.run)}` : ""}</b><span class=${"ptag " + (t.exit === 0 || t.ok ? "done" : "bad")}>${t.exit === 0 || t.ok ? "finished · Tower" : "failed · Tower"}</span></div>
-      <div class="psub">${t.job} · ${t.live ? "live (published)" : "shadow (not published)"}</div>
-      ${split(waited, ran, "var(--home)")}
-      ${kv([availRow || (t.avail ? ["Available", `${clock(t.avail)} (a new input: ${t.availFrom})`] : t.due ? ["Due", clock(t.due)] : null),
-        ["Waited, then ran", `${mins(waited)} · ${mins(ran)}`], ["Done", `${clock(t.end)}${a != null ? ` · ${mins(t.end - a)} from available` : ""}`],
-        e.pub ? ["GitHub", `published ${clock(e.pub)}${a != null ? ` · ${mins(e.pub - a)}` : ""}${e.gh && a != null ? ` (waited ${mins(Math.max(0, e.gh.start - a))})` : ""}`] : null,
-        t.cpu != null ? ["This run cost", `${Math.round(t.cpu)} CPU min · ${t.peak ? (t.peak / 1000).toFixed(1) : "–"} GB peak · ${t.net != null ? (t.net / 1000).toFixed(1) : "–"} GB down`] : null])}`;
+  if (kind === "running" || kind === "tower") {
+    // A home run: available, due, started, downloading, processing, done or the expected end.
+    const running = kind === "running";
+    const r = running ? d.j : d.t;
+    const start = r.started || r.start, due = r.due && r.due > 1e9 ? r.due : null;
+    const end = running ? now : r.end;
+    const dl = running ? r.dl : r.dl_s != null ? { busy_s: r.dl_s, mb: r.dl_mb, files: r.dl_files } : null;
+    const from = a != null && a <= start + 60 ? a : r.avail || due || start;
+    const waited = Math.max(0, start - from), ran = Math.max(0, end - start), dls = dl ? Math.min(dl.busy_s, ran) : 0;
+    const je = running ? jobEnd(r, now) : null;
+    const rest = je && !je.late ? je.end - now : 0;
+    const okTag = running ? (je && je.late ? html`<span class="ptag late">running long</span>` : html`<span class="ptag">running · ${r.live ? "live" : "shadow"}</span>`)
+      : html`<span class=${"ptag " + (r.exit === 0 || r.ok ? "done" : "bad")}>${r.exit === 0 || r.ok ? "finished · Tower" : "failed · Tower"}</span>`;
+    body = html`<div class="ph"><b>${l.label}${d.e && e.run ? ` · ${runZ(e.run)}` : ""}</b>${okTag}</div>
+      <div class="psub">${r.job}${r.priority ? ` · priority ${r.priority}` : ""} · ${r.live ? "live (published)" : "shadow (not published)"}</div>
+      ${parts([[waited, "var(--wait)"], [dls, "var(--accent)"], [ran - dls, "var(--home)"]], rest)}
+      ${steps([from !== start ? [from, "available", a != null && from === a ? source : r.avail ? `a new input: ${r.availFrom}` : "due"] : null,
+        due && due > from + 30 && due < start - 30 ? [due, "due", `the scheduler saw it · +${mins(due - from)}`] : null,
+        [start, "started", waited > 30 ? `waited ${mins(waited)}` : "at once"],
+        dl ? [dl.first || null, "downloading", `${secs(dls)} busy · ${(dl.mb / 1000).toFixed(1)} GB · ${dl.files} files`] : [null, "downloading", running ? "nothing yet" : "not recorded (before 22.10)"],
+        [null, "processing", mins(Math.max(0, ran - dls))],
+        running ? (je ? [je.late ? null : je.end, je.late ? "running long" : "expected end", je.late ? `${mins(ran)}, over its usual ${Math.round(je.typ / 60)} min` : `~${Math.round(je.pct * 100)}% · its usual ${Math.round(je.typ / 60)} min`] : [null, "running", mins(ran)])
+          : [end, "done", `${mins(end - from)} from ${from === a ? "available" : "due"}`]])}
+      ${running ? kv([["CPU now", r.cpu != null ? `${r.cpu}%` : "–"], ["Memory", `${r.mem != null ? GB(r.mem) : "–"} GB${r.need ? ` of the ${(r.need / 1000).toFixed(1)} planned` : ""}`]])
+        : kv([e.pub ? ["GitHub", `published ${clock(e.pub)}${a != null ? ` · ${mins(e.pub - a)}` : ""}${e.gh && a != null ? ` (waited ${mins(Math.max(0, e.gh.start - a))})` : ""}`] : null,
+          r.cpu != null ? ["This run cost", `${Math.round(r.cpu)} CPU min · ${r.peak ? (r.peak / 1000).toFixed(1) : "–"} GB peak · ${r.net != null ? (r.net / 1000).toFixed(1) : "–"} GB down`] : null])}
+      ${running ? html`<div class="pspark"><span>↓ ${r.download ? r.download.host : "no download now"}</span><${Spark} values=${r.speeds} w=${150} h=${22} /><b>${MBs(r.net_in || 0)} MB/s</b></div>
+        ${r.download ? html`<div class="plog">${base(r.download.url)}${r.download.done ? " · done" : ""}</div>` : null}` : null}`;
+  } else if (kind === "wrf" || (kind === "wrfdone")) {
+    // WRF: started, waiting for GFS at NOAA, its download, WPS, the model, its end or the expected end.
+    const running = kind === "wrf";
+    const w = running ? (d.w || {}) : {};
+    const t = d.t || {};
+    const ph = (running ? w.phases : t.phases) || {};
+    const start = running ? w.started : t.start;
+    const out = ph.gfs_out, done = ph.gfs_done, model = ph.model || ph.wps || (running ? w.computing_from : null);
+    const end = running ? now : (ph.end || t.end);
+    const x = running ? wrfEnd(w, now) : null;
+    const rest = x ? x.end - now : 0;
+    const waitTo = out || done || model || start;
+    body = html`<div class="ph"><b>${l.label}${e.run ? ` · ${runZ(e.run)}` : ""}</b><span class=${"ptag " + (running ? "wrf" : t.ok ? "done" : "bad")}>${running ? "running · at home" : t.ok ? "finished · at home" : "failed"}</span></div>
+      <div class="psub">GFS ${runZ(e.run)} run · our own model, 1 km</div>
+      ${parts([[waitTo - start, "var(--wait)"], [out && done ? done - out : 0, "var(--accent)"], [model && (done || out) ? model - (done || out) : 0, "var(--gh)"], [model ? end - model : 0, "var(--wrf)"]], rest)}
+      ${steps([[start, "started", "its time (waits there for GFS)"],
+        out ? [out, "GFS out at NOAA", `waited ${mins(out - start)}`] : null,
+        done ? [done, "GFS in hand", ph.gfs_mb ? `${ph.gfs_mb} MB in ${secs(ph.gfs_s)}` : out ? `downloaded in ${secs(done - out)}` : ""] : null,
+        !out && !done && model ? [model, "GFS in hand", `waited and downloaded ${mins(model - start)} (no times in this run's log)`] : null,
+        model ? [model, "computing", ph.wps && ph.model ? `WPS ${secs(ph.model - ph.wps)}, then the model` : ""] : null,
+        running ? (x ? [x.end, "expected end", `${Math.round(x.pct * 100)}% · model time ${w.model_time || "–"}`] : [null, "computing", "the first hours"])
+          : [end, t.ok ? "done" : "failed", `${mins(end - (model || start))} computing`],
+        !running && e.pub ? [e.pub, "published", `${mins(e.pub - (a || start))} from GFS`] : null])}
+      ${running ? kv([["CPU now", w.cpu != null ? `${w.cpu}%` : "–"], ["Memory", w.mem != null ? `${GB(w.mem)} GB` : "–"], w.box ? ["Box", `${w.box[0]} → ${w.box[1]} UTC`] : null]) : null}
+      ${running && w.last_line ? html`<div class="plog">${w.last_line}</div>` : null}`;
   } else {
     const gs = e.gh ? e.gh.start : null, waited = gs != null && a != null ? Math.max(0, gs - a) : 0, run = e.pub && gs != null ? e.pub - Math.max(gs, a ?? gs) : 0;
     body = html`<div class="ph"><b>${l.label} · ${runZ(e.run)}</b><span class="ptag gh">GitHub</span></div>
       <div class="psub">${l.wf || "workflow"} · ${e.pub ? "published" : e.failed ? "failed" : "running"}</div>
-      ${split(waited, run, "var(--gh)")}
-      ${kv([availRow, gs != null ? ["Job started", `${clock(gs)}${a != null ? ` · waited ${mins(waited)} (its schedule)` : ""}`] : ["Job", "its start not known"],
-        e.pub ? ["Published", `${clock(e.pub)}${a != null ? ` · ${mins(e.pub - a)} from available` : ""}`] : null, ["Use", "GitHub doesn't report it per run"]])}`;
+      ${parts([[waited, "var(--wait)"], [run, "var(--gh)"]], 0)}
+      ${steps([a != null ? [a, "available", source] : null,
+        gs != null ? [gs, "job started", a != null ? `waited ${mins(waited)} (its schedule)` : ""] : [null, "job", "its start not known"],
+        e.pub ? [e.pub, "published", a != null ? `${mins(e.pub - a)} from available` : ""] : null])}
+      ${kv([["Use", "GitHub doesn't report it per run"]])}`;
   }
   return html`<div class="bpop" style=${`left:${left}px;top:${top}px`}>${body}</div>`;
 }
@@ -1209,7 +1245,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
     const t = e.tower;
     if (t) {
       const procFrom = a != null ? Math.max(a, t.start) : t.start;
-      out.push(html`<g ...${hov(t.going ? { kind: "wrf", l, e, w: wrf } : { kind: "tower", l, e, t })}>
+      out.push(html`<g ...${hov(t.going ? { kind: "wrf", l, e, w: wrf } : l.wrf ? { kind: "wrfdone", l, e, t } : { kind: "tower", l, e, t })}>
         ${a != null && t.start > a ? html`<rect x=${x(a)} y=${y + 17} width=${w(a, t.start, 1)} height="6" rx="1" fill="var(--wait)"/>` : null}
         <rect x=${x(procFrom)} y=${y + 17} width=${w(procFrom, t.end)} height="6" rx="1" fill=${t.ok ? "var(--home)" : "var(--bad)"} opacity=${t.live ? 1 : 0.55}/>
         ${t.live && t.ok && !t.going ? html`<rect x=${x(l.wrf && e.pub ? e.pub : t.end) - 1} y=${y + 15} width="2.5" height="10" fill="var(--ok)"/>` : null}
@@ -1246,7 +1282,8 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
         ${from ? html`<rect x=${x(from)} y=${y + 17} width=${w(from, r.start, 1)} height="6" rx="1" fill="var(--wait)"/>` : null}
         <rect x=${x(r.start)} y=${y + 17} width=${w(r.start, r.end)} height="6" rx="1" fill=${r.exit === 0 ? "var(--home)" : "var(--bad)"} opacity=${r.live ? 1 : 0.55}/></g>`; })}
       ${l.home && l.home.started ? (() => { const je = jobEnd(l.home, now);
-        return html`<g ...${hov({ kind: "running", l, j: l.home })}><rect x=${x(l.home.started)} y=${y + 17} width=${w(l.home.started, now, 3)} height="6" rx="1" fill="var(--home)" opacity=${l.home.live ? 1 : 0.55}/>
+        const cur = [...l.entries].reverse().find((o) => o.avail != null && o.avail <= l.home.started + 120);
+        return html`<g ...${hov({ kind: "running", l, j: l.home, e: cur })}><rect x=${x(l.home.started)} y=${y + 17} width=${w(l.home.started, now, 3)} height="6" rx="1" fill="var(--home)" opacity=${l.home.live ? 1 : 0.55}/>
           ${je ? (je.late ? expect(y, now, "var(--home)", `${Math.round((now - l.home.started) / 60)} min · over its usual ${Math.round(je.typ / 60)}`, true)
             : expect(y, je.end, "var(--home)", `${Math.round(je.pct * 100)}% · ~${clock(je.end)}`, false)) : null}</g>`; })() : null}
       ${(() => { const out = []; if (l.next) for (let t = l.next; t < t1 && out.length < 30; t += l.cad || 1e9) if (t > now) out.push(html`<path d=${`M${x(t)} ${y + 6} l5 9 -5 9 -5 -9 Z`} fill="none" stroke="var(--faint)"><title>${l.label}: next run expected about ${clock(t)}</title></path>`); return out; })()}
