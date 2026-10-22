@@ -6,6 +6,9 @@ the Tower first, then the Mac mini). Each job: its script and arguments, and whe
   (a source we don't read from that bucket, e.g. ECMWF's own wave files 2 hours later);
 - `every`: minutes between runs, for jobs built from our own published sets (the mixes, the places'
   files) or sources without a run record here.
+- `inputs`: our map sets a job is made from (tiles/<set>/index.json): due as soon as one of them has published since
+  the job last started, `min_gap` minutes after that start at the earliest; `every` stays the latest (the owner,
+  22.10.2026, "D": the mixes waited for their hour while a new model run sat there).
 
 `heavy`: a big job (several GB of memory, long): at most a few at once. `needs`: environment variables it
 can't run without (skipped while missing). `live_needs`: variables it runs without but mustn't go live without
@@ -30,6 +33,8 @@ class Job:
     heavy: bool = False
     needs: list = field(default_factory=list)
     live_needs: list = field(default_factory=list)
+    inputs: list = field(default_factory=list)
+    min_gap: int = 0
     timeout: int = 150
     priority: int = 2
 
@@ -38,6 +43,12 @@ COPERNICUS = ["COPERNICUSMARINE_SERVICE_USERNAME", "COPERNICUSMARINE_SERVICE_PAS
 # HARM-NL comes from KNMI's own API with a key (knmi.py; GitHub's secret). The Tower ran its jobs without it from
 # 21.10 to 22.10.2026, each "Nothing new" in a minute, and the blend left HARM-NL out (the owner, 22.10.2026).
 KNMI = ["KNMI_API_KEY"]
+# The mixes' inputs, as their scripts list them (mix_tiles.py MODELS, weather_mix.py EUROPE and WORLD): kept by hand.
+MIX_INPUTS = ["wrf-tarifa", "metnordic-1km", "dini", "harm-fi", "arome", "icon-d2", "icon-ch1", "harm-nl", "icon-2i", "aladin",
+              "ukmo", "icon-ch2", "arome25", "knmi-eu", "icon-eu", "ecmwf", "gfs"]
+WEATHER_EUROPE_INPUTS = ["metnordic-1km-wx", "dini-wx", "arome-wx", "icon-d2-wx", "icon-ch1-wx", "harm-nl-wx", "icon-2i-wx",
+                         "ukmo", "icon-ch2", "arome25", "knmi-eu", "icon-eu-wx"]
+WEATHER_WORLD_INPUTS = ["icon-eu-wx", "ecmwf", "gfs", "icon", "gdps"]
 # The models regional_tiles.py makes besides MET Nordic: its --only name and Open-Meteo's open-data model (when each
 # run is complete there).
 REGIONAL_MODELS = [("icon-d2", "dwd_icon_d2"), ("dini", "dmi_harmonie_arome_europe"), ("harm-nl", "knmi_harmonie_arome_netherlands"),
@@ -75,11 +86,15 @@ JOBS = [
     Job("nordic-1km", ["metnordic_tiles.py"], watch=[("metno_nordic_pp", 1)], priority=1),
     Job("nordic-1km-wx", ["metnordic_tiles.py", "--set", "weather"], watch=[("metno_nordic_pp", 1)]),
     # Built from our published sets.
-    Job("mix", ["mix_tiles.py"], every=60, heavy=True, priority=1),
+    # On a new input, at most every 20 / 30 minutes (the Mix makes each hour once; the weather mixes' own EVERY is
+    # 30 min); every 60 minutes at the latest. The world mix keeps its hourly look: mix_world.py waits 5 h between runs.
+    Job("mix", ["mix_tiles.py"], every=60, heavy=True, priority=1, inputs=MIX_INPUTS, min_gap=20),
     Job("mix-world", ["mix_world.py"], every=60),
     # Hourly (the owner, 22.10.2026, "option B"): each run remakes about a day of hours, the rest kept while under 3 h.
-    Job("weather-mix-europe", ["weather_mix.py", "europe"], every=60, heavy=True, timeout=240),
-    Job("weather-mix-world", ["weather_mix.py", "world"], every=60, heavy=True, timeout=240, priority=3),
+    Job("weather-mix-europe", ["weather_mix.py", "europe"], every=60, heavy=True, timeout=240,
+        inputs=WEATHER_EUROPE_INPUTS, min_gap=30),
+    Job("weather-mix-world", ["weather_mix.py", "world"], every=60, heavy=True, timeout=240, priority=3,
+        inputs=WEATHER_WORLD_INPUTS, min_gap=30),
     Job("series", ["series_tiles.py"], every=30, priority=1),
     Job("spot-points", ["spot_points.py"], every=30, priority=1),
     # The spots' short runs and ensembles.

@@ -78,6 +78,17 @@ SMALL_MB = 1500
 DRAIN_AFTER = 20 * 60
 # WRF's own memory while it runs here (the Tower's 1 km Tarifa run: 8.4 GB), not counted in the jobs' peaks.
 WRF_MB = int(os.environ.get("MG_WRF_MB", "9000"))
+# Memory by what the machine really has (the owner, 22.10.2026, "A, B, C": 12 h of waits showed 2-2.6 GB left on
+# paper while 11-13 GB were free; each job held its highest peak of 10 runs for its whole run). A job plans for its
+# usual peak (mem_need), starts while the machine really has that and MEM_MARGIN free (less what the jobs started in
+# the last RAMP_S still have to take), and the plans may add up to OVERCOMMIT x the budget outside WRF (1x beside
+# it). A job's container may use its record peak x 1.3 at most (mem_limit; with an oom-score that makes the kernel pick
+# a job before WRF), so a rare double peak stops that one job.
+OVERCOMMIT = float(os.environ.get("MG_OVERCOMMIT", "1.25"))
+MEM_MARGIN = 2000
+RAMP_S = 10 * 60
+JOB_OOM_SCORE = 500
+FILES = "https://files.meteogust.com/"
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUCKET = "https://openmeteo.s3.amazonaws.com/data_spatial/"
 HEARTBEAT = "https://data.meteogust.com/tiles/upload/runner/heartbeat.json"
@@ -215,11 +226,14 @@ _queue_at = [0.0]
 
 def why_kind(why):
     """A waiting job's reason as a word for the record: slots, priority3, memory, behind (a higher priority waits for
-    memory), drain (held for one waiting long), wrf (too big beside WRF), starting."""
+    memory), drain (held for one waiting long), wrf (too big beside WRF), planned (the jobs' plans over their cap while
+    the machine has room), starting."""
     if why.startswith("held:"):
         return "drain"
     if why.startswith("waits for WRF"):
         return "wrf"
+    if why.startswith("waits for planned memory"):
+        return "planned"
     if why.startswith("waits for memory"):
         return "memory"
     if why.startswith("a job of higher priority"):
@@ -285,6 +299,8 @@ def expected(job, state, cache, now, lags):
             if best is None or at < best[0]:
                 best = (at, why)
         return best or (None, "its source's run isn't known yet")
+    if job.every and job.inputs:
+        return mine.get("started", now) + job.every * 60, f"on a new input ({len(job.inputs)} sets), else every {job.every} min"
     if job.every:
         return mine.get("started", now) + job.every * 60, f"every {job.every} min"
     return None, ""
@@ -343,7 +359,13 @@ def due(job, state, cache, now):
             if run > seen and (best is None or run > best):
                 best = run
         return best
-    if job.every and now - mine.get("started", 0) >= job.every * 60:
+    since = now - mine.get("started", 0)
+    # One of its inputs published since it last started (D), its min_gap after that start at the earliest.
+    if job.inputs and mine.get("inputs") and since >= job.min_gap * 60:
+        seen = mine["inputs"]
+        if any(input_stamp(s) not in (None, seen.get(s)) for s in job.inputs):
+            return now
+    if job.every and since >= job.every * 60:
         return now
     return None
 
@@ -356,8 +378,11 @@ def mem_budget():
     return total // 1024 - MEM_SPARE
 
 
-def mem_need(job, _cache={}):
-    """A job's memory (MB): the most of its last 10 runs' peaks and a margin, else a default; read every 10 minutes."""
+def mem_peaks(job, _cache={}):
+    """(usual, limit) of a job's memory (MB) from its last 10 runs' peaks, read every 10 minutes: usual = the 3rd quarter's
+    peak x 1.2 (one outlier left out, not the runs that found nothing new: ecmwf-short's median was 0.1 GB of its 3),
+    never over the most x 1.15 (the plan before; with under 3 runs that); limit = the most x 1.3, and with under 5 runs
+    at least twice the usual (one run says little), never under 1.5 GB; a default while it has none."""
     now = time.time()
     if job.name in _cache and now - _cache[job.name][0] < 600:
         return _cache[job.name][1]
@@ -368,9 +393,56 @@ def mem_need(job, _cache={}):
                 peaks.append(json.loads(line).get("peak_rss_mb") or 0)
     except (OSError, ValueError):
         pass
-    need = int(max(peaks) * 1.15) if peaks and max(peaks) > 0 else MEM_DEFAULT[job.heavy]
-    _cache[job.name] = (now, need)
-    return need
+    peaks = sorted(p for p in peaks if p > 0)
+    if not peaks:
+        value = (MEM_DEFAULT[job.heavy], MEM_DEFAULT[job.heavy] * 2)
+    else:
+        most = peaks[-1] * 1.15
+        usual = min(peaks[len(peaks) * 3 // 4] * 1.2, most) if len(peaks) >= 3 else most
+        limit = max(peaks[-1] * 1.3, usual * (2 if len(peaks) < 5 else 1), 1500)
+        value = (int(usual), int(limit))
+    _cache[job.name] = (now, value)
+    return value
+
+
+def mem_need(job):
+    """A job's planned memory (MB): its usual peak (mem_peaks)."""
+    return mem_peaks(job)[0]
+
+
+def mem_limit(job):
+    """A job's container memory limit (MB): its record peak x 1.3 (mem_peaks)."""
+    return mem_peaks(job)[1]
+
+
+def mem_available():
+    """What the machine really has free now (MB, /proc/meminfo MemAvailable)."""
+    try:
+        with open("/proc/meminfo") as f:
+            return next(int(line.split()[1]) for line in f if line.startswith("MemAvailable")) // 1024
+    except (OSError, StopIteration, ValueError):
+        return None
+
+
+_inputs_seen = {}
+
+
+def input_stamp(set_name):
+    """A map set's last publish ("updated", else its run) from its index (through Cloudflare's 2-minute cache), asked
+    at most every 2 minutes; None when unknown."""
+    seen = _inputs_seen.get(set_name)
+    if seen and time.time() - seen[0] < 120:
+        return seen[1]
+    stamp = None
+    try:
+        request = urllib.request.Request(f"{FILES}tiles/{set_name}/index.json", headers=AGENT)
+        with urllib.request.urlopen(request, timeout=20) as reply:
+            index = json.load(reply)
+        stamp = index.get("updated") or index.get("runName") or index.get("run")
+    except Exception:
+        stamp = seen[1] if seen else None
+    _inputs_seen[set_name] = (time.time(), stamp)
+    return stamp
 
 
 _ids = {}
@@ -416,7 +488,7 @@ def set_shares(names, shares):
 
 
 class Running:
-    def __init__(self, job, live, source, wanted, shares=1024):
+    def __init__(self, job, live, source, wanted, shares=1024, limit_mb=None):
         self.job, self.live, self.source, self.wanted = job, live, source, wanted
         self.sources = {}  # each watched model's newest run as it started
         self.started = time.time()
@@ -431,7 +503,11 @@ class Running:
                    # glibc's per-thread memory pools kept GBs the jobs had freed (the Mix: 5.1 GB process, 2.2 GB in its
                    # caches, 21.10.2026); two pools are enough for their few threads.
                    "-e", "MALLOC_ARENA_MAX=2",
-                   "-v", f"{REPO}:/code", "-v", f"{folder}:/work", "-v", f"{STATS}:/stats"]
+                   "-v", f"{REPO}:/code", "-v", f"{folder}:/work", "-v", f"{STATS}:/stats",
+                   # Out of memory, the kernel takes a job before WRF or the runner.
+                   "--oom-score-adj", str(JOB_OOM_SCORE)]
+        if limit_mb:
+            command += ["--memory", f"{int(limit_mb)}m"]
         if os.path.exists(ENV_FILE):
             command += ["--env-file", ENV_FILE]
         script = ["python", *job.args] + ([] if live else ["--local", "/work/out"])
@@ -561,6 +637,8 @@ def main():
             # Failures in a row (two leave the heartbeat's live list: GitHub runs the job meanwhile).
             mine = state.setdefault(name, {})
             mine["fails"] = 0 if code == 0 else mine.get("fails", 0) + 1
+            # 137: killed (its memory limit, or the timeout); its next run goes without a limit (mem_limit).
+            mine["exit"] = code
             save(STATE, state)
             append(f"{STATS}/_runs.jsonl", {"job": name, "due": round(run.wanted), "start": round(run.started),
                                             "source": round(run.source) if run.source else None,
@@ -601,6 +679,12 @@ def main():
         # A running job counts its plan or what it uses now, whichever is bigger (a job without measured runs is
         # planned at a guess: mix-world at 1.5 GB used 4.0 during WRF, 21.10.2026).
         reserved = sum(max(mem_need(by_name[n]), used_mb(n)) for n in list(running) + others if n in by_name)
+        # What the machine really has for a new job: free now, less what the jobs started in the last RAMP_S still have
+        # to take to reach their usual peak (B).
+        available = mem_available()
+        if available is not None:
+            available -= sum(max(mem_need(r.job) - used_mb(n), 0) for n, r in running.items() if now - r.started < RAMP_S)
+        plan_cap = budget * (1 if wrf else OVERCOMMIT)
         for name in [n for n in _ids if n not in running and n not in others]:
             del _ids[name]
         waiting = None  # the priority of a due job left waiting for memory
@@ -629,13 +713,16 @@ def main():
             if wanted is None:
                 continue
             need = mem_need(job)
+            # Short of real memory (B): only that holds the jobs behind and drains the machine (C); a plan over its cap
+            # alone just waits.
+            short = available is not None and available < need + MEM_MARGIN
             # A small job (SMALL_MB or less, mostly a few minutes) still goes when it fits: holding it back for a
             # bigger job waiting for memory left the spots' jobs queued behind it during WRF (21.10.2026); the drain
             # too holds only the big ones (22.10.2026: it held nine jobs behind the rain nowcast).
             if drain and need > SMALL_MB:
                 waiting_why[job.name] = f"held: making room for {drain} (waiting over {DRAIN_AFTER // 60} min)"
                 continue
-            if waiting is not None and prio(job) > waiting and (need > SMALL_MB or reserved + need > budget):
+            if waiting is not None and prio(job) > waiting and (need > SMALL_MB or short):
                 waiting_why[job.name] = "a job of higher priority waits for memory"
                 continue
             # Too big to fit beside WRF at all (the regional wind's 9.7 GB in 5 GB, 21.10.2026): waits for WRF to end,
@@ -643,23 +730,36 @@ def main():
             if wrf and need > budget:
                 waiting_why[job.name] = f"waits for WRF to end: needs {need / 1000:.1f} GB, {budget / 1000:.1f} for jobs while it runs"
                 continue
-            if busy and reserved + need > budget:
-                waiting_why[job.name] = f"waits for memory: needs {need / 1000:.1f} GB, {max(budget - reserved, 0) / 1000:.1f} free"
+            if busy and short:
+                waiting_why[job.name] = (f"waits for memory: needs {need / 1000:.1f} GB and {MEM_MARGIN / 1000:.0f} spare, "
+                                         f"{max(available, 0) / 1000:.1f} free")
                 if waiting is None:
-                    log(f"{job.name}: due, waiting for memory ({need} MB; {reserved} of {budget} taken)")
+                    log(f"{job.name}: due, waiting for memory ({need} MB + {MEM_MARGIN}; {available} MB really free)")
                 waiting = prio(job) if waiting is None else min(waiting, prio(job))
                 if now - _due_since.get(job.name, now) > DRAIN_AFTER and drain is None:
                     drain = job.name
                     waiting_why[job.name] += f"; nothing new starts until it fits"
                 continue
+            if busy and reserved + need > plan_cap:
+                waiting_why[job.name] = (f"waits for planned memory: needs {need / 1000:.1f} GB, "
+                                         f"{max(plan_cap - reserved, 0) / 1000:.1f} of the plan left")
+                continue
             reserved += need
+            if available is not None:
+                available -= need
             if busy >= MAX_TOTAL:
                 flex_left -= 1
             is_live = job.name in live
-            running[job.name] = Running(job, is_live, wanted if job.watch else None, _due_since.pop(job.name, now),
-                                        LOW_SHARES if wrf else 1024)
             mine = state.setdefault(job.name, {})
+            limit = None if mine.get("exit") == 137 else mem_limit(job)
+            if limit is None:
+                log(f"{job.name}: its last run was killed (137): this one without a memory limit")
+            running[job.name] = Running(job, is_live, wanted if job.watch else None, _due_since.pop(job.name, now),
+                                        LOW_SHARES if wrf else 1024, limit)
             mine["started"] = now
+            if job.inputs:
+                # Its inputs' publishes as it starts: a newer one makes it due again (D).
+                mine["inputs"] = {s: input_stamp(s) for s in job.inputs}
             if job.watch:
                 mine["source"] = wanted
                 # Every watched model's newest run as the job starts (it makes each model's newest it finds).

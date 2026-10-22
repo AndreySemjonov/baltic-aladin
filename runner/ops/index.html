@@ -1029,7 +1029,8 @@ function laneData(maps, fr, f, now, s) {
 
 // The machine band's reasons (the scheduler's queue record, runner/scheduler.py why_kind).
 const WHY = { slots: "all slots busy", priority3: "priority 3 (a slot kept free)", memory: "memory", behind: "behind one waiting for memory",
-  drain: "held for one waiting long", wrf: "too big beside WRF", starting: "starting", "?": "not recorded" };
+  drain: "held for one waiting long", wrf: "too big beside WRF", planned: "the jobs' plans over their cap", starting: "starting",
+  "?": "not recorded" };
 const BAND_H = 196;
 
 // The machine on top of the lanes (the owner, 22.10.2026: "on top we could add a total PC usage graph"; mockup
