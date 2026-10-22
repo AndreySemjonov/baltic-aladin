@@ -44,7 +44,11 @@ def get(url, start=None, end=None):
     if start is not None:
         headers["Range"] = f"bytes={start}-{end}"
     # ECMWF's server limits how fast one asks (429, the world tiles' run of 12.10.2026 08:00):
-    # then waits as it says, or longer each time.
+    # then waits as it says, or longer each time. Throttled twice in a row (429, or AWS's 503 "Slow Down": the
+    # Tower's ECMWF waves of 22.10.2026 09:02 UTC, beside World ECMWF's download from the same mirror), the same file
+    # from the next mirror (sources.ECMWF: the same paths on each).
+    mirrors = [m for m in sources.ECMWF if url.startswith(m)]
+    throttled = 0
     for attempt in range(6):
         try:
             with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=180) as reply:
@@ -52,6 +56,14 @@ def get(url, start=None, end=None):
         except urllib.error.HTTPError as error:
             if attempt == 5 or (error.code != 429 and error.code < 500):
                 raise
+            throttled = throttled + 1 if error.code in (429, 503) else 0
+            if throttled >= 2 and mirrors:
+                here = sources.ECMWF.index(mirrors[0])
+                following = sources.ECMWF[here + 1:] + sources.ECMWF[:here]
+                if following:
+                    url = following[0] + url[len(mirrors[0]):]
+                    mirrors, throttled = [following[0]], 0
+                    continue
             wait = error.headers.get("Retry-After", "") if error.headers else ""
             time.sleep(int(wait) if wait.isdigit() else 20 * (attempt + 1))
         except OSError:

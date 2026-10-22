@@ -654,6 +654,12 @@ def main():
             _arrived.update((a["model"], a["run"]) for a in map(json.loads, f.readlines()[-2000:]))
     except (OSError, ValueError, KeyError):
         pass
+    # When each waiting job became due, from the last LIVE before this start (the ageing counts from it: each reload,
+    # every push of the runner's code, had started it again, so the priority-3 jobs never reached AGE_AFTER and the
+    # seas never ran, 22.10.2026).
+    for w in load(LIVE, {}).get("waiting", []):
+        if w.get("job") and w.get("since"):
+            _due_since.setdefault(w["job"], w["since"])
     running, last_pull, stamp, wrf_was, last_beat, beat_said, last_ops = {}, 0, code_stamp(), None, 0, False, 0
     threading.Thread(target=sampler, daemon=True).start()
     log(f"runner: {len(JOBS)} jobs, at most {MAX_TOTAL} at once ({MAX_HEAVY} heavy), work in {WORK}")

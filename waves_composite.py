@@ -218,6 +218,9 @@ def main():
     args = sys.argv[1:]
     local = args[args.index("--local") + 1] if "--local" in args else None
     limit = int(args[args.index("--hours") + 1]) if "--hours" in args else None
+    # Worker processes (3: GitHub's; the home runner 1: three together peaked at 10.5 GB and were killed out of
+    # memory beside WRF, 22.10.2026; one is ~4 GB and slower).
+    workers = int(args[args.index("--workers") + 1]) if "--workers" in args else 3
     import copernicusmarine
     started = time.time()
     run_time = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
@@ -251,7 +254,7 @@ def main():
     blocks = [targets[i:i + BLOCK] for i in range(0, len(targets), BLOCK)]
     jobs = [(block, keys, {n: set(h) for n, h in have.items()}, ewam_run) for block in blocks]
     # Fresh processes (spawned): forked after the Copernicus toolbox's threads they hung.
-    with ProcessPoolExecutor(3, mp_context=multiprocessing.get_context("spawn")) as pool:
+    with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("spawn")) as pool:
         for results in pool.map(make_block, jobs):
             for t, data, models, failures in results:
                 for name, reason in failures:
