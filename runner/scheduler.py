@@ -747,14 +747,22 @@ def main():
 
         # The riders' first models first (the owner, 21.10.2026: the 00Z/12Z peaks); within a priority the
         # order of jobs.py.
-        for job in sorted(JOBS, key=prio):
+        # Within a priority the job waiting longest first (the owner, 22.10.2026: the seas, aged to a 2 since 09:46 UTC,
+        # still hadn't run at 13:26: with 10-20 jobs waiting all day and one start a minute beyond MAX_TOTAL, the order
+        # of jobs.py always gave it to the same jobs; the end of the list never had a turn). Each skipped one with why.
+        for job in sorted(JOBS, key=lambda j: (prio(j), _due_since.get(j.name, now))):
             busy = len(running) + len(others)
-            if job.name in running or job.name in others or busy >= total_max:
+            if job.name in running or job.name in others:
+                continue
+            if busy >= total_max:
+                waiting_why[job.name] = f"all {total_max} slots busy"
                 continue
             if busy >= MAX_TOTAL and flex_left <= 0:
+                waiting_why[job.name] = f"one more start a minute beyond {MAX_TOTAL} (a new job's load shows the minute after)"
                 continue
             # A slot kept for a 1 or 2 that comes in next minute.
             if prio(job) >= 3 and busy >= total_max - 1:
+                waiting_why[job.name] = "priority 3 waits for a free slot (one kept for 1s and 2s)"
                 continue
             if any(n not in names for n in job.needs):
                 continue
