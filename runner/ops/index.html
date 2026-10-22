@@ -334,6 +334,8 @@ function Top({ f, zone, setZone, tab, fr, cap }) {
       ${behind ? html`<a class="pill bad" href="#freshness" style="text-decoration:none">${behind} model${behind > 1 ? "s" : ""} behind</a>` : null}
       ${f.wrf && f.wrf.running
         ? html`<span class="pill wrf">WRF ${f.wrf.region || ""} running · ${dur(now - (f.wrf.started || now))}</span>`
+        : f.wrf && f.wrf.waiting
+        ? html`<span class="pill">WRF waiting for GFS · since ${clock(f.wrf.started)}</span>`
         : html`<span class="pill">WRF idle · next ${clock((f.wrf && f.wrf.next || [])[0])}</span>`}
       <span class="pill">${busy} of ${f.slots || "?"} job slots${f.wrf && f.wrf.running ? " (1 big job during WRF)" : ""}</span>
       ${waitingMem ? html`<span class="pill warn">${waitingMem} waiting for memory</span>` : null}
@@ -845,7 +847,7 @@ function Warnings(props) {
   const fine = ((ad && ad.feeds) || []).filter((x) => !x.late).length;
   return html`<div class="warnings">
     ${list.map(([k, a, b, href]) => html`<a class=${"w " + k} href=${href}><b>${a}</b> ${b}</a>`)}
-    <a class="w ok" href="#machine">${fine} feeds fine · ${(f.live || []).length} live at home · ${f.wrf && f.wrf.running ? "WRF running" : "WRF next " + clock((f.wrf && f.wrf.next || [])[0])} · heartbeat ${f.beat ? dur(now - f.beat) : "–"}</a>
+    <a class="w ok" href="#machine">${fine} feeds fine · ${(f.live || []).length} live at home · ${f.wrf && f.wrf.running ? "WRF running" : f.wrf && f.wrf.waiting ? "WRF waiting for GFS" : "WRF next " + clock((f.wrf && f.wrf.next || [])[0])} · heartbeat ${f.beat ? dur(now - f.beat) : "–"}</a>
   </div>`;
 }
 
@@ -937,7 +939,8 @@ function laneData(maps, fr, f, now, s) {
       // WRF reads GFS from NOAA, hours before Open-Meteo's record: available is when its log had GFS in hand after
       // waiting for it, else WRF's start (GFS was out by then).
       for (const [a, b, ok, ready, waited, cycle] of pipe.wrf) if (cycle) byRun[cycle] = { run: cycle, avail: waited && ready ? ready : a, early: !waited,
-        tower: { start: a, end: b, ok: ok !== false, going: ok === "going", live: true, job: "wrf", phases: pipe.wrf.find((x) => x[0] === a)?.[6] } };
+        tower: { start: a, end: b, ok: ok !== false, going: ok === "going", waiting: ok === "waiting", live: true, job: "wrf",
+                 phases: pipe.wrf.find((x) => x[0] === a)?.[6] } };
     } else for (const [r, d] of Object.entries(avails)) byRun[+r] = { run: +r, avail: d };
     for (const r of runs) if ((r.published || r.run) >= since) {
       const e = byRun[r.run] = byRun[r.run] || { run: r.run, avail: null };
@@ -1322,7 +1325,11 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
     }
     // The Tower, the lower bar: waiting, then its run (faint: shadow, not published).
     const t = e.tower;
-    if (t) {
+    // WRF started by its task, still waiting for NOAA's GFS (22.10.2026: it showed nothing): a waiting bar to now.
+    if (t && t.waiting) {
+      out.push(html`<g><rect x=${x(t.start)} y=${yt + 17} width=${w(t.start, t.end, 1)} height="6" rx="1" fill="var(--wait)"/>
+        <title>WRF: started ${clock(t.start)}, waiting for GFS at NOAA</title></g>`);
+    } else if (t) {
       const procFrom = a != null ? Math.max(a, t.start) : t.start;
       out.push(html`<g ...${hov(t.going ? { kind: "wrf", l, e, w: wrf } : l.wrf ? { kind: "wrfdone", l, e, t } : { kind: "tower", l, e, t })}>
         ${a != null && t.start > a ? html`<rect x=${x(a)} y=${yt + 17} width=${w(a, t.start, 1)} height="6" rx="1" fill="var(--wait)"/>` : null}

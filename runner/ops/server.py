@@ -453,7 +453,11 @@ def wrf_state():
         took = re.search(r"the run took (\d+) minutes", text)
         if took:
             out["took_min"] = int(took.group(1))
-        out["ended"] = None if running else os.path.getmtime(logs[-1])
+        # Started by its task but still waiting for NOAA's GFS cycle (gfs.py --wait, before WRF's lock; the owner,
+        # 22.10.2026: "no new run scheduled for WRF at 13:15 as before": it showed neither running nor next).
+        out["waiting"] = (not running and "not out yet: waiting" in lines[0] and "the run took" not in text
+                          and "the run failed" not in text and time.time() - os.path.getmtime(logs[-1]) < 600)
+        out["ended"] = None if running or out["waiting"] else os.path.getmtime(logs[-1])
     return out
 
 
@@ -468,12 +472,15 @@ def wrf_runs(since):
         start = datetime.strptime(m.group(1), "%Y%m%dT%H%M").replace(tzinfo=timezone.utc).timestamp()
         end = os.path.getmtime(path)
         text = read(path, "") or ""
-        # The run going now: its log stops changing a few minutes in (the model's progress goes to rsl.out.*).
-        going = path == logs[-1] and wrf_state().get("running") and "the run took" not in text and "the run failed" not in text
-        if going:
+        # The run going now: its log stops changing a few minutes in (the model's progress goes to rsl.out.*); or
+        # still waiting for GFS (wrf_state's "waiting").
+        state = wrf_state() if path == logs[-1] else {}
+        going = path == logs[-1] and state.get("running") and "the run took" not in text and "the run failed" not in text
+        waiting = path == logs[-1] and state.get("waiting")
+        if going or waiting:
             end = time.time()
         if end >= since:
-            out.append((start, end, "going" if going else "the run failed" not in text))
+            out.append((start, end, "going" if going else "waiting" if waiting else "the run failed" not in text))
     return out
 
 
@@ -491,6 +498,15 @@ def wrf_gfs(start):
     c = re.search(r"^GFS (\d{4}-\d\d-\d\d) (\d\d)Z", text, re.M)
     if c:
         cycle = int(datetime.strptime(f"{c[1]} {c[2]}", "%Y-%m-%d %H").replace(tzinfo=timezone.utc).timestamp())
+    else:
+        # Still waiting ("GFS 22 06Z not out yet: waiting"): the cycle it waits for, in the start's month.
+        w = re.search(r"^GFS (\d\d) (\d\d)Z not out yet", text, re.M)
+        if w:
+            day = datetime.fromtimestamp(start, timezone.utc)
+            try:
+                cycle = int(day.replace(day=int(w[1]), hour=int(w[2]), minute=0, second=0, microsecond=0).timestamp())
+            except ValueError:
+                cycle = None
     return ready, "not out yet" in text, cycle
 
 
@@ -617,7 +633,7 @@ class Records:
             if c.get("started"):
                 items.append({"lane": lane(c["job"]), "job": c["job"], "a": c["started"], "b": now, "kind": "run"})
         for a, b, ok in wrf_runs(since):
-            items.append({"lane": "WRF", "job": "wrf", "a": a, "b": b, "kind": "run" if ok == "going" else "wrf" if ok else "bad"})
+            items.append({"lane": "WRF", "job": "wrf", "a": a, "b": b, "kind": "run" if ok in ("going", "waiting") else "wrf" if ok else "bad"})
         wrf_typ = 3.5 * 3600
         for t in wrf_next(now):
             if t < now + 6 * 3600:
@@ -662,7 +678,7 @@ class Records:
             if a.get("done", 0) >= now - 40 * 3600:
                 arrived.setdefault((a["model"], a["run"]), a["done"])
         pipe = {"arrivals": [[m, r, d] for (m, r), d in arrived.items()], "gh": views.GH.pipe(),
-                "wrf": [[round(a), round(b), ok if ok == "going" else bool(ok), *wrf_gfs(a), wrf_phases(a)] for a, b, ok in wrf_runs(now - 36 * 3600)]}
+                "wrf": [[round(a), round(b), ok if ok in ("going", "waiting") else bool(ok), *wrf_gfs(a), wrf_phases(a)] for a, b, ok in wrf_runs(now - 36 * 3600)]}
         self.slow = {"home": home, "pipe": pipe, "t": round(now), "from": round(since), "to": round(now + 6 * 3600), "lanes": [n for n, _ in LANES],
                      "items": items, "arrivals": arr, "runs": recent, "hosts": hosts, "typical": typical,
                      "github_at": round(self.github_at) or None}
