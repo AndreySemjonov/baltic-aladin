@@ -239,6 +239,14 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --net: #e08cc2; --net-soft: rgba(224, 140, 194, .18) } }
 :root[data-theme="dark"] { --net: #e08cc2; --net-soft: rgba(224, 140, 194, .18) }
 .lanes { position: relative }
+/* The machine band pinned under the page's header while the lanes scroll (the owner, 22.10.2026); its own drawing,
+   moved sideways with the lanes'. */
+.bandwrap { position: relative; background: var(--panel) }
+.bandwrap.pinned { position: sticky; top: var(--top-h, 0px); z-index: 4; box-shadow: 0 8px 10px -8px rgba(0, 0, 0, .45) }
+.lanes.bandbox { overflow: hidden }
+.bandwrap .pin { position: absolute; left: 0; top: 0; z-index: 1; font: 600 11px/1 var(--body); padding: 4px 9px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer }
+.bandwrap .pin.on { color: var(--accent); border-color: var(--accent) }
 .btip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
   font-size: 12.5px; line-height: 1.45; box-shadow: 0 6px 20px rgba(0,0,0,.25); width: 300px; z-index: 3 }
 .btip b { font: 600 13px var(--display) }
@@ -1253,6 +1261,18 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
   const step = back <= 6 ? 1 : back <= 12 ? 2 : 3;
   const box = useRef(null);
   const svgRef = useRef(null);
+  // The machine band (and the hours) in a drawing of its own, pinned under the page's header while the lanes scroll
+  // (the owner, 22.10.2026: "as the phone app's forecast keeps its days ... leave always on top the part with usage",
+  // with a switch for it; remembered in this browser, on at first). The same coordinates as the lanes' drawing.
+  const wrapRef = useRef(null), bandRef = useRef(null), bandSvg = useRef(null);
+  const [pinned, setPinnedState] = useState(() => { try { return localStorage.getItem("ops-band-pinned") !== "0"; } catch (e) { return true; } });
+  const setPinned = (v) => { try { localStorage.setItem("ops-band-pinned", v ? "1" : "0"); } catch (e) {} setPinnedState(v); };
+  useEffect(() => {
+    const set = () => { const top = document.querySelector(".top"); document.documentElement.style.setProperty("--top-h", (top ? top.offsetHeight : 0) + "px"); };
+    set();
+    addEventListener("resize", set);
+    return () => removeEventListener("resize", set);
+  }, []);
   const [tip, setTip] = useState(null);
   const [pop, setPop] = useState(null);
   // A bar's popup on hover or tap (data-bar: the band's handler leaves it).
@@ -1270,7 +1290,11 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
     <rect x=${x(Math.max(end, now)) - 1} y=${y + 14} width="2" height="12" fill=${late ? "var(--wait)" : color} opacity=".8"/>
     <text class="eta" x=${x(Math.max(end, now)) + 6} y=${y + 24} style=${`fill:${late ? "var(--warn)" : color}`}>${label}</text>`;
   const wEnd = wrfEnd(wrf, now);
-  useEffect(() => { if (box.current) box.current.scrollLeft = box.current.scrollWidth; }, [back]);
+  useEffect(() => {
+    if (!box.current) return;
+    box.current.scrollLeft = box.current.scrollWidth;
+    if (bandRef.current) bandRef.current.scrollLeft = box.current.scrollLeft;
+  }, [back]);
   const BH = band && band.rows && band.rows.length ? BAND_H : 0;
   // Runs that overlap in a lane get sub-rows (the owner, 22.10.2026: "instead of overlapping, we have multiple rows
   // showing one after another"; mockup pipeline-overlap-2026-10-22): each source's bars (GitHub's, the Tower's) packed
@@ -1382,23 +1406,36 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
   };
   // The band's minute under the pointer (hover, or a tap on a phone).
   const point = (ev) => {
-    if (ev.type === "pointerdown" && !(ev.target && ev.target.closest && ev.target.closest("[data-bar]"))) setPop(null);
-    if (!BH || !svgRef.current || !box.current) return setTip(null);
-    const pt = svgRef.current.createSVGPoint();
+    if (!BH || !bandSvg.current || !wrapRef.current) return setTip(null);
+    const pt = bandSvg.current.createSVGPoint();
     pt.x = ev.clientX; pt.y = ev.clientY;
-    const p = pt.matrixTransform(svgRef.current.getScreenCTM().inverse());
+    const p = pt.matrixTransform(bandSvg.current.getScreenCTM().inverse());
     if (p.x < X0 || p.x > X1 || p.y > 30 + BH - 10) return setTip(null);
     const t = t0 + (p.x - X0) / (X1 - X0) * (t1 - t0);
     const near = band.rows.reduce((a, r) => Math.abs(r[0] - t) < Math.abs(a[0] - t) ? r : a, band.rows[0]);
     if (Math.abs(near[0] - t) > 600) return setTip(null);
-    const b = box.current.getBoundingClientRect();
-    setTip({ row: near, left: Math.min(ev.clientX - b.left + box.current.scrollLeft + 14, box.current.scrollLeft + b.width - 310), top: ev.clientY - b.top + 12 });
+    const b = wrapRef.current.getBoundingClientRect();
+    setTip({ row: near, left: Math.max(4, Math.min(ev.clientX - b.left + 14, b.width - 310)), top: ev.clientY - b.top + 12 });
   };
-  return html`<div class="lanes" ref=${box}><svg ref=${svgRef} viewBox="0 0 ${W} ${H}" role="img" aria-label="Every map's runs from available to published"
+  // A tap off the bars closes a bar's popup.
+  const offBar = (ev) => { if (!(ev.target && ev.target.closest && ev.target.closest("[data-bar]"))) setPop(null); };
+  // Where the lanes begin: above it the hours and the band (the pinned drawing), below the lanes (their drawing, the same
+  // coordinates shown from TOP down).
+  const TOP = 30 + BH - 10;
+  return html`<div class=${"bandwrap" + (pinned ? " pinned" : "")} ref=${wrapRef}>
+    <button class=${"pin" + (pinned ? " on" : "")} onClick=${() => setPinned(!pinned)} aria-pressed=${pinned}
+      title=${pinned ? "The machine band stays on top while you scroll: tap to let it scroll away" : "Keep the machine band on top while you scroll"}>${pinned ? "● Pinned" : "○ Pin"}</button>
+    <div class="lanes bandbox" ref=${bandRef}><svg ref=${bandSvg} viewBox="0 0 ${W} ${TOP}" role="img" aria-label="The machine: CPU, jobs, memory, network"
       onPointerMove=${point} onPointerDown=${point} onPointerLeave=${() => setTip(null)}>
-    ${hours.map((t) => html`<line x1=${x(t)} x2=${x(t)} y1="22" y2=${H - 20} stroke="var(--line)"/>${Math.round(t / 3600) % step === 0 ? html`<text x=${x(t)} y="15" text-anchor="middle">${clock(t)}</text>` : null}`)}
+    ${hours.map((t) => html`<line x1=${x(t)} x2=${x(t)} y1="22" y2=${TOP} stroke="var(--line)"/>${Math.round(t / 3600) % step === 0 ? html`<text x=${x(t)} y="15" text-anchor="middle">${clock(t)}</text>` : null}`)}
     ${BH ? bandLayer(band, x, t0, slots || 4, X0, X1) : null}
     <text x=${X1 + 22} y="15">Tower</text><text x=${X1 + 86} y="15">GitHub</text><text x=${X1 + 150} y="15">skipped</text>
+    <line x1=${x(now)} x2=${x(now)} y1="20" y2=${TOP} stroke="var(--warn)" stroke-width="2"/>
+    ${tip ? html`<line x1=${x(tip.row[0] + 60)} x2=${x(tip.row[0] + 60)} y1="20" y2=${30 + BH - 10} stroke="var(--ink)" opacity=".45"/>` : null}
+    </svg></div>${tip ? html`<${BandTip} band=${band} row=${tip.row} left=${tip.left} top=${tip.top} />` : null}</div>
+  <div class="lanes" ref=${box} onScroll=${() => { if (bandRef.current && box.current) bandRef.current.scrollLeft = box.current.scrollLeft; }}><svg ref=${svgRef} viewBox="0 ${TOP} ${W} ${H - TOP}" role="img" aria-label="Every map's runs from available to published"
+      onPointerDown=${offBar}>
+    ${hours.map((t) => html`<line x1=${x(t)} x2=${x(t)} y1=${TOP} y2=${H - 20} stroke="var(--line)"/>`)}
     ${rows.map(({ g, l, y, lay }) => g ? html`<text class="grp" x="0" y=${y + 16}>${g.toUpperCase()}</text>` : html`<g class=${"row" + (sel === l.name ? " sel" : "")} onClick=${() => setSel(l.name)} style="cursor:pointer">
       <rect class="hit" x="0" y=${y} width=${W} height=${lay.h} fill="transparent" rx="4"/>
       ${l.wrf ? null : html`<text class="src" x=${X0 - 6} y=${y + 14} text-anchor="end">GitHub${lay.kg > 1 ? " ×" + lay.kg : ""}</text>`}
@@ -1425,9 +1462,8 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
       <text class="ours" x=${X1 + 86} y=${y + 19} style=${"fill:var(--muted)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.ghT)}</text>
       ${l.skipped ? html`<text class="ours" x=${X1 + 150} y=${y + 19} style="fill:var(--bad)">${l.skipped} of ${l.offered}</text>` : null}
     </g>`)}
-    <line x1=${x(now)} x2=${x(now)} y1="20" y2=${H - 18} stroke="var(--warn)" stroke-width="2"/><text x=${x(now) + 5} y=${H - 6} style="fill:var(--warn)">now ${clock(now)}</text>
-    ${tip ? html`<line x1=${x(tip.row[0] + 60)} x2=${x(tip.row[0] + 60)} y1="20" y2=${30 + BH - 10} stroke="var(--ink)" opacity=".45"/>` : null}
-  </svg>${tip ? html`<${BandTip} band=${band} row=${tip.row} left=${tip.left} top=${tip.top} />` : null}
+    <line x1=${x(now)} x2=${x(now)} y1=${TOP} y2=${H - 18} stroke="var(--warn)" stroke-width="2"/><text x=${x(now) + 5} y=${H - 6} style="fill:var(--warn)">now ${clock(now)}</text>
+  </svg>
     ${pop ? html`<${BarPop} d=${{ ...pop.d, w: wrf, j: (pop.d.kind === "running" && (lanes.find((o) => o.name === pop.d.l.name) || {}).home) || pop.d.j }}
       now=${now} left=${pop.left} top=${pop.top} />` : null}</div>`;
 }
