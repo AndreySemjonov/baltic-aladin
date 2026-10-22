@@ -24,7 +24,9 @@ def published_nemo_run(nemo):
     try:
         request = urllib.request.Request(f"{FILES}nemo.json?t={int(time.time())}", headers={"User-Agent": nemo.USER_AGENT})
         with urllib.request.urlopen(request, timeout=60) as reply:
-            run = json.load(reply).get("run")
+            published = json.load(reply)
+        # A file from before the gauges' shift (22.10.2026) is made again.
+        run = published.get("run") if "levelShift" in published else None
     except Exception:
         return None
     return run if run and nemo.coast_published(run) else None

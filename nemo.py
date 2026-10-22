@@ -156,7 +156,9 @@ def main():
         published = os.environ.get("WATER_PUBLISHED_NEMO")
     else:
         try:
-            published = json.loads(OUTPUT.read_text(encoding="utf-8")).get("run")
+            previous = json.loads(OUTPUT.read_text(encoding="utf-8"))
+            # A file from before the gauges' shift (22.10.2026) is made again.
+            published = previous.get("run") if "levelShift" in previous else None
         except (OSError, ValueError):
             published = None
     if run == published and not force and (WATER_OUT or coast_published(run)):
