@@ -14,8 +14,10 @@ hourly, ICON-EU-EPS every 6).
 """
 import bz2
 import http.client
+import os
 import re
 import sys
+import tempfile
 import time
 import urllib.request
 from datetime import datetime, timezone
@@ -187,8 +189,9 @@ def eps_members(url):
     """A step's file: every member's accumulated rain (members x cells)."""
     data = bz2.decompress(get(url))
     out = []
-    # eccodes reads from a file: written out first.
-    path = "eps-step.grib2"
+    # eccodes reads from a file: written out first (in the temp folder: at home the working folder is the repository,
+    # mounted into every job; 22.10.2026).
+    path = os.path.join(tempfile.gettempdir(), "eps-step.grib2")
     with open(path, "wb") as file:
         file.write(data)
     with open(path, "rb") as file:
@@ -206,7 +209,7 @@ def eps_members(url):
 
 def eps_coordinate(run, hour, name):
     data = bz2.decompress(get(f"{EPS_BASE}{hour}/{name}/icon-eu-eps_europe_icosahedral_time-invariant_{run}_{name}.grib2.bz2"))
-    path = f"eps-{name}.grib2"
+    path = os.path.join(tempfile.gettempdir(), f"eps-{name}.grib2")
     with open(path, "wb") as file:
         file.write(data)
     with open(path, "rb") as file:
