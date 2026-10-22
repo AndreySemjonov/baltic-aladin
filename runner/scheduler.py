@@ -84,6 +84,10 @@ WRF_MB = int(os.environ.get("MG_WRF_MB", "9000"))
 # the last RAMP_S still have to take), and the plans may add up to OVERCOMMIT x the budget outside WRF (1x beside
 # it). A job's container may use its record peak x 1.3 at most (mem_limit; with an oom-score that makes the kernel pick
 # a job before WRF), so a rare double peak stops that one job.
+# A failed run tried again after RETRY_S, up to RETRIES in a row (the same model run for a watching job), then its
+# usual rhythm (22.10.2026: the waves' first run, killed out of memory at 02:35 UTC, would have waited 12 h; a
+# watching job marked its failed run seen and never made it).
+RETRY_S, RETRIES = 45 * 60, 3
 OVERCOMMIT = float(os.environ.get("MG_OVERCOMMIT", "1.25"))
 MEM_MARGIN = 2000
 RAMP_S = 10 * 60
@@ -287,6 +291,8 @@ def arrivals():
 def expected(job, state, cache, now, lags):
     """When a job not due now should be next (unix), and why, for the panel."""
     mine = state.get(job.name, {})
+    if 0 < mine.get("fails", 0) <= RETRIES and mine.get("started"):
+        return mine["started"] + RETRY_S, f"tried again after a failed run ({mine['fails']} of {RETRIES})"
     if job.watch:
         best = None
         for model, every in job.watch:
@@ -344,6 +350,8 @@ def keep_ops():
 def due(job, state, cache, now):
     """The run (or moment) a job is due for, None when it isn't."""
     mine = state.get(job.name, {})
+    since = now - mine.get("started", 0)
+    retry = 0 < mine.get("fails", 0) <= RETRIES and since >= RETRY_S
     if job.watch:
         best = None
         sources = mine.get("sources") or {}
@@ -359,10 +367,11 @@ def due(job, state, cache, now):
             seen = sources.get(model)
             if seen is None:
                 seen = mine.get("source", 0) if len(job.watch) == 1 else (run if done and done <= mine.get("started", 0) else 0)
-            if run > seen and (best is None or run > best):
+            if (run > seen or (retry and run >= seen)) and (best is None or run > best):
                 best = run
         return best
-    since = now - mine.get("started", 0)
+    if retry:
+        return now
     # One of its inputs published since it last started (D), its min_gap after that start at the earliest.
     if job.inputs and mine.get("inputs") and since >= job.min_gap * 60:
         seen = mine["inputs"]
