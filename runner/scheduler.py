@@ -548,8 +548,33 @@ class Running:
         return code
 
 
+_net_last = [None]
+
+
+def net_rates():
+    """The machine's network in and out (MB/s) since the last call, from /proc/net/dev's real interfaces (eth*, en*,
+    wl*: the containers' traffic goes through them too; docker0 and the veths would count it twice); None the first time
+    (the owner, 22.10.2026: "on top lets show bandwidth utilization too")."""
+    rx = tx = 0
+    try:
+        with open("/proc/net/dev") as f:
+            for line in f.readlines()[2:]:
+                name, data = line.split(":", 1)
+                if name.strip().startswith(("eth", "en", "wl")):
+                    values = data.split()
+                    rx, tx = rx + int(values[0]), tx + int(values[8])
+    except (OSError, ValueError, IndexError):
+        return None, None
+    now = time.time()
+    last, _net_last[0] = _net_last[0], (now, rx, tx)
+    if not last or now <= last[0] or rx < last[1] or tx < last[2]:
+        return None, None
+    dt = now - last[0]
+    return round((rx - last[1]) / dt / 1e6, 2), round((tx - last[2]) / dt / 1e6, 2)
+
+
 def sampler():
-    """Every minute each container's CPU and memory, and the machine's load and free memory."""
+    """Every minute each container's CPU and memory, and the machine's load, free memory and network (MB/s)."""
     while True:
         try:
             out = subprocess.run(["docker", "stats", "--no-stream", "--format", "{{json .}}"], capture_output=True,
@@ -557,9 +582,10 @@ def sampler():
             containers = [json.loads(line) for line in out.splitlines() if line.strip()]
             with open("/proc/meminfo") as f:
                 mem = {line.split(":")[0]: int(line.split()[1]) for line in f}
+            net_in, net_out = net_rates()
             append(f"{STATS}/_samples.jsonl", {
                 "t": round(time.time()), "load": os.getloadavg()[0], "mem_free_mb": mem["MemAvailable"] // 1024,
-                "wrf": wrf_running(),
+                "net_in": net_in, "net_out": net_out, "wrf": wrf_running(),
                 "containers": [{"name": c.get("Name"), "cpu": c.get("CPUPerc"), "mem": c.get("MemUsage")} for c in containers],
             })
         except Exception as error:

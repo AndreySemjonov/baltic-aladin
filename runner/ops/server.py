@@ -133,6 +133,14 @@ class Downloads:
         # 22.10.2026: "available time, waited time, download time, when started"); written to _downloads.jsonl when
         # the run ends (sync).
         self.acc = {}           # job -> {"files", "bytes", "spans": [[t0, t1]], "start"}
+        # The runs going, kept across the server's reloads (each push of its code reloads it: a run going then lost its
+        # downloads, about a quarter of 22.10.2026's showed "not recorded"); saved by sync().
+        try:
+            kept = json.loads(read(f"{STATS}/_downloads_open.json", "{}") or "{}")
+            if time.time() - kept.get("t", 0) < 3600:
+                self.acc = kept.get("acc") or {}
+        except (ValueError, AttributeError):
+            self.acc = {}
         saved = json.loads(read(f"{STATS}/_sources.json", "{}") or "{}")
         if saved.get("day") == self.day:
             self.hosts = saved.get("hosts", {})
@@ -232,6 +240,13 @@ class Downloads:
                 elif not started and (not run["spans"] or now - max(b for _, b in run["spans"]) > 90):
                     done.append((job, run))
                     del self.acc[job]
+            keep = json.dumps({"t": round(now), "acc": self.acc})
+        try:
+            with open(f"{STATS}/_downloads_open.json.tmp", "w") as f:
+                f.write(keep)
+            os.replace(f"{STATS}/_downloads_open.json.tmp", f"{STATS}/_downloads_open.json")
+        except OSError:
+            pass
         for job, run in done:
             if run["start"] and run["spans"]:
                 views.append(f"{STATS}/_downloads.jsonl", {"job": job, "start": round(run["start"]), "files": run["files"],
@@ -661,7 +676,7 @@ class Records:
         for r in home:
             for d in downloads.get(r["job"], []):
                 if abs(d["start"] - r["start"]) < 180:
-                    r["dl_s"], r["dl_mb"], r["dl_files"] = d["busy_s"], d["mb"], d["files"]
+                    r["dl_s"], r["dl_mb"], r["dl_files"], r["dl_first"] = d["busy_s"], d["mb"], d["files"], d.get("first")
                     break
         for r in home:
             for st in stats.get(r["job"], []):
@@ -740,7 +755,7 @@ def band(hours=12):
     """The machine band over the Pipeline (the owner, 22.10.2026: "on top we could add a total PC usage graph", to see
     waiting that the machine doesn't cause): every 2 minutes of the last `hours`, [time, CPU of the jobs %, CPU of WRF %
     (of the threads), memory used GB, jobs running, jobs waiting, WRF on 1/0, {why: count}, [waiting jobs' indexes in
-    `names`], the jobs' memory budget GB]. Why from STATS/_queue.jsonl (the scheduler, from 22.10.2026); before it, the
+    `names`], the jobs' memory budget GB, network in MB/s, out MB/s]. Why from STATS/_queue.jsonl (the scheduler, from 22.10.2026); before it, the
     waits from the runs' due and start, why unknown ("?"). Kept a minute."""
     now = time.time()
     if now - _band["at"] < 60 and _band["hours"] == hours:
@@ -767,8 +782,8 @@ def band(hours=12):
     step = 120
     rows, si, qi = [], 0, 0
     for b in range(int(since // step * step), int(now), step):
-        jobs = wrf = used = 0.0
-        running, count, on = 0, 0, False
+        jobs = wrf = used = net_in = net_out = 0.0
+        running, count, on, net_n = 0, 0, False, 0
         while si < len(samples) and samples[si]["t"] < b + step:
             x = samples[si]
             si += 1
@@ -789,6 +804,8 @@ def band(hours=12):
                     cw += pct
             jobs, wrf = jobs + cj / threads, wrf + cw / threads
             used = max(used, total - (x.get("mem_free_mb") or 0) / 1024)
+            if x.get("net_in") is not None:
+                net_in, net_out, net_n = net_in + x["net_in"], net_out + (x.get("net_out") or 0), net_n + 1
             running = max(running, n)
             on = on or bool(x.get("wrf"))
             count += 1
@@ -812,8 +829,9 @@ def band(hours=12):
                         why["?"] = why.get("?", 0) + 1
                         who.append(ix(job))
             budget = round(total - 1.8 - (9.0 if on else 0), 1)
+        # The machine's network in and out (MB/s, the scheduler's samples from 22.10.2026; None before).
         rows.append([b, round(jobs / count, 1), round(wrf / count, 1), round(used, 1), running, len(who), 1 if on else 0,
-                     why, who, budget])
+                     why, who, budget, round(net_in / net_n, 1) if net_n else None, round(net_out / net_n, 1) if net_n else None])
     data = {"t": round(now), "hours": hours, "step": step, "threads": threads, "total_gb": round(total, 1), "names": names, "rows": rows}
     _band.update(at=now, hours=hours, data=data)
     return data

@@ -234,6 +234,10 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 :root { --room: rgba(214, 69, 69, .16) }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --room: rgba(240, 114, 114, .2) } }
 :root[data-theme="dark"] { --room: rgba(240, 114, 114, .2) }
+/* The machine band's network row (22.10.2026). */
+:root { --net: #b0478a; --net-soft: rgba(176, 71, 138, .16) }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --net: #e08cc2; --net-soft: rgba(224, 140, 194, .18) } }
+:root[data-theme="dark"] { --net: #e08cc2; --net-soft: rgba(224, 140, 194, .18) }
 .lanes { position: relative }
 .btip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
   font-size: 12.5px; line-height: 1.45; box-shadow: 0 6px 20px rgba(0,0,0,.25); width: 300px; z-index: 3 }
@@ -971,7 +975,8 @@ function laneData(maps, fr, f, now, s) {
           || towerRuns.find((t) => JOB_WATCH[t.job] === om && t.source === e.run)
           || towerRuns.filter((t) => JOB_WATCH[t.job] !== om && t.exit === 0 && t.start >= e.avail - 120 && t.start <= e.avail + 3 * 3600)
             .sort((a, b) => a.start - b.start)[0];
-        if (t) { matched.add(t); e.tower = { start: t.start, end: t.end, due: t.due, ok: t.exit === 0, live: t.live, job: t.job, cpu: t.cpu, peak: t.peak, net: t.net }; }
+        if (t) { matched.add(t); e.tower = { start: t.start, end: t.end, due: t.due, ok: t.exit === 0, live: t.live, job: t.job, cpu: t.cpu, peak: t.peak, net: t.net,
+                                             dl_s: t.dl_s, dl_mb: t.dl_mb, dl_files: t.dl_files, dl_first: t.dl_first }; }
       }
       e.ghTime = !wrf && e.avail != null && e.pub ? e.pub - e.avail : null;
       e.towerTime = e.avail == null ? null : wrf ? (e.pub ? e.pub - e.avail : null) : e.tower && e.tower.ok ? e.tower.end - e.avail : null;
@@ -1039,7 +1044,7 @@ function laneData(maps, fr, f, now, s) {
 const WHY = { slots: "all slots busy", priority3: "priority 3 (a slot kept free)", memory: "memory", behind: "behind one waiting for memory",
   drain: "held for one waiting long", wrf: "too big beside WRF", planned: "the jobs' plans over their cap", heavy: "big jobs at their limit", starting: "starting",
   "?": "not recorded" };
-const BAND_H = 196;
+const BAND_H = 246;
 
 // The machine on top of the lanes (the owner, 22.10.2026: "on top we could add a total PC usage graph"; mockup
 // pipeline-machine-band-2026-10-22): CPU (WRF, jobs), jobs running and waiting against the slots, memory against the
@@ -1049,8 +1054,14 @@ function bandLayer(band, x, t0, slots, X0, X1) {
   const top = 24, step = band.step || 120, total = band.total_gb || 25;
   const rows = band.rows.filter((r) => r[0] + step >= t0);
   if (!rows.length) return null;
-  const CPU = [top, top + 56], JOBS = [top + 66, top + 122], MEM = [top + 132, top + 172];
+  const CPU = [top, top + 56], JOBS = [top + 66, top + 122], MEM = [top + 132, top + 172], NET = [top + 182, top + 222];
   const yCpu = (p) => CPU[1] - Math.min(p, 100) / 100 * (CPU[1] - CPU[0]);
+  // The network (the owner, 22.10.2026: "on top lets show bandwidth utilization too"): in as an area, out as a line,
+  // MB/s, scaled to the peak (at least 5 MB/s); rows from before the scheduler's network samples have none.
+  const netRows = rows.filter((r) => r[10] != null);
+  const netPeak = Math.max(5, ...netRows.map((r) => Math.max(r[10], r[11] || 0)));
+  const yNet = (v) => NET[1] - Math.min(v, netPeak) / netPeak * (NET[1] - NET[0]);
+  const netAvg = netRows.length ? netRows.reduce((s, r) => s + r[10], 0) / netRows.length : null;
   const maxJobs = Math.max(8, ...rows.map((r) => r[4] + r[5]));
   const yJobs = (n) => JOBS[1] - n / maxJobs * (JOBS[1] - JOBS[0]);
   const yMem = (g) => MEM[1] - Math.min(g, total) / total * (MEM[1] - MEM[0]);
@@ -1089,7 +1100,14 @@ function bandLayer(band, x, t0, slots, X0, X1) {
     <text x=${X1 + 22} y=${CPU[0] + 14}>avg ${Math.round(avg)}%</text>
     <text x=${X1 + 22} y=${JOBS[0] + 14} style=${room.length ? "fill:var(--bad)" : ""}>${room.length * Math.round(step / 60)} min</text><text x=${X1 + 22} y=${JOBS[0] + 28}>waited with room</text>
     <text x=${X1 + 22} y=${MEM[0] + 14}>peak ${Math.max(...rows.map((r) => r[3])).toFixed(1)} GB</text>
-    <line x1="0" x2=${X1 + 200} y1=${top + 182} y2=${top + 182} stroke="var(--line)"/>
+    ${netRows.length ? html`<path d=${"M" + netRows.map((r) => `${xm(r)},${yNet(0)}L${xm(r)},${yNet(r[10])}`).join("M")} stroke="var(--net-soft)" stroke-width=${Math.max(x(netRows[0][0] + step) - x(netRows[0][0]) - 0.4, 0.8)}/>
+      <path d=${"M" + netRows.map((r) => `${xm(r)},${yNet(r[10])}`).join("L")} fill="none" stroke="var(--net)" stroke-width="1.4"/>
+      <path d=${"M" + netRows.map((r) => `${xm(r)},${yNet(r[11] || 0)}`).join("L")} fill="none" stroke="var(--net)" stroke-width="1" stroke-dasharray="3 3"/>` : null}
+    <text x=${X0 - 6} y=${NET[0] + 8} text-anchor="end">${Math.round(netPeak)} MB/s</text>
+    <text class="grp" x="0" y=${NET[0] + 12}>NETWORK</text><text x="0" y=${NET[0] + 26}>in · out (dashed)</text>
+    <text x=${X1 + 22} y=${NET[0] + 14}>${netAvg != null ? `avg ${netAvg.toFixed(1)} MB/s` : "from 22.10"}</text>
+    ${netRows.length ? html`<text x=${X1 + 22} y=${NET[0] + 28}>peak ${Math.max(...netRows.map((r) => r[10])).toFixed(0)} MB/s in</text>` : null}
+    <line x1="0" x2=${X1 + 200} y1=${top + 232} y2=${top + 232} stroke="var(--line)"/>
   </g>`;
 }
 
@@ -1101,10 +1119,21 @@ function BandTip({ band, row, left, top }) {
     <b>${clock(row[0])} ${zoneName()}</b>${row[6] ? " · WRF running" : ""}<br/>
     <span class="k">CPU</span> ${Math.round(row[1] + row[2])}% (jobs ${Math.round(row[1])}, WRF ${Math.round(row[2])})<br/>
     <span class="k">memory</span> ${row[3].toFixed(1)} of ${total} GB, ${free.toFixed(1)} free · jobs' budget ${row[9]}<br/>
+    ${row[10] != null ? html`<span class="k">network</span> ${row[10]} MB/s in, ${row[11] ?? 0} out<br/>` : null}
     <span class="k">jobs</span> ${row[4]} running, ${row[5]} waiting${who.length ? ": " + who.slice(0, 8).join(", ") + (who.length > 8 ? "…" : "") : ""}<br/>
     ${row[5] ? html`<span class="k">why</span> ${why}<br/>` : null}
     ${roomy(row, total) ? html`<span class="room">waiting with room: the machine wasn't full</span>` : null}
   </div>`;
+}
+
+// The download part of a home run's bar (the owner, 22.10.2026: "make also on bar download indication"): from its first
+// download for its downloads' busy time, within [from, to] (most jobs download, then make; one that alternates shows
+// its total there). A finished run's record (dl_first, dl_s) or a running job's (dl: first, busy_s).
+function dlPart(r, from, to) {
+  const first = r.dl ? r.dl.first : r.dl_first, busy = r.dl ? r.dl.busy_s : r.dl_s;
+  if (!busy || busy < 5) return null;
+  const a = Math.max(first || from, from), b = Math.min(a + busy, to);
+  return b > a ? [a, b] : null;
 }
 
 // A running job's expected end from its usual time (the median of its last 10 runs); WRF's from its model time.
@@ -1158,7 +1187,7 @@ function BarPop({ d, now, left, top }) {
       ${steps([from !== start ? (a != null && from === a ? [from, "available", source] : r.avail && from === r.avail ? [from, "available", `a new input: ${r.availFrom}`] : [from, "due", "the scheduler's time"]) : null,
         due && from !== due && due > from + 30 && due < start - 30 ? [due, "due", `the scheduler saw it · +${mins(due - from)}`] : null,
         [start, "started", waited > 30 ? `waited ${mins(waited)}` : "at once"],
-        dl ? [dl.first || null, "downloading", `${secs(dls)} busy · ${size(dl.mb)} · ${dl.files} files`] : [null, "downloading", running ? "nothing yet" : "not recorded (before 22.10)"],
+        dl ? [dl.first || null, "downloading", `${secs(dls)} busy · ${size(dl.mb)} · ${dl.files} files`] : [null, "downloading", running ? "nothing yet" : "not recorded"],
         [null, "processing", mins(Math.max(0, ran - dls))],
         running ? (je ? [je.late ? null : je.end, je.late ? "running long" : "expected end", je.late ? `${mins(ran)}, over its usual ${Math.round(je.typ / 60)} min` : `~${Math.round(je.pct * 100)}% · its usual ${Math.round(je.typ / 60)} min`] : [null, "running", mins(ran)])
           : [end, "done", `${mins(end - from)} from ${from === a ? "available" : "due"}`]])}
@@ -1345,6 +1374,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
       out.push(html`<g ...${hov(t.going ? { kind: "wrf", l, e, w: wrf } : l.wrf ? { kind: "wrfdone", l, e, t } : { kind: "tower", l, e, t })}>
         ${a != null && t.start > a ? html`<rect x=${x(a)} y=${yt + 17} width=${w(a, t.start, 1)} height="6" rx="1" fill="var(--wait)"/>` : null}
         <rect x=${x(procFrom)} y=${yt + 17} width=${w(procFrom, t.end)} height="6" rx="1" fill=${t.ok ? "var(--home)" : "var(--bad)"} opacity=${t.live ? 1 : 0.55}/>
+        ${((p) => p ? html`<rect x=${x(p[0])} y=${yt + 17} width=${w(p[0], p[1], 1)} height="6" rx="1" fill="var(--accent)" opacity=${t.live ? 1 : 0.7}/>` : null)(l.wrf ? null : dlPart(t, procFrom, t.end))}
         ${t.live && t.ok && !t.going ? html`<rect x=${x(l.wrf && e.pub ? e.pub : t.end) - 1} y=${yt + 15} width="2.5" height="10" fill="var(--ok)"/>` : null}
         ${t.going && wEnd ? expect(yt, wEnd.end, "var(--wrf)", `${Math.round(wEnd.pct * 100)}% · ~${clock(wEnd.end)}`, false) : null}</g>`);
     }
@@ -1380,11 +1410,13 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
         const yt = y + lay.t(r);
         return html`<g ...${hov({ kind: "tower", l, t: r })}>
         ${from ? html`<rect x=${x(from)} y=${yt + 17} width=${w(from, r.start, 1)} height="6" rx="1" fill="var(--wait)"/>` : null}
-        <rect x=${x(r.start)} y=${yt + 17} width=${w(r.start, r.end)} height="6" rx="1" fill=${r.exit === 0 ? "var(--home)" : "var(--bad)"} opacity=${r.live ? 1 : 0.55}/></g>`; })}
+        <rect x=${x(r.start)} y=${yt + 17} width=${w(r.start, r.end)} height="6" rx="1" fill=${r.exit === 0 ? "var(--home)" : "var(--bad)"} opacity=${r.live ? 1 : 0.55}/>
+        ${((p) => p ? html`<rect x=${x(p[0])} y=${yt + 17} width=${w(p[0], p[1], 1)} height="6" rx="1" fill="var(--accent)" opacity=${r.live ? 1 : 0.7}/>` : null)(dlPart(r, r.start, r.end))}</g>`; })}
       ${l.home && l.home.started ? (() => { const je = jobEnd(l.home, now);
         const yt = y + lay.t("home"), ha = l.homeAvail, cur = [...l.entries].reverse().find((o) => o.avail != null && o.avail <= l.home.started + 120);
         return html`<g ...${hov({ kind: "running", l, j: l.home, e: ha ? { ...(cur || {}), ...(ha.run ? l.entries.find((o) => o.run === ha.run) : {}), avail: ha.avail, availFrom: ha.availFrom } : cur })}>
           ${ha && l.home.started > ha.avail ? html`<rect x=${x(ha.avail)} y=${yt + 17} width=${w(ha.avail, l.home.started, 1)} height="6" rx="1" fill="var(--wait)"/>` : null}<rect x=${x(l.home.started)} y=${yt + 17} width=${w(l.home.started, now, 3)} height="6" rx="1" fill="var(--home)" opacity=${l.home.live ? 1 : 0.55}/>
+          ${((p) => p ? html`<rect x=${x(p[0])} y=${yt + 17} width=${w(p[0], p[1], 1)} height="6" rx="1" fill="var(--accent)" opacity=${l.home.live ? 1 : 0.7}/>` : null)(dlPart(l.home, l.home.started, now))}
           ${je ? (je.late ? expect(yt, now, "var(--home)", `${Math.round((now - l.home.started) / 60)} min · over its usual ${Math.round(je.typ / 60)}`, true)
             : expect(yt, je.end, "var(--home)", `${Math.round(je.pct * 100)}% · ~${clock(je.end)}`, false)) : null}</g>`; })() : null}
       ${links(l, y, lay)}
@@ -1498,7 +1530,7 @@ function Pipeline({ maps, fr, f, now, s, cap }) {
       <div class="filters">${RANGES.map(([b]) => html`<span class=${"chip" + (range === b ? " on" : "")} onClick=${() => setRange(b)}>${b} h</span>`)}<span style="width:10px"></span>
         ${chips.map(([k, label]) => html`<span class=${"chip" + (filter === k ? " on" : "")} onClick=${() => setFilter(k)}>${label}</span>`)}</div>
       <${Lanes} lanes=${lanes} now=${now} sel=${sel} setSel=${choose} back=${back} ahead=${ahead} band=${band} slots=${f && f.slots} wrf=${f && f.wrf} />
-      <div class="legend"><span style="--c:var(--wrf)">CPU: WRF</span><span style="--c:var(--home)">CPU: jobs · jobs running</span><span style="--c:var(--wait)">jobs waiting · waiting to start</span><span style="--c:var(--accent)">memory used (dashed: the jobs' budget)</span><span style="--c:var(--room)">waiting with room (CPU &lt; 50%, &gt; 6 GB free)</span></div>
+      <div class="legend"><span style="--c:var(--wrf)">CPU: WRF</span><span style="--c:var(--home)">CPU: jobs · jobs running</span><span style="--c:var(--wait)">jobs waiting · waiting to start</span><span style="--c:var(--accent)">memory used (dashed: the jobs' budget) · a run's downloading</span><span style="--c:var(--net)">network in (dashed: out)</span><span style="--c:var(--room)">waiting with room (CPU &lt; 50%, &gt; 6 GB free)</span></div>
       <div class="legend"><span class="t">▼ run available to us (Open-Meteo's record; a mix: a new input published; a line down: its bars in a lane with more rows)</span><span style="--c:var(--gh)">GitHub (upper bar)</span><span style="--c:var(--home)">Tower (lower bar; faint: shadow, not published)</span>
         <span style="--c:var(--wait)">waiting to start</span><span style="--c:var(--ok)">published</span><span class="t" style="color:var(--bad)">× a source run nobody took</span><span class="t">◇ next run expected</span><span class="t">right: our time, median of 24 h (italic: the job's own time, no "available" moment)</span></div>
       <p class="note" style="margin:8px 0 0">Each bar starts when the run was complete on Open-Meteo's open data, where our jobs read it, and ends when riders could see it. The maker's own time before that is left out. Sooner is better. "Available" is recorded for every model from 21.10.2026 evening; older runs start at GitHub's job.</p>`}
