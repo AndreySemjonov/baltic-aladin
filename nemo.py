@@ -5,7 +5,10 @@ open data, CC BY 4.0, https://keskkonnaportaal.ee/et/avaandmed/ilma-mudelprognoo
 Finds the newest run's surface files (one per day, about 75 MB each) through the agency's
 open data API, reads each spot's nearest sea cell and writes docs/nemo.json: per spot the
 sea surface height (cm above the model's geoid) and the sea surface temperature (°C) for
-every hour. The model covers Estonia and the Gulf of Riga (from about 56.94°N, 21.55°E);
+every hour. The level is put on the gauges' height system (EH2000 = LAS-2000,5, about mean sea
+level) with the water map's shift, NEMO's median difference to the Estonian gauges (about +23 cm:
+the model's geoid sits that far below; the owner, 22.10.2026: the spot page read -18 cm while
+riders kited a shallow lagoon and the map said +9). The model covers Estonia and the Gulf of Riga (from about 56.94°N, 21.55°E);
 spots without a sea cell within 5 km are listed under "outside".
 
     python nemo.py           # newest run, only if it is new
@@ -26,7 +29,7 @@ import h5py
 import numpy as np
 
 import copernicus
-from water_map import WaterMap
+from water_map import NEMO_SHIFT, WaterMap
 
 API = "https://avaandmed.keskkonnaportaal.ee/api/lists/active"
 NEMO = "0102FB02"  # the API's content type of the NEMO files
@@ -196,13 +199,16 @@ def main():
                 for spot_id, (_, j, i) in cells.items():
                     series[spot_id]["level"] += [round(float(v) * 100, 1) if abs(v) < 1e10 else None for v in ssh[:, j, i]]
                     series[spot_id]["temperature"] += [round(float(v), 2) if abs(v) < 1e10 else None for v in sst[:, j, i]]
+    # The water map measured NEMO's shift to the gauges from the run's first file.
+    shift = water.nemo_offset if water and water.nemo_offset is not None else NEMO_SHIFT
     out = {
         "source": "NEMO-EST, Estonian Environment Agency (Keskkonnaagentuur) and TalTech, CC BY 4.0",
         "run": run,
         "made": now.strftime("%Y-%m-%dT%H:%MZ"),
         "start": times[0] if times else None,
         "step": 3600,
-        "units": {"level": "cm above the model's geoid", "temperature": "degC"},
+        "units": {"level": "cm, EH2000 / LAS-2000,5 (the model shifted to the gauges)", "temperature": "degC"},
+        "levelShift": shift,
         "spots": {},
         "outside": [spot["id"] for spot in spots if spot["id"] not in cells],
     }
@@ -212,15 +218,17 @@ def main():
         if spot["id"] not in cells:
             continue
         km, j, i = cells[spot["id"]]
+        levels = [None if v is None else round(v + shift, 1) for v in series[spot["id"]]["level"]]
         out["spots"][spot["id"]] = {"lat": round(float(lats[j]), 4), "lon": round(float(lons[i]), 4), "km": round(km, 1),
-                                    **series[spot["id"]]}
+                                    "level": levels, "temperature": series[spot["id"]]["temperature"]}
     OUTPUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
     # Per point: its hours, level in cm and temperature in tenths of a degree.
     rows, columns = coast_cells
     coast = {"source": out["source"], "run": run, "made": out["made"], "start": out["start"], "step": 3600,
-             "units": {"level": "cm above the model's geoid", "temperature": "degC x 10"},
+             "units": {"level": "cm, EH2000 / LAS-2000,5 (the model shifted to the gauges)", "temperature": "degC x 10"},
+             "levelShift": shift,
              "points": [[round(float(lats[j]), 4), round(float(lons[i]), 4)] for j, i in zip(rows, columns)],
-             "level": [list(x) for x in zip(*coast_level)],
+             "level": [[None if v is None else int(round(v + shift)) for v in x] for x in zip(*coast_level)],
              "temperature": [list(x) for x in zip(*coast_temperature)]}
     COAST_OUTPUT.write_text(json.dumps(coast, separators=(",", ":")) + "\n", encoding="utf-8")
     print(f"NEMO coast: {len(coast['points'])} points, {COAST_OUTPUT.stat().st_size / 1e6:.1f} MB")

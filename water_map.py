@@ -54,6 +54,10 @@ ICE_OUT = Path(os.environ["WATER_OUT"]) / "ice-site" if os.environ.get("WATER_OU
 SOUTH, NORTH, WEST, EAST = metnordic_map.SOUTH, metnordic_map.NORTH, metnordic_map.WEST, metnordic_map.EAST
 BLEND_KM = 20
 NUDGE_KM = 25
+# NEMO-EST's zero is about this far (cm) below the gauges' EH2000: 22.8 over 15 Estonian gauges on
+# 22.10.2026, -20 to -25 at Bērzciems against Copernicus over the whole run. Used when no gauge has
+# hours to measure it.
+NEMO_SHIFT = 22.8
 
 
 def fill_land(sea):
@@ -180,6 +184,8 @@ class WaterMap:
                         pairs.append(value - model * 100)
                 cop_pairs[gid] = pairs
         self.nemo_offset, n = self.median_shift(nemo_pairs)
+        if n == 0 and self.uses_nemo:
+            self.nemo_offset = NEMO_SHIFT
         print(f"Water map: NEMO shifted by {self.nemo_offset} cm ({n} gauges)")
         if self.cop:
             self.cop_offset, n = self.median_shift(cop_pairs)
