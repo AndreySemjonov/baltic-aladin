@@ -370,6 +370,12 @@ def wrf_state():
         m = re.match(r"(\d{8}T\d{4})Z-(\w+)\.log", name)
         if m:
             out["started"] = datetime.strptime(m.group(1), "%Y%m%dT%H%M").replace(tzinfo=timezone.utc).timestamp()
+            # Computing since GFS was in hand (its log's WPS line; the start waits for NOAA): the expected end from it
+            # (the owner, 22.10.2026: progress and the expected finish).
+            try:
+                out["computing_from"] = wrf_gfs(out["started"])[0]
+            except Exception:
+                pass
             out["region"] = m.group(2)
         text = read(logs[-1], "") or ""
         box = re.search(r"1 km box from (\S+) to (\S+)", text)
@@ -555,6 +561,15 @@ class Records:
         # "those runs according github or tower pc?").
         home = [{"job": r["job"], "due": r.get("due"), "start": r["start"], "end": r["end"], "exit": r.get("exit"), "live": bool(r.get("live")),
                  "source": r.get("source"), "sources": r.get("sources")} for r in jsonl(f"{STATS}/_runs.jsonl", 1500) if r.get("end", 0) >= now - 36 * 3600]
+        # Each run's cost from its job's stats (the Pipeline's popup, the owner, 22.10.2026): CPU minutes, peak MB, MB in.
+        stats = {job: jsonl(f"{STATS}/{job}.jsonl", 120) for job in {r["job"] for r in home}}
+        for r in home:
+            for st in stats.get(r["job"], []):
+                if abs((st.get("start") or 0) - r["start"]) < 120:
+                    r["cpu"] = round(((st.get("cpu_user_s") or 0) + (st.get("cpu_sys_s") or 0)) / 60, 1)
+                    r["peak"] = st.get("peak_rss_mb")
+                    r["net"] = round(st.get("net_in_mb") or 0)
+                    break
         # The Pipeline's timeline (the owner, 21.10.2026: "our time", from a run being available to riders seeing it;
         # mockup docs/mockups/pipeline-timeline-2026-10-21.html): each maker's run and when it became complete on
         # Open-Meteo's open data (the first record of each), GitHub's map jobs (start, end), WRF's runs.
