@@ -244,7 +244,10 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 .bandwrap { position: relative; background: var(--panel) }
 .bandwrap.pinned { position: sticky; top: var(--top-h, 0px); z-index: 4; box-shadow: 0 8px 10px -8px rgba(0, 0, 0, .45) }
 .lanes.bandbox { overflow: hidden }
-.bandwrap .pin { position: absolute; left: 0; top: 0; z-index: 1; font: 600 11px/1 var(--body); padding: 4px 9px; border-radius: 999px;
+.bandwrap.pinned { padding-top: 8px; margin-top: -8px }
+.bandhead { display: flex; align-items: flex-start; gap: 12px }
+.bandhead .bandtitle { flex: 1; min-width: 0 }
+.bandwrap .pin { flex: none; font: 600 11px/1 var(--body); padding: 5px 10px; border-radius: 999px;
   border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer }
 .bandwrap .pin.on { color: var(--accent); border-color: var(--accent) }
 .btip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
@@ -1254,7 +1257,7 @@ function BarPop({ d, now, left, top }) {
   return html`<div class="bpop" style=${`left:${left}px;top:${top}px`}>${body}</div>`;
 }
 
-function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
+function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head }) {
   const t0 = now - back * 3600, t1 = now + ahead * 3600, X0 = 244, X1 = 1250, W = 1460, lh = 30, gh = 24, PITCH = 9;
   const x = (t) => X0 + (Math.max(t0, Math.min(t1, t)) - t0) / (t1 - t0) * (X1 - X0);
   const w = (a, b, min = 1.5) => Math.max(x(b) - x(a), min);
@@ -1422,9 +1425,11 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
   // Where the lanes begin: above it the hours and the band (the pinned drawing), below the lanes (their drawing, the same
   // coordinates shown from TOP down).
   const TOP = 30 + BH - 10;
+  // The section's title and filters pinned with it (the owner, 22.10.2026: "lets pin this too"), the switch beside them.
   return html`<div class=${"bandwrap" + (pinned ? " pinned" : "")} ref=${wrapRef}>
+    <div class="bandhead"><div class="bandtitle">${head}</div>
     <button class=${"pin" + (pinned ? " on" : "")} onClick=${() => setPinned(!pinned)} aria-pressed=${pinned}
-      title=${pinned ? "The machine band stays on top while you scroll: tap to let it scroll away" : "Keep the machine band on top while you scroll"}>${pinned ? "● Pinned" : "○ Pin"}</button>
+      title=${pinned ? "The title, filters and machine band stay on top while you scroll: tap to let them scroll away" : "Keep the title, filters and machine band on top while you scroll"}>${pinned ? "● Pinned" : "○ Pin"}</button></div>
     <div class="lanes bandbox" ref=${bandRef}><svg ref=${bandSvg} viewBox="0 0 ${W} ${TOP}" role="img" aria-label="The machine: CPU, jobs, memory, network"
       onPointerMove=${point} onPointerDown=${point} onPointerLeave=${() => setTip(null)}>
     ${hours.map((t) => html`<line x1=${x(t)} x2=${x(t)} y1="22" y2=${TOP} stroke="var(--line)"/>${Math.round(t / 3600) % step === 0 ? html`<text x=${x(t)} y="15" text-anchor="middle">${clock(t)}</text>` : null}`)}
@@ -1561,11 +1566,12 @@ function Pipeline({ maps, fr, f, now, s, cap }) {
       <div><span class="v" style=${skipped ? "color:var(--warn)" : ""}>${skipped}</span><span class="l">runs skipped today of ${offered} offered</span></div>
       <div><span class="v">${sooner} of ${compared.length}</span><span class="l">maps the Tower makes sooner</span></div></div>
     <div class="pipe" style="margin-top:16px">
-    <section class="panel" aria-label="Pipeline"><h2>Every map: from available to published · last ${back} h and next ${ahead} · ${zoneName()} time</h2>
-      ${!maps ? html`<p class="empty">Reading admin's map history…</p>` : html`
-      <div class="filters">${RANGES.map(([b]) => html`<span class=${"chip" + (range === b ? " on" : "")} onClick=${() => setRange(b)}>${b} h</span>`)}<span style="width:10px"></span>
-        ${chips.map(([k, label]) => html`<span class=${"chip" + (filter === k ? " on" : "")} onClick=${() => setFilter(k)}>${label}</span>`)}</div>
-      <${Lanes} lanes=${lanes} now=${now} sel=${sel} setSel=${choose} back=${back} ahead=${ahead} band=${band} slots=${f && f.slots} wrf=${f && f.wrf} />
+    <section class="panel" aria-label="Pipeline">
+      ${!maps ? html`<h2>Every map: from available to published · last ${back} h and next ${ahead} · ${zoneName()} time</h2><p class="empty">Reading admin's map history…</p>` : html`
+      <${Lanes} lanes=${lanes} now=${now} sel=${sel} setSel=${choose} back=${back} ahead=${ahead} band=${band} slots=${f && f.slots} wrf=${f && f.wrf}
+        head=${html`<h2>Every map: from available to published · last ${back} h and next ${ahead} · ${zoneName()} time</h2>
+        <div class="filters">${RANGES.map(([b]) => html`<span class=${"chip" + (range === b ? " on" : "")} onClick=${() => setRange(b)}>${b} h</span>`)}<span style="width:10px"></span>
+          ${chips.map(([k, label]) => html`<span class=${"chip" + (filter === k ? " on" : "")} onClick=${() => setFilter(k)}>${label}</span>`)}</div>`} />
       <div class="legend"><span style="--c:var(--wrf)">CPU: WRF</span><span style="--c:var(--home)">CPU: jobs · jobs running</span><span style="--c:var(--wait)">jobs waiting · waiting to start</span><span style="--c:var(--accent)">memory used (dashed: the jobs' budget) · a run's downloading</span><span style="--c:var(--net)">network in (dashed: out)</span><span style="--c:var(--room)">waiting with room (CPU &lt; 50%, &gt; 6 GB free)</span></div>
       <div class="legend"><span class="t">▼ run available to us (Open-Meteo's record; a mix: a new input published; a line down: its bars in a lane with more rows)</span><span style="--c:var(--gh)">GitHub (upper bar)</span><span style="--c:var(--home)">Tower (lower bar; faint: shadow, not published)</span>
         <span style="--c:var(--wait)">waiting to start</span><span style="--c:var(--ok)">published</span><span class="t" style="color:var(--bad)">× a source run nobody took</span><span class="t">◇ next run expected</span><span class="t">right: our time, median of 24 h (italic: the job's own time, no "available" moment)</span></div>
