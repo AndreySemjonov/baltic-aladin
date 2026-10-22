@@ -201,6 +201,11 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 .feed:first-child { border-top: 0 }
 .feed .sub { display: block; font-size: 12.5px; color: var(--muted) }
 .top nav.tabs { flex: 1; min-width: 0 }
+/* The header's rows as wide as the phone: its column wrapped (a wrapping column's line is as wide as its widest
+   item's content: the tabs' 604 px), so a 375 px phone laid the page out at 620 (the owner, 22.10.2026). */
+.top .wrap { flex-wrap: nowrap } .row1 { min-width: 0 }
+@media (max-width: 639px) { .top nav.tabs { order: 3; flex: 1 0 100% }
+  .clock { white-space: normal; display: flex; flex-wrap: wrap; align-items: center; gap: 6px } .theme { margin-left: 0 } }
 /* Zoomed in, the tabs keep their width and the clock moves to a line of its own; only a phone scrolls them. */
 @media (min-width: 640px) { .top nav.tabs { flex: 1 0 auto } }
 .warnings { display: flex; gap: 8px; flex-wrap: wrap; padding-block: 6px 8px }
@@ -265,12 +270,14 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
   border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer }
 .bandwrap .pin.on { color: var(--accent); border-color: var(--accent) }
 .btip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
-  font-size: 12.5px; line-height: 1.45; box-shadow: 0 6px 20px var(--sh-tip); width: 300px; z-index: 3 }
+  font-size: 12.5px; line-height: 1.45; box-shadow: 0 6px 20px var(--sh-tip); width: 300px; max-width: calc(100% - 8px); z-index: 3 }
 .btip b { font: 600 13px var(--display) }
 /* The bars' popups and the expected ends (22.10.2026; mockup pipeline-progress-popups-2026-10-22). */
 .lanes .eta { font: 600 11px var(--mono) }
+.lanes .cap { paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round }
+.lanes .cap tspan.grp { font: 600 11px var(--display); letter-spacing: .08em }
 .bpop { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
-  width: 380px; font-size: 13px; line-height: 1.4; box-shadow: 0 8px 26px var(--sh-pop); z-index: 4 }
+  width: 380px; max-width: calc(100% - 8px); font-size: 13px; line-height: 1.4; box-shadow: 0 8px 26px var(--sh-pop); z-index: 4 }
 .bpop .ph { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 8px; align-items: baseline } .bpop .ph b { font: 700 16px/1.15 var(--display) }
 .bpop .ptag { font: 600 10.5px/1 var(--body); padding: 3px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: .04em; background: var(--home-soft); color: var(--home); white-space: nowrap }
 .bpop .ptag.wrf { background: var(--wrf-soft); color: var(--wrf) } .bpop .ptag.done { background: var(--ok-soft); color: var(--ok) }
@@ -1091,7 +1098,7 @@ const BAND_H = 246;
 // pipeline-machine-band-2026-10-22): CPU (WRF, jobs), jobs running and waiting against the slots, memory against the
 // jobs' budget, red where jobs waited while the machine had room (CPU under 50%, over 6 GB free).
 const roomy = (r, total) => r[5] > 0 && r[1] + r[2] < 50 && total - r[3] > 6;
-function bandLayer(band, x, t0, slots, X0, X1) {
+function bandLayer(band, x, t0, slots, X0, X1, compact) {
   const top = 24, step = band.step || 120, total = band.total_gb || 25;
   const rows = band.rows.filter((r) => r[0] + step >= t0);
   if (!rows.length) return null;
@@ -1126,29 +1133,39 @@ function bandLayer(band, x, t0, slots, X0, X1) {
     <path d=${area(() => yCpu(0), (r) => yCpu(r[2]))} fill="var(--wrf-soft)"/>
     <path d=${area((r) => yCpu(r[2]), (r) => yCpu(r[1] + r[2]))} fill="var(--home-soft)"/>
     <path d=${"M" + rows.map((r) => `${xm(r)},${yCpu(r[1] + r[2])}`).join("L")} fill="none" stroke="var(--home)" stroke-width="1.3"/>
-    ${[50, 100].map((p) => html`<line x1=${X0} x2=${X1} y1=${yCpu(p)} y2=${yCpu(p)} stroke="var(--line)" stroke-dasharray="3 3"/><text x=${X0 - 6} y=${yCpu(p) + 4} text-anchor="end">${p}%</text>`)}
+    ${[50, 100].map((p) => html`<line x1=${X0} x2=${X1} y1=${yCpu(p)} y2=${yCpu(p)} stroke="var(--line)" stroke-dasharray="3 3"/>${compact ? null : html`<text x=${X0 - 6} y=${yCpu(p) + 4} text-anchor="end">${p}%</text>`}`)}
     ${rows.map((r) => { const a = x(r[0]), w = Math.max(x(r[0] + step) - a - 0.4, 0.8);
       return html`${r[4] ? html`<rect x=${a} y=${yJobs(r[4])} width=${w} height=${JOBS[1] - yJobs(r[4])} fill="var(--home)" opacity=".7"/>` : null}
         ${r[5] ? html`<rect x=${a} y=${yJobs(r[4] + r[5])} width=${w} height=${yJobs(r[4]) - yJobs(r[4] + r[5])} fill="var(--wait)"/>` : null}`; })}
     <line x1=${X0} x2=${X1} y1=${yJobs(slots)} y2=${yJobs(slots)} stroke="var(--ink)" stroke-dasharray="5 4" stroke-width="1.2"/>
-    <text x=${X0 - 6} y=${yJobs(slots) + 4} text-anchor="end">${slots} slots</text><text x=${X0 - 6} y=${JOBS[0] + 8} text-anchor="end">${maxJobs}</text>
     <path d=${"M" + rows.map((r) => `${xm(r)},${yMem(r[3])}`).join("L")} fill="none" stroke="var(--accent)" stroke-width="1.5"/>
     <path d=${"M" + rows.map((r) => `${x(r[0])},${yMem(r[9])}L${x(r[0] + step)},${yMem(r[9])}`).join("L")} fill="none" stroke="var(--accent)" stroke-dasharray="4 3"/>
+    ${compact ? null : html`<text x=${X0 - 6} y=${yJobs(slots) + 4} text-anchor="end">${slots} slots</text><text x=${X0 - 6} y=${JOBS[0] + 8} text-anchor="end">${maxJobs}</text>
     <text x=${X0 - 6} y=${MEM[0] + 8} text-anchor="end">${Math.round(total)} GB</text>
     <text class="grp" x="0" y=${CPU[0] + 12}>CPU</text><text x="0" y=${CPU[0] + 26}>${band.threads} threads</text>
     <text class="grp" x="0" y=${JOBS[0] + 12}>JOBS</text><text x="0" y=${JOBS[0] + 26}>running · waiting</text>
     <text class="grp" x="0" y=${MEM[0] + 12}>MEMORY</text><text x="0" y=${MEM[0] + 26}>used · budget</text>
     <text x=${X1 + 22} y=${CPU[0] + 14}>avg ${Math.round(avg)}%</text>
     <text x=${X1 + 22} y=${JOBS[0] + 14} style=${room.length ? "fill:var(--bad)" : ""}>${room.length * Math.round(step / 60)} min</text><text x=${X1 + 22} y=${JOBS[0] + 28}>waited with room</text>
-    <text x=${X1 + 22} y=${MEM[0] + 14}>peak ${Math.max(...rows.map((r) => r[3])).toFixed(1)} GB</text>
+    <text x=${X1 + 22} y=${MEM[0] + 14}>peak ${Math.max(...rows.map((r) => r[3])).toFixed(1)} GB</text>`}
     ${netRows.length ? html`<path d=${"M" + netRows.map((r) => `${xm(r)},${yNet(0)}L${xm(r)},${yNet(r[10])}`).join("M")} stroke="var(--net-soft)" stroke-width=${Math.max(x(netRows[0][0] + step) - x(netRows[0][0]) - 0.4, 0.8)}/>
       <path d=${"M" + netRows.map((r) => `${xm(r)},${yNet(r[10])}`).join("L")} fill="none" stroke="var(--net)" stroke-width="1.4"/>
       <path d=${"M" + netRows.map((r) => `${xm(r)},${yNet(r[11] || 0)}`).join("L")} fill="none" stroke="var(--net)" stroke-width="1" stroke-dasharray="3 3"/>` : null}
-    <text x=${X0 - 6} y=${NET[0] + 8} text-anchor="end">${Math.round(netPeak)} MB/s</text>
+    ${compact ? (() => {
+      // A phone (the owner, 22.10.2026: "on my phone not looking good"): each row's caption in its top-left, its scale
+      // at the right end, both with a halo so they read over the areas.
+      const cap = (y, title, rest, bad) => html`<text class="cap" x=${X0 + 2} y=${y + 11}><tspan class="grp" style="fill:var(--muted)">${title + " "}</tspan>
+        <tspan style=${bad ? "fill:var(--bad)" : "fill:var(--ink)"}>${rest}</tspan></text>`;
+      const scale = (y, t) => html`<text class="cap" x=${X1 - 2} y=${y + 11} text-anchor="end">${t}</text>`;
+      return html`${cap(CPU[0], "CPU", `${band.threads} threads · avg ${Math.round(avg)}%`)}${scale(CPU[0], "100%")}
+        ${cap(JOBS[0], "JOBS", room.length ? `${room.length * Math.round(step / 60)} min waited with room` : "running · waiting", room.length)}${scale(JOBS[0], `${maxJobs} · ${slots} slots`)}
+        ${cap(MEM[0], "MEMORY", `peak ${Math.max(...rows.map((r) => r[3])).toFixed(1)} GB`)}${scale(MEM[0], `${Math.round(total)} GB`)}
+        ${cap(NET[0], "NETWORK", netAvg != null ? `avg ${netAvg.toFixed(1)} · peak ${Math.max(...netRows.map((r) => r[10])).toFixed(0)} MB/s` : "from 22.10")}${scale(NET[0], `${Math.round(netPeak)} MB/s`)}`;
+    })() : html`<text x=${X0 - 6} y=${NET[0] + 8} text-anchor="end">${Math.round(netPeak)} MB/s</text>
     <text class="grp" x="0" y=${NET[0] + 12}>NETWORK</text><text x="0" y=${NET[0] + 26}>in · out (dashed)</text>
     <text x=${X1 + 22} y=${NET[0] + 14}>${netAvg != null ? `avg ${netAvg.toFixed(1)} MB/s` : "from 22.10"}</text>
-    ${netRows.length ? html`<text x=${X1 + 22} y=${NET[0] + 28}>peak ${Math.max(...netRows.map((r) => r[10])).toFixed(0)} MB/s in</text>` : null}
-    <line x1="0" x2=${X1 + 200} y1=${top + 232} y2=${top + 232} stroke="var(--line)"/>
+    ${netRows.length ? html`<text x=${X1 + 22} y=${NET[0] + 28}>peak ${Math.max(...netRows.map((r) => r[10])).toFixed(0)} MB/s in</text>` : null}`}
+    <line x1="0" x2=${compact ? X1 + 6 : X1 + 200} y1=${top + 232} y2=${top + 232} stroke="var(--line)"/>
   </g>`;
 }
 
@@ -1289,11 +1306,12 @@ function BarPop({ d, now, left, top }) {
 
 const LANES_MIN_W = 760;
 function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head }) {
-  const t0 = now - back * 3600, t1 = now + ahead * 3600, X0 = 244, lh = 30, gh = 24, PITCH = 9;
+  const t0 = now - back * 3600, t1 = now + ahead * 3600, lh = 30, gh = 24, PITCH = 9;
   const box = useRef(null);
   // Drawn at the box's own width, 1:1 (the owner, 22.10.2026: zoomed in, the lanes scrolled sideways; "I want to have
   // zoom in/out"): the names and the right columns keep their size, the hours take the rest, so a zoom makes the text
-  // bigger and the hours narrower. Only under LANES_MIN_W (a phone) do they scroll sideways, as before.
+  // bigger and the hours narrower. Under LANES_MIN_W (a phone, the owner 22.10.2026: "on my phone not looking good")
+  // each lane's name and numbers go on a line above its bars, and the bars take the whole width.
   const [boxW, setBoxW] = useState(0);
   useEffect(() => {
     const measure = () => { if (box.current) setBoxW(Math.floor(box.current.clientWidth)); };
@@ -1304,7 +1322,8 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
     if (ro) ro.observe(box.current);
     return () => { removeEventListener("resize", measure); if (ro) ro.disconnect(); };
   }, []);
-  const W = Math.max(LANES_MIN_W, boxW || 1460), X1 = W - 210;
+  const compact = boxW > 0 && boxW < LANES_MIN_W, NAME_H = compact ? 16 : 0;
+  const W = compact ? boxW : Math.max(LANES_MIN_W, boxW || 1460), X0 = compact ? 6 : 244, X1 = compact ? W - 6 : W - 210;
   const x = (t) => X0 + (Math.max(t0, Math.min(t1, t)) - t0) / (t1 - t0) * (X1 - X0);
   const w = (a, b, min = 1.5) => Math.max(x(b) - x(a), min);
   // The hours' labels at least ~70 px apart (at the usual width: each hour on 6 h, every 2 on 12 h, every 3 on 24 h).
@@ -1314,7 +1333,9 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
   // (the owner, 22.10.2026: "as the phone app's forecast keeps its days ... leave always on top the part with usage",
   // with a switch for it; remembered in this browser, on at first). The same coordinates as the lanes' drawing.
   const wrapRef = useRef(null), bandRef = useRef(null), bandSvg = useRef(null);
-  const [pinned, setPinnedState] = useState(() => { try { return localStorage.getItem("ops-band-pinned") !== "0"; } catch (e) { return true; } });
+  // Pinned at first on a wide screen; on a phone the header and the band would leave the lanes no room, so off there.
+  const [pinned, setPinnedState] = useState(() => { const first = innerWidth >= LANES_MIN_W;
+    try { const v = localStorage.getItem("ops-band-pinned"); return v == null ? first : v !== "0"; } catch (e) { return first; } });
   const setPinned = (v) => { try { localStorage.setItem("ops-band-pinned", v ? "1" : "0"); } catch (e) {} setPinnedState(v); };
   useEffect(() => {
     const set = () => { const top = document.querySelector(".top"); document.documentElement.style.setProperty("--top-h", (top ? top.offsetHeight : 0) + "px"); };
@@ -1337,7 +1358,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
   // A running bar's rest, dashed to its expected end, labelled.
   const expect = (y, end, color, label, late) => html`<line x1=${x(now)} x2=${x(Math.max(end, now))} y1=${y + 20} y2=${y + 20} stroke=${late ? "var(--wait)" : color} stroke-width="3" stroke-dasharray="5 4"/>
     <rect x=${x(Math.max(end, now)) - 1} y=${y + 14} width="2" height="12" fill=${late ? "var(--wait)" : color} opacity=".8"/>
-    <text class="eta" x=${x(Math.max(end, now)) + 6} y=${y + 24} style=${`fill:${late ? "var(--warn)" : color}`}>${label}</text>`;
+    <text class="eta" x=${Math.min(x(Math.max(end, now)) + 6, W - 4 - label.length * 6.8)} y=${y + 24} style=${`fill:${late ? "var(--warn)" : color}`}>${label}</text>`;
   const wEnd = wrfEnd(wrf, now);
   useEffect(() => {
     if (!box.current) return;
@@ -1410,7 +1431,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
     const ls = lanes.filter((l) => l.group === g);
     if (!ls.length) continue;
     rows.push({ g, y }); y += gh;
-    for (const l of ls) { const lay = layout(l); rows.push({ l, y, lay }); y += lay.h; }
+    for (const l of ls) { const lay = layout(l); rows.push({ l, y, lay }); y += lay.h + NAME_H; }
   }
   const H = y + 22;
   const hours = [];
@@ -1478,21 +1499,29 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
       title=${pinned ? "The title, filters and machine band stay on top while you scroll: tap to let them scroll away" : "Keep the title, filters and machine band on top while you scroll"}>${pinned ? "● Pinned" : "○ Pin"}</button></div>
     <div class="lanes bandbox" ref=${bandRef}><svg ref=${bandSvg} viewBox="0 0 ${W} ${TOP}" style=${`min-width:${W}px`} role="img" aria-label="The machine: CPU, jobs, memory, network"
       onPointerMove=${point} onPointerDown=${point} onPointerLeave=${() => setTip(null)}>
-    ${hours.map((t) => html`<line x1=${x(t)} x2=${x(t)} y1="22" y2=${TOP} stroke="var(--line)"/>${Math.round(t / 3600) % step === 0 ? html`<text x=${x(t)} y="15" text-anchor="middle">${clock(t)}</text>` : null}`)}
-    ${BH ? bandLayer(band, x, t0, slots || 4, X0, X1) : null}
-    <text x=${X1 + 22} y="15">Tower</text><text x=${X1 + 86} y="15">GitHub</text><text x=${X1 + 150} y="15">skipped</text>
+    ${hours.map((t) => html`<line x1=${x(t)} x2=${x(t)} y1="22" y2=${TOP} stroke="var(--line)"/>${Math.round(t / 3600) % step === 0 && x(t) > 18 && x(t) < W - 18 ? html`<text x=${x(t)} y="15" text-anchor="middle">${clock(t)}</text>` : null}`)}
+    ${BH ? bandLayer(band, x, t0, slots || 4, X0, X1, compact) : null}
+    ${compact ? null : html`<text x=${X1 + 22} y="15">Tower</text><text x=${X1 + 86} y="15">GitHub</text><text x=${X1 + 150} y="15">skipped</text>`}
     <line x1=${x(now)} x2=${x(now)} y1="20" y2=${TOP} stroke="var(--warn)" stroke-width="2"/>
     ${tip ? html`<line x1=${x(tip.row[0] + 60)} x2=${x(tip.row[0] + 60)} y1="20" y2=${30 + BH - 10} stroke="var(--ink)" opacity=".45"/>` : null}
     </svg></div>${tip ? html`<${BandTip} band=${band} row=${tip.row} left=${tip.left} top=${tip.top} />` : null}</div>
   <div class="lanes" ref=${box} onScroll=${() => { if (bandRef.current && box.current) bandRef.current.scrollLeft = box.current.scrollLeft; }}><svg ref=${svgRef} viewBox="0 ${TOP} ${W} ${H - TOP}" style=${`min-width:${W}px`} role="img" aria-label="Every map's runs from available to published"
       onPointerDown=${offBar}>
     ${hours.map((t) => html`<line x1=${x(t)} x2=${x(t)} y1=${TOP} y2=${H - 20} stroke="var(--line)"/>`)}
-    ${rows.map(({ g, l, y, lay }) => g ? html`<text class="grp" x="0" y=${y + 16}>${g.toUpperCase()}</text>` : html`<g class=${"row" + (sel === l.name ? " sel" : "")} onClick=${() => setSel(l.name)} style="cursor:pointer">
-      <rect class="hit" x="0" y=${y} width=${W} height=${lay.h} fill="transparent" rx="4"/>
-      ${l.wrf ? null : html`<text class="src" x=${X0 - 6} y=${y + 14} text-anchor="end">GitHub${lay.kg > 1 ? " ×" + lay.kg : ""}</text>`}
+    ${rows.map(({ g, l, y: y0, lay }) => { if (g) return html`<text class="grp" x="0" y=${y0 + 16}>${g.toUpperCase()}</text>
+      ${compact ? html`<text class="grp" x=${W} y=${y0 + 16} text-anchor="end"><tspan style="fill:var(--home)">TOWER</tspan> · GITHUB · <tspan style="fill:var(--bad)">SKIPPED</tspan></text>` : null}`;
+      // On a phone the lane's name line, then its bars from y (below it).
+      const y = y0 + NAME_H, dot = l.status === "bad" ? "var(--bad)" : l.status === "proc" ? "var(--accent)" : l.status === "wait" ? "var(--warn)" : "var(--ok)";
+      return html`<g class=${"row" + (sel === l.name ? " sel" : "")} onClick=${() => setSel(l.name)} style="cursor:pointer">
+      <rect class="hit" x="0" y=${y0} width=${W} height=${lay.h + NAME_H} fill="transparent" rx="4"/>
+      ${compact ? html`<circle cx="5" cy=${y0 + 9} r="4" fill=${dot}/>
+      <text class="lname cap" x="14" y=${y0 + 13}>${((n) => l.label.length > n ? l.label.slice(0, n - 1) + "…" : l.label)(
+        Math.max(8, Math.floor((W - 26 - (mins(l.towerT) + " · " + mins(l.ghT) + (l.skipped ? ` · ${l.skipped}/${l.offered}` : "")).length * 7.3) / 6.6)))}</text>
+      <text class="ours cap" x=${W - 2} y=${y0 + 13} text-anchor="end"><tspan style=${"fill:var(--home)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.towerT)}</tspan><tspan style="fill:var(--faint)"> · </tspan><tspan style=${"fill:var(--muted)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.ghT)}</tspan>${l.skipped ? html`<tspan style="fill:var(--bad)"> · ${l.skipped}/${l.offered}</tspan>` : null}</text>`
+      : html`${l.wrf ? null : html`<text class="src" x=${X0 - 6} y=${y + 14} text-anchor="end">GitHub${lay.kg > 1 ? " ×" + lay.kg : ""}</text>`}
       <text class="src" x=${X0 - 6} y=${y + lay.t(null) + 23} text-anchor="end" style="fill:var(--home)">Tower${lay.kt > 1 ? " ×" + lay.kt : ""}</text>
-      <circle cx="8" cy=${y + 15} r="4" fill=${l.status === "bad" ? "var(--bad)" : l.status === "proc" ? "var(--accent)" : l.status === "wait" ? "var(--warn)" : "var(--ok)"}/>
-      <text class="lname" x="18" y=${y + 19}>${l.label.length > 28 ? l.label.slice(0, 27) + "…" : l.label}</text>
+      <circle cx="8" cy=${y + 15} r="4" fill=${dot}/>
+      <text class="lname" x="18" y=${y + 19}>${l.label.length > 28 ? l.label.slice(0, 27) + "…" : l.label}</text>`}
       ${l.entries.map((e) => entry(l, e, y, lay))}
       ${l.loose.filter((r) => r.end >= t0 && r.start <= t1).map((r) => { const from = r.avail || (r.due && r.start - r.due > 60 ? r.due : null);
         const yt = y + lay.t(r);
@@ -1509,10 +1538,10 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
             : expect(yt, je.end, "var(--home)", `${Math.round(je.pct * 100)}% · ~${clock(je.end)}`, false)) : null}</g>`; })() : null}
       ${links(l, y, lay)}
       ${(() => { const out = []; if (l.next) for (let t = l.next; t < t1 && out.length < 30; t += l.cad || 1e9) if (t > now) out.push(html`<path d=${`M${x(t)} ${y + 6} l5 9 -5 9 -5 -9 Z`} fill="none" stroke="var(--faint)"><title>${l.label}: next run expected about ${clock(t)}</title></path>`); return out; })()}
-      <text class="ours" x=${X1 + 22} y=${y + 19} style=${"fill:var(--home)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.towerT)}</text>
+      ${compact ? null : html`<text class="ours" x=${X1 + 22} y=${y + 19} style=${"fill:var(--home)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.towerT)}</text>
       <text class="ours" x=${X1 + 86} y=${y + 19} style=${"fill:var(--muted)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.ghT)}</text>
-      ${l.skipped ? html`<text class="ours" x=${X1 + 150} y=${y + 19} style="fill:var(--bad)">${l.skipped} of ${l.offered}</text>` : null}
-    </g>`)}
+      ${l.skipped ? html`<text class="ours" x=${X1 + 150} y=${y + 19} style="fill:var(--bad)">${l.skipped} of ${l.offered}</text>` : null}`}
+    </g>`; })}
     <line x1=${x(now)} x2=${x(now)} y1=${TOP} y2=${H - 18} stroke="var(--warn)" stroke-width="2"/><text x=${x(now) + 5} y=${H - 6} style="fill:var(--warn)">now ${clock(now)}</text>
   </svg>
     ${pop ? html`<${BarPop} d=${{ ...pop.d, w: wrf, j: (pop.d.kind === "running" && (lanes.find((o) => o.name === pop.d.l.name) || {}).home) || pop.d.j }}
