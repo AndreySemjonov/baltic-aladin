@@ -204,6 +204,15 @@ class GithubRuns:
                 self.page = {r["id"] for r in newest}
             except Exception:
                 pass
+            # A run that fell off the newest page while in progress never got its end (the weather mix's 21:48 run
+            # read "going" for 7 h in the Pipeline, 22.10.2026): asked for by itself, a few each refresh.
+            if self.page:
+                stale = [k for k, v in self.runs.items() if v[4] in ("in_progress", "queued") and k not in self.page]
+                for k in stale[:8]:
+                    try:
+                        self.take([fetch(f"{GITHUB_RUNS}/{k}")])
+                    except Exception:
+                        break
             cut = time.time() - 40 * 3600
             self.runs = {k: v for k, v in self.runs.items() if (v[2] or 0) >= cut}
             try:

@@ -228,6 +228,7 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 .lanes .grp { font: 600 11px var(--display); letter-spacing: .08em; fill: var(--muted) }
 .lanes .ours { font: 600 12px var(--mono) }
 .lanes .skip { fill: var(--bad); font: 700 12px var(--body) }
+.lanes .src { font: 500 9.5px var(--body); fill: var(--gh) }
 .legend span.t::before { display: none }
 /* The machine band (22.10.2026): waiting with room, its tooltip. */
 :root { --room: rgba(214, 69, 69, .16) }
@@ -952,7 +953,10 @@ function laneData(maps, fr, f, now, s) {
         const near = (g) => g[3] == null ? 1e9 : g[3] >= e.pub - 60 ? g[3] - e.pub : 1e8;
         const g = e.pub ? ghRuns.filter((g) => g[2] <= e.pub + 60 && (g[3] == null || g[3] >= e.pub - 120))
             .sort((a, b) => Math.abs(near(a)) - Math.abs(near(b)))[0]
-          : e.avail != null ? ghRuns.find((g) => g[3] == null && g[2] >= e.avail - 120) : null;
+          // A job going now is the newest available run's: an older unpublished run was passed over (MET Nordic 1 km's
+          // 14Z claimed it on 22.10.2026, an 11 h "wait" and no "not taken" mark).
+          : e.avail != null ? ghRuns.find((g) => g[3] == null && g[2] >= e.avail - 120
+            && !entries.some((o) => o.run > e.run && o.avail != null && o.avail <= g[2] + 120)) : null;
         if (g) e.gh = { start: g[2], end: g[3] };
       }
       // The Tower's: a job that watches this model, its run made from this source run; the others ride along (the
@@ -1184,7 +1188,7 @@ function BarPop({ d, now, left, top }) {
 }
 
 function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
-  const t0 = now - back * 3600, t1 = now + ahead * 3600, X0 = 210, X1 = 1250, W = 1460, lh = 30, gh = 24;
+  const t0 = now - back * 3600, t1 = now + ahead * 3600, X0 = 244, X1 = 1250, W = 1460, lh = 30, gh = 24, PITCH = 9;
   const x = (t) => X0 + (Math.max(t0, Math.min(t1, t)) - t0) / (t1 - t0) * (X1 - X0);
   const w = (a, b, min = 1.5) => Math.max(x(b) - x(a), min);
   const step = back <= 6 ? 1 : back <= 12 ? 2 : 3;
@@ -1209,20 +1213,56 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
   const wEnd = wrfEnd(wrf, now);
   useEffect(() => { if (box.current) box.current.scrollLeft = box.current.scrollWidth; }, [back]);
   const BH = band && band.rows && band.rows.length ? BAND_H : 0;
+  // Runs that overlap in a lane get sub-rows (the owner, 22.10.2026: "instead of overlapping, we have multiple rows
+  // showing one after another"; mockup pipeline-overlap-2026-10-22): each source's bars (GitHub's, the Tower's) packed
+  // into the fewest rows, a run into the first row free by its start; a lane grows 9 px a row while an overlap is in view.
+  const sec = (t1 - t0) / (X1 - X0), labelEnd = (end, label) => Math.max(end, now) + (label.length * 6.8 + 10) * sec;
+  const runningLabel = (je) => je && (je.late ? `${Math.round((now - je.start) / 60)} min · over its usual ${Math.round(je.typ / 60)}` : `${Math.round(je.pct * 100)}% · ~${clock(je.end)}`);
+  const layout = (l) => {
+    const gb = [], tb = [];
+    for (const e of l.entries) {
+      const a = e.avail;
+      const end = Math.max(e.pub || 0, e.tower ? e.tower.end : 0, e.gh ? e.gh.end || now : 0, a || 0);
+      if (end < t0 || (a || e.pub || e.run) > t1 || e.skipped) continue;
+      if (!l.wrf) {
+        const gs = e.gh ? e.gh.start : null, ge = e.pub || (e.gh && e.gh.end == null ? now : null);
+        const to = ge || (a != null && now - a < 3 * 3600 ? now : null);
+        if (to) gb.push({ key: e, from: a != null ? a : gs != null ? gs : to, to });
+      }
+      const t = e.tower;
+      if (t) tb.push({ key: e, from: a != null ? Math.min(a, t.start) : t.start,
+        to: t.going && wEnd ? labelEnd(wEnd.end, `${Math.round(wEnd.pct * 100)}% · ~${clock(wEnd.end)}`) : t.end });
+    }
+    for (const r of l.loose) if (r.end >= t0 && r.start <= t1) tb.push({ key: r, from: r.avail || (r.due && r.start - r.due > 60 ? r.due : r.start), to: r.end });
+    if (l.home && l.home.started) { const je = jobEnd(l.home, now);
+      tb.push({ key: "home", from: l.home.started, to: je ? labelEnd(je.late ? now : je.end, runningLabel({ ...je, start: l.home.started })) : now }); }
+    const pack = (list) => {
+      const ends = [], at = new Map();
+      list.sort((p, q) => Math.max(p.from, t0) - Math.max(q.from, t0) || p.to - q.to);
+      for (const b of list) {
+        let k = ends.findIndex((e) => e + 3 * sec <= Math.max(b.from, t0));
+        if (k < 0) { k = ends.length; ends.push(0); }
+        ends[k] = b.to; at.set(b.key, k);
+      }
+      return [Math.max(1, ends.length), at];
+    };
+    const [kg, gAt] = pack(gb), [kt, tAt] = pack(tb);
+    return { kg, kt, g: (key) => PITCH * (gAt.get(key) || 0), t: (key) => PITCH * (kg - 1 + (tAt.get(key) || 0)), h: lh + PITCH * (kg + kt - 2) };
+  };
   const rows = [];
   let y = 30 + BH;
   for (const g of GROUPS) {
     const ls = lanes.filter((l) => l.group === g);
     if (!ls.length) continue;
     rows.push({ g, y }); y += gh;
-    for (const l of ls) { rows.push({ l, y }); y += lh; }
+    for (const l of ls) { const lay = layout(l); rows.push({ l, y, lay }); y += lay.h; }
   }
   const H = y + 22;
   const hours = [];
   for (let t = Math.ceil(t0 / 3600) * 3600; t <= t1; t += 3600) hours.push(t);
   const runTip = (l, e) => `${l.label} ${runZ(e.run)}${e.avail != null ? ` · available ${clock(e.avail)}` : ""}`;
-  const entry = (l, e, y) => {
-    const a = e.avail, out = [];
+  const entry = (l, e, y, lay) => {
+    const a = e.avail, out = [], yg = y + lay.g(e), yt = y + lay.t(e);
     const end = Math.max(e.pub || 0, e.tower ? e.tower.end : 0, e.gh ? e.gh.end || now : 0, a || 0);
     if (end < t0 || (a || e.pub || e.run) > t1) return out;
     if (a != null) out.push(html`<path d=${`M${x(a) - 4} ${y + 1} L${x(a) + 4} ${y + 1} L${x(a)} ${y + 6} Z`} fill="var(--muted)"><title>${runTip(l, e)} (${e.availFrom ? `a new input: ${e.availFrom} published` : l.wrf ? (e.early ? "GFS was already out at NOAA when WRF started" : "GFS out at NOAA: WRF had waited for it") : "Open-Meteo's record"})</title></path>`);
@@ -1236,21 +1276,21 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
       const from = a != null ? a : gs;
       if (from != null && ge) {
         const procFrom = gs != null && a != null ? Math.max(gs, a) : from;
-        out.push(html`<g ...${hov({ kind: "gh", l, e })}>${a != null && procFrom > a ? html`<rect x=${x(a)} y=${y + 8} width=${w(a, procFrom, 1)} height="6" rx="1" fill="var(--wait)"/>` : null}
-          <rect x=${x(procFrom)} y=${y + 8} width=${w(procFrom, ge)} height="6" rx="1" fill=${e.failed ? "var(--bad)" : "var(--gh)"} opacity=${gs == null && a != null ? 0.35 : 1}/>
-          ${e.pub ? html`<rect x=${x(e.pub) - 1} y=${y + 6} width="2.5" height="10" fill="var(--ok)"/>` : null}</g>`);
-      } else if (e.pub) out.push(html`<g ...${hov({ kind: "gh", l, e })}><rect x=${x(e.pub) - 1} y=${y + 6} width="2.5" height="10" fill="var(--ok)"/></g>`);
-      else if (a != null && now - a < 3 * 3600) out.push(html`<g ...${hov({ kind: "gh", l, e })}><rect x=${x(a)} y=${y + 8} width=${w(a, now, 1)} height="6" rx="1" fill="var(--wait)"/></g>`);
+        out.push(html`<g ...${hov({ kind: "gh", l, e })}>${a != null && procFrom > a ? html`<rect x=${x(a)} y=${yg + 8} width=${w(a, procFrom, 1)} height="6" rx="1" fill="var(--wait)"/>` : null}
+          <rect x=${x(procFrom)} y=${yg + 8} width=${w(procFrom, ge)} height="6" rx="1" fill=${e.failed ? "var(--bad)" : "var(--gh)"} opacity=${gs == null && a != null ? 0.35 : 1}/>
+          ${e.pub ? html`<rect x=${x(e.pub) - 1} y=${yg + 6} width="2.5" height="10" fill="var(--ok)"/>` : null}</g>`);
+      } else if (e.pub) out.push(html`<g ...${hov({ kind: "gh", l, e })}><rect x=${x(e.pub) - 1} y=${yg + 6} width="2.5" height="10" fill="var(--ok)"/></g>`);
+      else if (a != null && now - a < 3 * 3600) out.push(html`<g ...${hov({ kind: "gh", l, e })}><rect x=${x(a)} y=${yg + 8} width=${w(a, now, 1)} height="6" rx="1" fill="var(--wait)"/></g>`);
     }
     // The Tower, the lower bar: waiting, then its run (faint: shadow, not published).
     const t = e.tower;
     if (t) {
       const procFrom = a != null ? Math.max(a, t.start) : t.start;
       out.push(html`<g ...${hov(t.going ? { kind: "wrf", l, e, w: wrf } : l.wrf ? { kind: "wrfdone", l, e, t } : { kind: "tower", l, e, t })}>
-        ${a != null && t.start > a ? html`<rect x=${x(a)} y=${y + 17} width=${w(a, t.start, 1)} height="6" rx="1" fill="var(--wait)"/>` : null}
-        <rect x=${x(procFrom)} y=${y + 17} width=${w(procFrom, t.end)} height="6" rx="1" fill=${t.ok ? "var(--home)" : "var(--bad)"} opacity=${t.live ? 1 : 0.55}/>
-        ${t.live && t.ok && !t.going ? html`<rect x=${x(l.wrf && e.pub ? e.pub : t.end) - 1} y=${y + 15} width="2.5" height="10" fill="var(--ok)"/>` : null}
-        ${t.going && wEnd ? expect(y, wEnd.end, "var(--wrf)", `${Math.round(wEnd.pct * 100)}% · ~${clock(wEnd.end)}`, false) : null}</g>`);
+        ${a != null && t.start > a ? html`<rect x=${x(a)} y=${yt + 17} width=${w(a, t.start, 1)} height="6" rx="1" fill="var(--wait)"/>` : null}
+        <rect x=${x(procFrom)} y=${yt + 17} width=${w(procFrom, t.end)} height="6" rx="1" fill=${t.ok ? "var(--home)" : "var(--bad)"} opacity=${t.live ? 1 : 0.55}/>
+        ${t.live && t.ok && !t.going ? html`<rect x=${x(l.wrf && e.pub ? e.pub : t.end) - 1} y=${yt + 15} width="2.5" height="10" fill="var(--ok)"/>` : null}
+        ${t.going && wEnd ? expect(yt, wEnd.end, "var(--wrf)", `${Math.round(wEnd.pct * 100)}% · ~${clock(wEnd.end)}`, false) : null}</g>`);
     }
     return out;
   };
@@ -1273,20 +1313,23 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
     ${hours.map((t) => html`<line x1=${x(t)} x2=${x(t)} y1="22" y2=${H - 20} stroke="var(--line)"/>${Math.round(t / 3600) % step === 0 ? html`<text x=${x(t)} y="15" text-anchor="middle">${clock(t)}</text>` : null}`)}
     ${BH ? bandLayer(band, x, t0, slots || 4, X0, X1) : null}
     <text x=${X1 + 22} y="15">Tower</text><text x=${X1 + 86} y="15">GitHub</text><text x=${X1 + 150} y="15">skipped</text>
-    ${rows.map(({ g, l, y }) => g ? html`<text class="grp" x="0" y=${y + 16}>${g.toUpperCase()}</text>` : html`<g class=${"row" + (sel === l.name ? " sel" : "")} onClick=${() => setSel(l.name)} style="cursor:pointer">
-      <rect class="hit" x="0" y=${y} width=${W} height=${lh} fill="transparent" rx="4"/>
+    ${rows.map(({ g, l, y, lay }) => g ? html`<text class="grp" x="0" y=${y + 16}>${g.toUpperCase()}</text>` : html`<g class=${"row" + (sel === l.name ? " sel" : "")} onClick=${() => setSel(l.name)} style="cursor:pointer">
+      <rect class="hit" x="0" y=${y} width=${W} height=${lay.h} fill="transparent" rx="4"/>
+      ${l.wrf ? null : html`<text class="src" x=${X0 - 6} y=${y + 14} text-anchor="end">GitHub${lay.kg > 1 ? " ×" + lay.kg : ""}</text>`}
+      <text class="src" x=${X0 - 6} y=${y + lay.t(null) + 23} text-anchor="end" style="fill:var(--home)">Tower${lay.kt > 1 ? " ×" + lay.kt : ""}</text>
       <circle cx="8" cy=${y + 15} r="4" fill=${l.status === "bad" ? "var(--bad)" : l.status === "proc" ? "var(--accent)" : l.status === "wait" ? "var(--warn)" : "var(--ok)"}/>
       <text class="lname" x="18" y=${y + 19}>${l.label.length > 28 ? l.label.slice(0, 27) + "…" : l.label}</text>
-      ${l.entries.map((e) => entry(l, e, y))}
+      ${l.entries.map((e) => entry(l, e, y, lay))}
       ${l.loose.filter((r) => r.end >= t0 && r.start <= t1).map((r) => { const from = r.avail || (r.due && r.start - r.due > 60 ? r.due : null);
+        const yt = y + lay.t(r);
         return html`<g ...${hov({ kind: "tower", l, t: r })}>
-        ${from ? html`<rect x=${x(from)} y=${y + 17} width=${w(from, r.start, 1)} height="6" rx="1" fill="var(--wait)"/>` : null}
-        <rect x=${x(r.start)} y=${y + 17} width=${w(r.start, r.end)} height="6" rx="1" fill=${r.exit === 0 ? "var(--home)" : "var(--bad)"} opacity=${r.live ? 1 : 0.55}/></g>`; })}
+        ${from ? html`<rect x=${x(from)} y=${yt + 17} width=${w(from, r.start, 1)} height="6" rx="1" fill="var(--wait)"/>` : null}
+        <rect x=${x(r.start)} y=${yt + 17} width=${w(r.start, r.end)} height="6" rx="1" fill=${r.exit === 0 ? "var(--home)" : "var(--bad)"} opacity=${r.live ? 1 : 0.55}/></g>`; })}
       ${l.home && l.home.started ? (() => { const je = jobEnd(l.home, now);
-        const cur = [...l.entries].reverse().find((o) => o.avail != null && o.avail <= l.home.started + 120);
-        return html`<g ...${hov({ kind: "running", l, j: l.home, e: cur })}><rect x=${x(l.home.started)} y=${y + 17} width=${w(l.home.started, now, 3)} height="6" rx="1" fill="var(--home)" opacity=${l.home.live ? 1 : 0.55}/>
-          ${je ? (je.late ? expect(y, now, "var(--home)", `${Math.round((now - l.home.started) / 60)} min · over its usual ${Math.round(je.typ / 60)}`, true)
-            : expect(y, je.end, "var(--home)", `${Math.round(je.pct * 100)}% · ~${clock(je.end)}`, false)) : null}</g>`; })() : null}
+        const yt = y + lay.t("home"), cur = [...l.entries].reverse().find((o) => o.avail != null && o.avail <= l.home.started + 120);
+        return html`<g ...${hov({ kind: "running", l, j: l.home, e: cur })}><rect x=${x(l.home.started)} y=${yt + 17} width=${w(l.home.started, now, 3)} height="6" rx="1" fill="var(--home)" opacity=${l.home.live ? 1 : 0.55}/>
+          ${je ? (je.late ? expect(yt, now, "var(--home)", `${Math.round((now - l.home.started) / 60)} min · over its usual ${Math.round(je.typ / 60)}`, true)
+            : expect(yt, je.end, "var(--home)", `${Math.round(je.pct * 100)}% · ~${clock(je.end)}`, false)) : null}</g>`; })() : null}
       ${(() => { const out = []; if (l.next) for (let t = l.next; t < t1 && out.length < 30; t += l.cad || 1e9) if (t > now) out.push(html`<path d=${`M${x(t)} ${y + 6} l5 9 -5 9 -5 -9 Z`} fill="none" stroke="var(--faint)"><title>${l.label}: next run expected about ${clock(t)}</title></path>`); return out; })()}
       <text class="ours" x=${X1 + 22} y=${y + 19} style=${"fill:var(--home)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.towerT)}</text>
       <text class="ours" x=${X1 + 86} y=${y + 19} style=${"fill:var(--muted)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.ghT)}</text>
