@@ -1167,6 +1167,18 @@ function BarPop({ d, now, left, top }) {
           r.cpu != null ? ["This run cost", `${Math.round(r.cpu)} CPU min · ${r.peak ? (r.peak / 1000).toFixed(1) : "–"} GB peak · ${r.net != null ? (r.net / 1000).toFixed(1) : "–"} GB down`] : null])}
       ${running ? html`<div class="pspark"><span>↓ ${r.download ? r.download.host : "no download now"}</span><${Spark} values=${r.speeds} w=${150} h=${22} /><b>${MBs(r.net_in || 0)} MB/s</b></div>
         ${r.download ? html`<div class="plog">${base(r.download.url)}${r.download.done ? " · done" : ""}</div>` : null}` : null}`;
+  } else if (kind === "wrfwait") {
+    // WRF started by its task, still waiting for NOAA's GFS (the owner, 22.10.2026: "make that it shows a popup window
+    // too on WRF yellow"); tower.sh waits up to GFS_WAIT 100 min, then WRF takes the newest cycle it has.
+    const w = d.w || {};
+    const start = w.started || (d.t && d.t.start);
+    body = html`<div class="ph"><b>${l.label}${e.run ? ` · ${runZ(e.run)}` : ""}</b><span class="ptag">waiting for GFS · at home</span></div>
+      <div class="psub">GFS ${runZ(e.run)} run · our own model, 1 km</div>
+      ${parts([[now - start, "var(--wait)"]], 0)}
+      ${steps([[start, "started", "its task's time (waits there for GFS)"],
+        [null, "GFS out at NOAA", `not yet · waiting ${mins(now - start)}`],
+        [start + 100 * 60, "the wait ends", "at the latest: then WRF takes the newest cycle it has"]])}
+      ${w.last_line ? html`<div class="plog">${w.last_line}</div>` : null}`;
   } else if (kind === "wrf" || (kind === "wrfdone")) {
     // WRF: started, waiting for GFS at NOAA, its download, WPS, the model, its end or the expected end.
     const running = kind === "wrf";
@@ -1327,8 +1339,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
     const t = e.tower;
     // WRF started by its task, still waiting for NOAA's GFS (22.10.2026: it showed nothing): a waiting bar to now.
     if (t && t.waiting) {
-      out.push(html`<g><rect x=${x(t.start)} y=${yt + 17} width=${w(t.start, t.end, 1)} height="6" rx="1" fill="var(--wait)"/>
-        <title>WRF: started ${clock(t.start)}, waiting for GFS at NOAA</title></g>`);
+      out.push(html`<g ...${hov({ kind: "wrfwait", l, e, w: wrf, t })}><rect x=${x(t.start)} y=${yt + 17} width=${w(t.start, t.end, 1)} height="6" rx="1" fill="var(--wait)"/></g>`);
     } else if (t) {
       const procFrom = a != null ? Math.max(a, t.start) : t.start;
       out.push(html`<g ...${hov(t.going ? { kind: "wrf", l, e, w: wrf } : l.wrf ? { kind: "wrfdone", l, e, t } : { kind: "tower", l, e, t })}>
