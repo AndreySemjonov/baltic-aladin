@@ -910,7 +910,11 @@ function laneData(maps, fr, f, now, s) {
     for (const e of entries) {
       // GitHub's job: its workflow's run that was going when the map was published (or is going now).
       if (ghRuns.length) {
-        const g = e.pub ? [...ghRuns].reverse().find((g) => g[2] <= e.pub + 60 && (g[3] == null || g[3] >= e.pub - 120))
+        // The run that ended closest after the publish (its last step uploads the index): a short "nothing new" run
+        // overlapping it was picked before (the Mix read 11 min on GitHub where its publishing runs took 22-51).
+        const near = (g) => g[3] == null ? 1e9 : g[3] >= e.pub - 60 ? g[3] - e.pub : 1e8;
+        const g = e.pub ? ghRuns.filter((g) => g[2] <= e.pub + 60 && (g[3] == null || g[3] >= e.pub - 120))
+            .sort((a, b) => Math.abs(near(a)) - Math.abs(near(b)))[0]
           : e.avail != null ? ghRuns.find((g) => g[3] == null && g[2] >= e.avail - 120) : null;
         if (g) e.gh = { start: g[2], end: g[3] };
       }
