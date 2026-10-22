@@ -1159,8 +1159,10 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf }) {
   const showPop = (ev, d) => {
     if (!box.current) return;
     const b = box.current.getBoundingClientRect();
+    // Above the pointer near the chart's foot (below it hung past the edge: an inner scrollbar, the popup hidden).
+    const y = ev.clientY - b.top;
     setPop({ d, left: Math.max(box.current.scrollLeft + 4, Math.min(ev.clientX - b.left + box.current.scrollLeft + 14, box.current.scrollLeft + b.width - 390)),
-      top: ev.clientY - b.top + 14 });
+      top: y + 290 > b.height ? Math.max(4, y - 290) : y + 14 });
   };
   const hov = (d) => ({ "data-bar": 1, onPointerEnter: (ev) => showPop(ev, d), onPointerDown: (ev) => showPop(ev, d), onPointerLeave: () => setPop(null) });
   // A running bar's rest, dashed to its expected end, labelled.
