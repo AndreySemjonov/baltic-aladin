@@ -274,6 +274,8 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 .btip b { font: 600 13px var(--display) }
 /* The bars' popups and the expected ends (22.10.2026; mockup pipeline-progress-popups-2026-10-22). */
 .lanes .eta { font: 600 11px var(--mono) }
+/* A finger hits a bar more easily: an invisible thick edge round each (touch screens only, 22.10.2026). */
+@media (pointer: coarse) { .lanes g[data-bar] rect { stroke: transparent; stroke-width: 12px } }
 .lanes .cap { paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round }
 .lanes .cap tspan.grp { font: 600 11px var(--display); letter-spacing: .08em }
 .bpop { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
@@ -1358,7 +1360,22 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
     setPop({ d, left: Math.max(box.current.scrollLeft + 4, Math.min(ev.clientX - b.left + box.current.scrollLeft + 14, box.current.scrollLeft + b.width - 390)),
       top: y + 290 > b.height ? Math.max(4, y - 290) : y + 14 });
   };
-  const hov = (d) => ({ "data-bar": 1, onPointerEnter: (ev) => showPop(ev, d), onPointerDown: (ev) => showPop(ev, d), onPointerLeave: () => setPop(null) });
+  // A mouse (or pen) shows a bar's popup on hover; a finger with a tap (the owner, 22.10.2026: "on phone I want to have
+  // possibility to click on bars and open window"), and it stays until a tap elsewhere: a finger's pointerleave comes as
+  // it lifts (the popup closed at once), and the tap no longer selects the lane (that scrolled the page to its details).
+  const touched = useRef(false);
+  const hov = (d) => ({ "data-bar": 1, onPointerEnter: (ev) => { if (ev.pointerType !== "touch") showPop(ev, d); },
+    onPointerDown: (ev) => { touched.current = ev.pointerType === "touch"; },
+    onPointerLeave: (ev) => { if (ev.pointerType !== "touch") setPop(null); },
+    onClick: (ev) => { if (touched.current) { ev.stopPropagation(); showPop(ev, d); } } });
+  // A tap anywhere off the bars closes the popup; off the band, its tip.
+  useEffect(() => {
+    const off = (ev) => { const t = ev.target && ev.target.closest ? ev.target : null;
+      if (!(t && t.closest("[data-bar]"))) setPop(null);
+      if (!(t && t.closest(".bandbox"))) setTip(null); };
+    document.addEventListener("pointerdown", off);
+    return () => document.removeEventListener("pointerdown", off);
+  }, []);
   // A running bar's rest, dashed to its expected end, labelled.
   const expect = (y, end, color, label, late) => html`<line x1=${x(now)} x2=${x(Math.max(end, now))} y1=${y + 20} y2=${y + 20} stroke=${late ? "var(--wait)" : color} stroke-width="3" stroke-dasharray="5 4"/>
     <rect x=${x(Math.max(end, now)) - 1} y=${y + 14} width="2" height="12" fill=${late ? "var(--wait)" : color} opacity=".8"/>
@@ -1502,7 +1519,8 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
     <button class=${"pin" + (pinned ? " on" : "")} onClick=${() => setPinned(!pinned)} aria-pressed=${pinned}
       title=${pinned ? "The title, filters and machine band stay on top while you scroll: tap to let them scroll away" : "Keep the title, filters and machine band on top while you scroll"}>${pinned ? "● Pinned" : "○ Pin"}</button></div>
     <div class="lanes bandbox" ref=${bandRef}><svg ref=${bandSvg} viewBox="0 0 ${W} ${TOP}" style=${`min-width:${W}px`} role="img" aria-label="The machine: CPU, jobs, memory, network"
-      onPointerMove=${point} onPointerDown=${point} onPointerLeave=${() => setTip(null)}>
+      onPointerMove=${(ev) => { if (ev.pointerType !== "touch") point(ev); }} onPointerDown=${(ev) => { touched.current = ev.pointerType === "touch"; }}
+      onClick=${(ev) => { if (touched.current) point(ev); }} onPointerLeave=${(ev) => { if (ev.pointerType !== "touch") setTip(null); }}>
     ${hours.map((t) => html`<line x1=${x(t)} x2=${x(t)} y1="22" y2=${TOP} stroke="var(--line)"/>${Math.round(t / 3600) % step === 0 && x(t) > 18 && x(t) < W - 18 ? html`<text x=${x(t)} y="15" text-anchor="middle">${clock(t)}</text>` : null}`)}
     ${BH ? bandLayer(band, x, t0, slots || 4, X0, X1, compact) : null}
     ${compact ? null : html`<text x=${X1 + 22} y="15">Tower</text><text x=${X1 + 86} y="15">GitHub</text><text x=${X1 + 150} y="15">skipped</text>`}
