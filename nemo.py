@@ -13,6 +13,7 @@ spots without a sea cell within 5 km are listed under "outside".
 """
 import json
 import math
+import os
 import re
 import sys
 import tempfile
@@ -30,10 +31,13 @@ from water_map import WaterMap
 API = "https://avaandmed.keskkonnaportaal.ee/api/lists/active"
 NEMO = "0102FB02"  # the API's content type of the NEMO files
 HERE = Path(__file__).parent
-OUTPUT = HERE / "docs" / "nemo.json"
+# WATER_OUT (the home runner, water_home.py): everything into that folder instead of the repository, and what's
+# published told by WATER_PUBLISHED_NEMO / WATER_PUBLISHED_MAP (its own record in shadow, the file store's live).
+WATER_OUT = Path(os.environ["WATER_OUT"]) if os.environ.get("WATER_OUT") else None
+OUTPUT = WATER_OUT / "nemo.json" if WATER_OUT else HERE / "docs" / "nemo.json"
 # Points along the whole coast, for spots the helper doesn't know (a phone's own map pins):
 # not kept in git (about 1 MB), published with the site and carried over between deploys.
-COAST_OUTPUT = HERE / "nemo-coast.json"
+COAST_OUTPUT = WATER_OUT / "nemo-coast.json" if WATER_OUT else HERE / "nemo-coast.json"
 # Sea cells within about 4 km of the land, every third cell each way (about 3 km apart).
 COAST_CELLS, COAST_STEP = 4, 3
 USER_AGENT = "baltic-aladin (https://github.com/AndreySemjonov/baltic-aladin)"
@@ -119,7 +123,8 @@ def copernicus_only(now):
     """NEMO far behind: the water map from the Copernicus model alone, from the last 00 or 12 UTC,
     once per half day."""
     start = now.replace(minute=0, second=0, microsecond=0, hour=0 if now.hour < 12 else 12)
-    if published_water_run() == start.strftime("%Y-%m-%dT%H:%MZ"):
+    published = os.environ.get("WATER_PUBLISHED_MAP") if WATER_OUT else published_water_run()
+    if published == start.strftime("%Y-%m-%dT%H:%MZ"):
         print(f"Copernicus water map {start:%Y%m%d%H} already published")
         return
     print(f"NEMO is behind: the water map from Copernicus alone, {start:%Y%m%d%H}")
@@ -143,11 +148,15 @@ def main():
     if not run:
         print("No NEMO files found")
         return
-    try:
-        published = json.loads(OUTPUT.read_text(encoding="utf-8")).get("run")
-    except (OSError, ValueError):
-        published = None
-    if run == published and not force and coast_published(run):
+    if WATER_OUT:
+        # The caller checked its coast points and map with it (water_home.py).
+        published = os.environ.get("WATER_PUBLISHED_NEMO")
+    else:
+        try:
+            published = json.loads(OUTPUT.read_text(encoding="utf-8")).get("run")
+        except (OSError, ValueError):
+            published = None
+    if run == published and not force and (WATER_OUT or coast_published(run)):
         print(f"NEMO {run} already published")
         return
     spots = json.loads((HERE / "spots.json").read_text(encoding="utf-8"))

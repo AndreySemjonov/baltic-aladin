@@ -69,9 +69,28 @@ jobs:
           .venv/bin/python extract.py $RUN
           if git diff --quiet docs/aladin.json; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
 
+      # The water map at home (the owner, 22.10.2026; runner/jobs.py "water", water_home.py): while the home
+      # runner's heartbeat (under 20 minutes old, as helper-trigger reads it) lists "water" live, the NEMO run, the
+      # water and ice maps and the NEMO files are left to it.
+      - name: Is the water map made at home?
+        id: home
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, time, urllib.request
+          try:
+              request = urllib.request.Request(f"https://files.meteogust.com/runner/heartbeat.json?t={int(time.time())}",
+                                               headers={"User-Agent": "baltic-aladin update.yml"})
+              hb = json.load(urllib.request.urlopen(request, timeout=20))
+              home = time.time() - hb.get("t", 0) < 1200 and "water" in (hb.get("live") or [])
+          except Exception:
+              home = False
+          print("water=" + ("true" if home else "false"))
+          PY
+
       # NEMO-EST (Estonian sea model): water level and temperature at the spots, twice a day.
       - name: Read the newest NEMO run
         id: nemo
+        if: steps.home.outputs.water != 'true'
         env:
           # The Copernicus Baltic model for the water map's coasts outside NEMO (free account).
           COPERNICUSMARINE_SERVICE_USERNAME: ${{ secrets.COPERNICUSMARINE_SERVICE_USERNAME }}
@@ -132,6 +151,7 @@ jobs:
           COPERNICUSMARINE_SERVICE_PASSWORD: ${{ secrets.COPERNICUSMARINE_SERVICE_PASSWORD }}
           NEW_ALADIN: ${{ steps.aladin.outputs.changed }}
           FORCE: ${{ inputs.map }}
+          WATER_HOME: ${{ steps.home.outputs.water }}
         run: |
           # A new run is built (a busy source keeps its last published map rather than failing
           # the deploy); otherwise the published frames are copied (built if that fails). Rain is
@@ -149,6 +169,10 @@ jobs:
           # The site folder itself (no picture build makes it any more since the wind pictures retired).
           mkdir -p site
           cp docs/aladin.json docs/index.html site/
+          # The water, the ice and the NEMO files: left out while home makes them (they'd go over its newer ones).
+          if [ "$WATER_HOME" = "true" ]; then
+            echo "The water map is made at home: left out here"
+          else
           if [ -f docs/nemo.json ]; then cp docs/nemo.json site/; fi
           # The water map (NEMO-EST): this run's frames, else the published ones.
           if [ -d water-site ]; then cp -r water-site site/water; else .venv/bin/python carry.py site/water water || failed "Water map unavailable this time"; fi
@@ -156,6 +180,7 @@ jobs:
           if [ -d ice-site ]; then cp -r ice-site site/ice; else .venv/bin/python carry.py site/ice ice || echo "No ice map yet"; fi
           # The coast points (about 1 MB, not in git): this run's, else the live ones.
           if [ -f nemo-coast.json ]; then cp nemo-coast.json site/; else curl -sf -o site/nemo-coast.json https://files.meteogust.com/helper/nemo-coast.json || echo "No NEMO coast points yet"; fi
+          fi
           if [ -f docs/ee-gauges.json ]; then cp docs/ee-gauges.json site/; fi
           if [ -f docs/gauges.json ]; then cp docs/gauges.json site/; fi
           python3 - <<'PY'

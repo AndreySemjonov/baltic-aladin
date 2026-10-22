@@ -769,7 +769,8 @@ const SECTIONS = [["pipeline", "Pipeline"], ["machine", "Machine"], ["quality", 
 const JOB_SET = { "icon-eu": "icon-eu", "world-gfs": "gfs", "world-ecmwf": "ecmwf", "world-icon": "icon", "world-gdps": "gdps", "nordic-1km": "metnordic-1km",
   "mix": "mix", "mix-world": "mix-world", "weather-mix-europe": "mix-wx", "weather-mix-world": "mix-world-wx", "bucket-knmi-eu": "knmi-eu",
   "bucket-arome25": "arome25", "bucket-icon-ch2": "icon-ch2", "ukmo": "ukmo", "ewam": "ewam", "ecmwf-waves": "ecmwf-waves", "chance": "chance",
-  "harm-fi": "harm-fi", "aladin": "aladin", "regional-wind": "metnordic", "regional-weather": "metnordic-wx", "sea": "sea", "waves": "waves" };
+  "harm-fi": "harm-fi", "aladin": "aladin", "regional-wind": "metnordic", "regional-weather": "metnordic-wx", "sea": "sea", "waves": "waves",
+  "water": "water" };
 
 // Each map's home jobs (regional_tiles.py's wind job makes the blend and each regional model's own set).
 const SET_JOBS = { metnordic: ["regional-wind"], "metnordic-wx": ["regional-weather"], dini: ["regional-dini"], arome: ["regional-arome"],
@@ -778,7 +779,7 @@ const SET_JOBS = { metnordic: ["regional-wind"], "metnordic-wx": ["regional-weat
   icon: ["world-icon"], gdps: ["world-gdps"], ewam: ["ewam"], "ecmwf-waves": ["ecmwf-waves"], "metnordic-1km": ["nordic-1km"],
   "harm-fi": ["harm-fi"], aladin: ["aladin"], mix: ["mix"], "mix-world": ["mix-world"], "mix-wx": ["weather-mix-europe"],
   "mix-world-wx": ["weather-mix-world"], ukmo: ["ukmo"], "icon-ch2": ["bucket-icon-ch2"], arome25: ["bucket-arome25"],
-  "knmi-eu": ["bucket-knmi-eu"], chance: ["chance"], sea: ["sea"], waves: ["waves"] };
+  "knmi-eu": ["bucket-knmi-eu"], chance: ["chance"], sea: ["sea"], waves: ["waves"], water: ["water"] };
 
 async function adminGet(path) {
   const r = await fetch("/admin/api/" + path, { cache: "no-store" });
@@ -877,7 +878,7 @@ const SET_SRC = { metnordic: ["metno_nordic_pp", "regional.yml"], "metnordic-wx"
   ecmwf: ["ecmwf_ifs", "world.yml", "ecmwf"], gfs: ["ncep_gfs025", "world.yml", "gfs"], icon: ["dwd_icon", "world.yml", "icon"],
   gdps: ["cmc_gem_gdps_15km", "world.yml", "gdps"], ewam: ["dwd_ewam", "world.yml", "ewam"], "ecmwf-waves": ["ecmwf_wam", "world.yml", "ecmwf-waves"],
   mix: [null, "mix.yml"], "mix-world": [null, "mix-world.yml"], "mix-wx": [null, "weather-mix.yml"], "mix-world-wx": [null, "weather-mix.yml"],
-  chance: [null, "chance.yml"], sea: [null, "sea.yml"], waves: [null, "waves.yml"], water: [null, "water.yml"], "wrf-tarifa": ["ncep_gfs025", null] };
+  chance: [null, "chance.yml"], sea: [null, "sea.yml"], waves: [null, "waves.yml"], water: [null, "update.yml"], "wrf-tarifa": ["ncep_gfs025", null] };
 // The model each home job watches (runner/jobs.py's watch).
 const JOB_WATCH = { "regional-wind": "metno_nordic_pp", "regional-weather": "metno_nordic_pp", "nordic-1km": "metno_nordic_pp",
   "regional-icon-d2": "dwd_icon_d2", "regional-dini": "dmi_harmonie_arome_europe", "regional-harm-nl": "knmi_harmonie_arome_netherlands",

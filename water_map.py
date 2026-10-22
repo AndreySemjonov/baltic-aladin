@@ -33,6 +33,7 @@ Frames: RGBA PNG, read as raw numbers (no colour management):
 """
 import json
 import math
+import os
 import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -46,8 +47,10 @@ import maplib
 import metnordic_map
 
 HERE = Path(__file__).parent
-OUT = HERE / "water-site"
-ICE_OUT = HERE / "ice-site"
+# WATER_OUT: a folder of its own instead of the repository's (the home runner, water_home.py: the code is mounted
+# read-only there in effect, and its git pull mustn't meet these files).
+OUT = Path(os.environ["WATER_OUT"]) / "water-site" if os.environ.get("WATER_OUT") else HERE / "water-site"
+ICE_OUT = Path(os.environ["WATER_OUT"]) / "ice-site" if os.environ.get("WATER_OUT") else HERE / "ice-site"
 SOUTH, NORTH, WEST, EAST = metnordic_map.SOUTH, metnordic_map.NORTH, metnordic_map.WEST, metnordic_map.EAST
 BLEND_KM = 20
 NUDGE_KM = 25

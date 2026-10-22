@@ -113,6 +113,10 @@ JOBS = [
     Job("rain-now", ["rain_now.py"], every=60, priority=1),
     Job("air", ["air_points.py"], every=180, priority=3),
     Job("sea", ["water_composite.py"], every=720, heavy=True, needs=COPERNICUS, priority=3),
+    # The Baltic's water map from NEMO-EST (twice a day; Copernicus's coasts and sea ice beside it, Copernicus alone when
+    # the agency is behind), the spots' water level and temperature (water_home.py: nemo.py as update.yml runs it; the
+    # owner, 22.10.2026). A look every 30 min costs one listing at the agency when nothing is new.
+    Job("water", ["water_home.py"], every=30, live_needs=COPERNICUS),
     Job("waves", ["waves_composite.py"], every=720, needs=COPERNICUS, priority=3),
     Job("sea-world", ["sea_world.py"], every=1440, heavy=True, needs=COPERNICUS, timeout=240, priority=3),
 ]
