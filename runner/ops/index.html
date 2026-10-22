@@ -1104,6 +1104,7 @@ function wrfEnd(w, now) {
 function BarPop({ d, now, left, top }) {
   const { kind, l } = d;
   const e = d.e || {}, a = e.avail;
+  const size = (mb) => mb >= 1000 ? `${(mb / 1000).toFixed(1)} GB` : `${Math.round(mb)} MB`;
   const secs = (v) => v != null && v < 120 ? `${Math.max(0, Math.round(v))} s` : mins(v);
   const kv = (rows) => html`<div class="pkv">${rows.filter(Boolean).map(([k, v]) => html`<span>${k}</span><span>${v}</span>`)}</div>`;
   // The steps: [time or null, what, detail].
@@ -1132,10 +1133,10 @@ function BarPop({ d, now, left, top }) {
     body = html`<div class="ph"><b>${l.label}${d.e && e.run ? ` · ${runZ(e.run)}` : ""}</b>${okTag}</div>
       <div class="psub">${r.job}${r.priority ? ` · priority ${r.priority}` : ""} · ${r.live ? "live (published)" : "shadow (not published)"}</div>
       ${parts([[waited, "var(--wait)"], [dls, "var(--accent)"], [ran - dls, "var(--home)"]], rest)}
-      ${steps([from !== start ? [from, "available", a != null && from === a ? source : r.avail ? `a new input: ${r.availFrom}` : "due"] : null,
-        due && due > from + 30 && due < start - 30 ? [due, "due", `the scheduler saw it · +${mins(due - from)}`] : null,
+      ${steps([from !== start ? (a != null && from === a ? [from, "available", source] : r.avail && from === r.avail ? [from, "available", `a new input: ${r.availFrom}`] : [from, "due", "the scheduler's time"]) : null,
+        due && from !== due && due > from + 30 && due < start - 30 ? [due, "due", `the scheduler saw it · +${mins(due - from)}`] : null,
         [start, "started", waited > 30 ? `waited ${mins(waited)}` : "at once"],
-        dl ? [dl.first || null, "downloading", `${secs(dls)} busy · ${(dl.mb / 1000).toFixed(1)} GB · ${dl.files} files`] : [null, "downloading", running ? "nothing yet" : "not recorded (before 22.10)"],
+        dl ? [dl.first || null, "downloading", `${secs(dls)} busy · ${size(dl.mb)} · ${dl.files} files`] : [null, "downloading", running ? "nothing yet" : "not recorded (before 22.10)"],
         [null, "processing", mins(Math.max(0, ran - dls))],
         running ? (je ? [je.late ? null : je.end, je.late ? "running long" : "expected end", je.late ? `${mins(ran)}, over its usual ${Math.round(je.typ / 60)} min` : `~${Math.round(je.pct * 100)}% · its usual ${Math.round(je.typ / 60)} min`] : [null, "running", mins(ran)])
           : [end, "done", `${mins(end - from)} from ${from === a ? "available" : "due"}`]])}
@@ -1166,7 +1167,7 @@ function BarPop({ d, now, left, top }) {
         model ? [model, "computing", ph.wps && ph.model ? `WPS ${secs(ph.model - ph.wps)}, then the model` : ""] : null,
         running ? (x ? [x.end, "expected end", `${Math.round(x.pct * 100)}% · model time ${w.model_time || "–"}`] : [null, "computing", "the first hours"])
           : [end, t.ok ? "done" : "failed", `${mins(end - (model || start))} computing`],
-        !running && e.pub ? [e.pub, "published", `${mins(e.pub - (a || start))} from GFS`] : null])}
+        !running && e.pub ? [e.pub, "published", a ? `${mins(e.pub - a)} from GFS out` : `${mins(e.pub - start)} from its start`] : null])}
       ${running ? kv([["CPU now", w.cpu != null ? `${w.cpu}%` : "–"], ["Memory", w.mem != null ? `${GB(w.mem)} GB` : "–"], w.box ? ["Box", `${w.box[0]} → ${w.box[1]} UTC`] : null]) : null}
       ${running && w.last_line ? html`<div class="plog">${w.last_line}</div>` : null}`;
   } else {
