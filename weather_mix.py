@@ -29,6 +29,7 @@ station-history's /weather reads them and moves the air on to the place's own he
     python weather_mix.py europe|world [--force] [--local DIR] [--hours N]
 """
 import json
+import os
 import math
 import sys
 import time
@@ -87,7 +88,11 @@ SETS = {
 CREDIT = ("The models' own (MET Norway, DMI, Météo-France, DWD, MeteoSwiss, KNMI, ItaliaMeteo, the Met Office, "
           "ECMWF, NOAA, ECCC); terrain: Copernicus GLO-90 DEM")
 DAYS = 15
-EVERY = 3 * 3600
+# Made again when its models have new runs, at most this often: hourly with GitHub's check at :25 (the owner,
+# 22.10.2026, "option B": every 3 hours left a new model run up to ~7 h from the weather layers); the hours past
+# the first day are kept from the run before while under 3 hours old (world_tiles.far_frames, as M2), so a run
+# remakes about a day of hours.
+EVERY = 30 * 60
 # The ensembles' chance of rain (Open-Meteo's open data, data_spatial/<name>/: one file an hour or
 # step, its precipitation_probability %): name, weight, grid (as model_heights.Grid's).
 BUCKET = "https://openmeteo.s3.amazonaws.com/"
@@ -629,9 +634,18 @@ def main():
     keys = tiler.tiles_in_box(mt.BOX, [top]) if args[0] == "europe" else [(top, x, y) for x in range(2 ** top) for y in range(2 ** top)]
     run_time = datetime.fromtimestamp(now, timezone.utc)
     out = tiler.Run(spec["name"], run_time, zooms, spec["label"], CREDIT, True, local)
+    # The far hours kept from the published run (their inputs not read); in the home runner's shadow too, for its
+    # timing; not for a person's --local test or --force.
+    if "--force" not in args and (local is None or os.environ.get("MG_JOB")):
+        out.far = tiler.world_tiles.far_frames(tiler.world_tiles.published_index(spec["name"]))
     print(f"{spec['name']} {out.folder}: {len(keys)} tiles at zoom {top}, {len(hours)} hours, models: "
           + ", ".join(f"{m.label} {m.run}" for m in models), flush=True)
     for t in hours:
+        if out.kept_far(t):
+            # The spots' chance of rain is the ensembles' alone: every hour still.
+            if spot_rain:
+                spot_rain.add(t)
+            continue
         needed = {m: m.files(t) for m in models}
         with ThreadPoolExecutor(8) as pool:
             list(pool.map(lambda job: job[0].pack(job[1]), [(m, f) for m, files in needed.items() for f in files]))
@@ -683,7 +697,7 @@ def main():
                ensembles={"used": [e.name for e in ensembles], "asked": len(ENSEMBLES)})
     if spot_rain:
         spot_rain.publish(local)
-    print(f"{spec['name']} done in {time.time() - started:.0f} s")
+    print(f"{spec['name']} done in {time.time() - started:.0f} s ({out.far_kept} far hours kept from the run before)")
 
 
 if __name__ == "__main__":

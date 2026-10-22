@@ -69,8 +69,9 @@ JOBS = [
     # Built from our published sets.
     Job("mix", ["mix_tiles.py"], every=60, heavy=True, priority=1),
     Job("mix-world", ["mix_world.py"], every=60),
-    Job("weather-mix-europe", ["weather_mix.py", "europe"], every=150, heavy=True, timeout=240),
-    Job("weather-mix-world", ["weather_mix.py", "world"], every=150, heavy=True, timeout=240, priority=3),
+    # Hourly (the owner, 22.10.2026, "option B"): each run remakes about a day of hours, the rest kept while under 3 h.
+    Job("weather-mix-europe", ["weather_mix.py", "europe"], every=60, heavy=True, timeout=240),
+    Job("weather-mix-world", ["weather_mix.py", "world"], every=60, heavy=True, timeout=240, priority=3),
     Job("series", ["series_tiles.py"], every=30, priority=1),
     Job("spot-points", ["spot_points.py"], every=30, priority=1),
     # The spots' short runs and ensembles.

@@ -4,7 +4,8 @@ run-name: Weather mix tiles (Europe and the world)
 # The weather mix (weather_mix.py; the owner, 18.10.2026: the weather as advanced as the wind): every
 # model's air (moved to our terrain's height), rain and cloud blended by place; Europe's at zoom 6 for
 # the regional models' days, the world's to 15 days. Checked every hour; made again when its models
-# have new runs, at most every 3 hours.
+# have new runs (hourly since 22.10.2026; the hours past the first day kept from the run before while under
+# 3 hours old).
 on:
   schedule:
     - cron: "25 * * * *"
