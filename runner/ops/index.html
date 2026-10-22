@@ -2,13 +2,15 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>MeteoGust Control</title>
+<script>/* The theme switch (Auto / Light / Dark, the owner 22.10.2026), set before the first paint: Auto follows the system. */
+try { const t = localStorage.getItem("ops-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
 <!-- The ops panel (runner/ops/server.py); from docs/mockups/ops-panel-2026-10-21.html in the app repo, approved by the owner 21.10.2026. -->
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
 /* Layout: a control-room console. Status bar, the machine, running jobs beside what's next, then the
    day's timeline, sources and recent runs. One column on a phone, in the order a glance needs. */
 :root {
-  --bg: #eef2f5; --panel: #ffffff; --line: #d8e0e7; --ink: #13202b; --muted: #5d6d7c; --faint: #9aa8b5;
+  --bg: #eef2f5; --panel: #ffffff; --line: #d8e0e7; --ink: #13202b; --muted: #5d6d7c; --faint: #728396;
   --accent: #0f7f88; --accent-soft: #d5eef0; --wrf: #6a55c9; --wrf-soft: #e6e1fa;
   --ok: #2f9a5c; --warn: #b9770e; --warn-soft: #fbefd9; --bad: #c94141; --bad-soft: #f8dede;
   --display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
@@ -222,7 +224,7 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 .pitem b { font: 600 15px var(--display) } .pitem .s { font: 12.5px var(--mono); color: var(--muted); grid-column: 1 / 3 }
 @media (max-width: 760px) { .detail { position: static } }
 /* The Pipeline's timeline (21.10.2026): GitHub's bar above the Tower's, waiting in amber. */
-:root { --gh: #7f8c99; --wait: #d9a441 }
+:root { --gh: #748290; --wait: #d9a441 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --gh: #8592a0; --wait: #e3b04f } }
 :root[data-theme="dark"] { --gh: #8592a0; --wait: #e3b04f }
 .lanes .grp { font: 600 11px var(--display); letter-spacing: .08em; fill: var(--muted) }
@@ -231,7 +233,7 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 .lanes .src { font: 500 9.5px var(--body); fill: var(--gh) }
 .legend span.t::before { display: none }
 /* The machine band (22.10.2026): waiting with room, its tooltip. */
-:root { --room: rgba(214, 69, 69, .16) }
+:root { --room: rgba(214, 69, 69, .11) }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --room: rgba(240, 114, 114, .2) } }
 :root[data-theme="dark"] { --room: rgba(240, 114, 114, .2) }
 /* The machine band's network row (22.10.2026). */
@@ -239,10 +241,19 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --net: #e08cc2; --net-soft: rgba(224, 140, 194, .18) } }
 :root[data-theme="dark"] { --net: #e08cc2; --net-soft: rgba(224, 140, 194, .18) }
 .lanes { position: relative }
+/* Shadows and the theme switch (the owner, 22.10.2026: "white theme ... available on switch"). */
+:root { --sh-band: rgba(19, 32, 43, .16); --sh-tip: rgba(19, 32, 43, .14); --sh-pop: rgba(19, 32, 43, .16) }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --sh-band: rgba(0, 0, 0, .45); --sh-tip: rgba(0, 0, 0, .25); --sh-pop: rgba(0, 0, 0, .28) } }
+:root[data-theme="dark"] { --sh-band: rgba(0, 0, 0, .45); --sh-tip: rgba(0, 0, 0, .25); --sh-pop: rgba(0, 0, 0, .28) }
+.theme { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; vertical-align: middle; margin-left: 6px }
+.theme button { font: 500 12px var(--body); padding: 5px 8px; border: 0; background: var(--panel); color: var(--muted); cursor: pointer }
+.theme button + button { border-left: 1px solid var(--line) }
+.theme button.on { background: var(--ink); color: var(--panel) }
+.theme button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
 /* The machine band pinned under the page's header while the lanes scroll (the owner, 22.10.2026); its own drawing,
    moved sideways with the lanes'. */
 .bandwrap { position: relative; background: var(--panel) }
-.bandwrap.pinned { position: sticky; top: var(--top-h, 0px); z-index: 4; box-shadow: 0 8px 10px -8px rgba(0, 0, 0, .45) }
+.bandwrap.pinned { position: sticky; top: var(--top-h, 0px); z-index: 4; box-shadow: 0 8px 10px -8px var(--sh-band) }
 .lanes.bandbox { overflow: hidden }
 .bandwrap.pinned { padding-top: 8px; margin-top: -8px }
 .bandhead { display: flex; align-items: flex-start; gap: 12px }
@@ -251,12 +262,12 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
   border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer }
 .bandwrap .pin.on { color: var(--accent); border-color: var(--accent) }
 .btip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
-  font-size: 12.5px; line-height: 1.45; box-shadow: 0 6px 20px rgba(0,0,0,.25); width: 300px; z-index: 3 }
+  font-size: 12.5px; line-height: 1.45; box-shadow: 0 6px 20px var(--sh-tip); width: 300px; z-index: 3 }
 .btip b { font: 600 13px var(--display) }
 /* The bars' popups and the expected ends (22.10.2026; mockup pipeline-progress-popups-2026-10-22). */
 .lanes .eta { font: 600 11px var(--mono) }
 .bpop { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
-  width: 380px; font-size: 13px; line-height: 1.4; box-shadow: 0 8px 26px rgba(0,0,0,.28); z-index: 4 }
+  width: 380px; font-size: 13px; line-height: 1.4; box-shadow: 0 8px 26px var(--sh-pop); z-index: 4 }
 .bpop .ph { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 8px; align-items: baseline } .bpop .ph b { font: 700 16px/1.15 var(--display) }
 .bpop .ptag { font: 600 10.5px/1 var(--body); padding: 3px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: .04em; background: var(--home-soft); color: var(--home); white-space: nowrap }
 .bpop .ptag.wrf { background: var(--wrf-soft); color: var(--wrf) } .bpop .ptag.done { background: var(--ok-soft); color: var(--ok) }
@@ -866,6 +877,19 @@ function Warnings(props) {
   </div>`;
 }
 
+// Auto (the system's), Light or Dark, remembered in this browser; the head's script applies it before the first paint.
+function ThemeSwitch() {
+  const [theme, setThemeState] = useState(() => document.documentElement.dataset.theme || "auto");
+  const setTheme = (t) => {
+    if (t === "auto") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+    try { if (t === "auto") localStorage.removeItem("ops-theme"); else localStorage.setItem("ops-theme", t); } catch (e) {}
+    setThemeState(t);
+  };
+  return html`<span class="theme" role="group" aria-label="Theme">${[["auto", "Auto"], ["light", "Light"], ["dark", "Dark"]].map(([k, label]) =>
+    html`<button class=${theme === k ? "on" : ""} aria-pressed=${theme === k} title=${k === "auto" ? "Follow the system's light or dark" : label + " theme"}
+      onClick=${() => setTheme(k)}>${label}</button>`)}</span>`;
+}
+
 function TopBar(props) {
   const { f, zone, setZone, sec } = props;
   const now = Date.now() / 1000;
@@ -874,7 +898,8 @@ function TopBar(props) {
     <div class="brand"><span class="dot" aria-hidden="true" style=${stale ? "background:var(--bad)" : ""}></span>MeteoGust <small>control · ${f.host || "…"}</small></div>
     <${Nav} sec=${sec} />
     <div class="clock"><b>${clock(now, true)}</b> ${zoneName()}
-      <button class="tbtn" onClick=${() => setZone(zone === "UTC" ? "Europe/Riga" : "UTC")}>show ${zone === "UTC" ? "Riga" : "UTC"}</button></div>
+      <button class="tbtn" onClick=${() => setZone(zone === "UTC" ? "Europe/Riga" : "UTC")}>show ${zone === "UTC" ? "Riga" : "UTC"}</button>
+      <${ThemeSwitch} /></div>
   </div><${Warnings} ...${props} now=${now} /></div></header>`;
 }
 
