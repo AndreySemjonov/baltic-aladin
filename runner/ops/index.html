@@ -276,6 +276,12 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 .lanes .eta { font: 600 11px var(--mono) }
 /* A finger hits a bar more easily: an invisible thick edge round each (touch screens only, 22.10.2026). */
 @media (pointer: coarse) { .lanes g[data-bar] rect { stroke: transparent; stroke-width: 12px } }
+/* The popup and tip take a finger (to scroll on them; they let a mouse through for the hover), and a close button. */
+.bpop .px { display: none }
+@media (pointer: coarse) { .lanes .bpop, .bandwrap .btip { pointer-events: auto }
+  .lanes .bpop .px { display: block; position: absolute; top: 6px; right: 6px; width: 32px; height: 32px; border: 0; border-radius: 50%;
+    background: var(--line); color: var(--muted); font: 600 15px/32px var(--body); padding: 0; cursor: pointer }
+  .lanes .bpop .ph { padding-right: 34px } }
 .lanes .cap { paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round }
 .lanes .cap tspan.grp { font: 600 11px var(--display); letter-spacing: .08em }
 .bpop { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
@@ -1212,7 +1218,7 @@ function wrfEnd(w, now) {
 // What a bar is (the owner, 22.10.2026: "on hover on each line a popup ... if active, how much it uses, status ...
 // combining what we see in Machine; if finished, the same as on click at the bottom"; then "show also available time,
 // waited time, download time and when started"): its steps as a short timeline over a segmented bar.
-function BarPop({ d, now, left, top }) {
+function BarPop({ d, now, left, top, onClose }) {
   const { kind, l } = d;
   const e = d.e || {}, a = e.avail;
   const size = (mb) => mb >= 1000 ? `${(mb / 1000).toFixed(1)} GB` : `${Math.round(mb)} MB`;
@@ -1303,7 +1309,8 @@ function BarPop({ d, now, left, top }) {
         e.pub ? [e.pub, "published", a != null ? `${mins(e.pub - a)} from available` : ""] : null])}
       ${kv([["Use", "GitHub doesn't report it per run"]])}`;
   }
-  return html`<div class="bpop" style=${`left:${left}px;top:${top}px`}>${body}</div>`;
+  return html`<div class="bpop" style=${`left:${left}px;top:${top}px`}>
+    <button class="px" aria-label="Close" onClick=${(ev) => { ev.stopPropagation(); onClose && onClose(); }}>✕</button>${body}</div>`;
 }
 
 const LANES_MIN_W = 760;
@@ -1368,13 +1375,15 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
     onPointerDown: (ev) => { touched.current = ev.pointerType === "touch"; },
     onPointerLeave: (ev) => { if (ev.pointerType !== "touch") setPop(null); },
     onClick: (ev) => { if (touched.current) { ev.stopPropagation(); showPop(ev, d); } } });
-  // A tap anywhere off the bars closes the popup; off the band, its tip.
+  // A tap off the bars and off the popup closes it; off the band and its tip, the tip. On a click, not a touch's start:
+  // a scroll (on the popup, to read its foot, or anywhere) leaves them open (the owner, 22.10.2026: "if I scroll on
+  // popup window it's not closes. If I hit out of window it's closes").
   useEffect(() => {
     const off = (ev) => { const t = ev.target && ev.target.closest ? ev.target : null;
-      if (!(t && t.closest("[data-bar]"))) setPop(null);
-      if (!(t && t.closest(".bandbox"))) setTip(null); };
-    document.addEventListener("pointerdown", off);
-    return () => document.removeEventListener("pointerdown", off);
+      if (!(t && (t.closest("[data-bar]") || t.closest(".bpop")))) setPop(null);
+      if (!(t && (t.closest(".bandbox") || t.closest(".btip")))) setTip(null); };
+    document.addEventListener("click", off);
+    return () => document.removeEventListener("click", off);
   }, []);
   // A running bar's rest, dashed to its expected end, labelled.
   const expect = (y, end, color, label, late) => html`<line x1=${x(now)} x2=${x(Math.max(end, now))} y1=${y + 20} y2=${y + 20} stroke=${late ? "var(--wait)" : color} stroke-width="3" stroke-dasharray="5 4"/>
@@ -1509,7 +1518,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
     setTip({ row: near, left: Math.max(4, Math.min(ev.clientX - b.left + 14, b.width - 310)), top: ev.clientY - b.top + 12 });
   };
   // A tap off the bars closes a bar's popup.
-  const offBar = (ev) => { if (!(ev.target && ev.target.closest && ev.target.closest("[data-bar]"))) setPop(null); };
+  const offBar = (ev) => { if (ev.pointerType !== "touch" && !(ev.target && ev.target.closest && ev.target.closest("[data-bar]"))) setPop(null); };
   // Where the lanes begin: above it the hours and the band (the pinned drawing), below the lanes (their drawing, the same
   // coordinates shown from TOP down).
   const TOP = 30 + BH - 10;
@@ -1567,7 +1576,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
     <line x1=${x(now)} x2=${x(now)} y1=${TOP} y2=${H - 18} stroke="var(--warn)" stroke-width="2"/><text x=${x(now) + 5} y=${H - 6} style="fill:var(--warn)">now ${clock(now)}</text>
   </svg>
     ${pop ? html`<${BarPop} d=${{ ...pop.d, w: wrf, j: (pop.d.kind === "running" && (lanes.find((o) => o.name === pop.d.l.name) || {}).home) || pop.d.j }}
-      now=${now} left=${pop.left} top=${pop.top} />` : null}</div>`;
+      now=${now} left=${pop.left} top=${pop.top} onClose=${() => setPop(null)} />` : null}</div>`;
 }
 
 function RunBars({ l }) {
