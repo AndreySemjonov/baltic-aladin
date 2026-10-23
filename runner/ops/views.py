@@ -272,9 +272,20 @@ class Freshness:
         makers, maps = {}, {}
 
         def maker(model):
+            # "done": when the run became downloadable, latest.json's write on S3 (the scheduler's latest_done: Open-Meteo's
+            # last_modified_time is before the upload, ICON-EU's 120 h runs 5-20 minutes); "made": that field.
             try:
-                latest = fetch(f"{BUCKET}{model}/latest.json")
-                return {"run": run_unix(latest.get("reference_time")), "done": run_unix(latest.get("last_modified_time")),
+                request = urllib.request.Request(f"{BUCKET}{model}/latest.json", headers=AGENT)
+                with urllib.request.urlopen(request, timeout=20) as reply:
+                    latest = json.load(reply)
+                    on_s3 = reply.headers.get("Last-Modified")
+                made = run_unix(latest.get("last_modified_time"))
+                try:
+                    import email.utils
+                    done = round(email.utils.parsedate_to_datetime(on_s3).timestamp())
+                except (TypeError, ValueError):
+                    done = made
+                return {"run": run_unix(latest.get("reference_time")), "done": done, "made": made,
                         "complete": bool(latest.get("completed"))}
             except Exception:
                 return None
@@ -294,7 +305,8 @@ class Freshness:
                 if value and value["run"] and value["complete"] and (model, value["run"]) not in self.arrived:
                     self.arrived.add((model, value["run"]))
                     append(f"{STATS}/_arrivals.jsonl", {"model": model, "run": value["run"], "done": value["done"] or round(now),
-                                                       "seen": round(now), "by": "panel"})
+                                                       "seen": round(now), "by": "panel",
+                                                       **({"made": value["made"]} if value.get("made") else {})})
             sets = sorted({m[4] for m in MODELS} | {p[1] for p in PRODUCTS} | {s for p in PRODUCTS for s in p[2]})
             for set_name, value in zip(sets, pool.map(our_map, sets)):
                 maps[set_name] = value

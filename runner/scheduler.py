@@ -263,9 +263,27 @@ def why_kind(why):
     return "starting"
 
 
+_fetch_fails = {}  # model -> latest.json failures in a row (logged at the 3rd)
+
+
+def latest_done(latest, headers):
+    """When a run became downloadable: latest.json's own write on S3 (Last-Modified; Open-Meteo writes it after the
+    run's last file), else its last_modified_time. That field is when Open-Meteo finished converting, before the upload:
+    ICON-EU 12Z on 23.10.2026 said 15:39:44 UTC, its +120 h file and meta.json reached S3 at 15:58:44 and 15:59:20, and
+    the scheduler saw it at 15:59:51; the "20 minutes late" was the upload (the 30 h runs, 03/09/15/21Z, upload in a
+    minute or two)."""
+    import email.utils
+    try:
+        return email.utils.parsedate_to_datetime(headers["Last-Modified"]).timestamp()
+    except (KeyError, TypeError, ValueError):
+        made = latest.get("last_modified_time")
+        return datetime.fromisoformat(made.replace("Z", "+00:00")).timestamp() if made else None
+
+
 def newest_run(model, cache):
-    """A model's newest complete run on Open-Meteo's open data (unix seconds), None when unknown; asked at most
-    every 2 minutes. A run not seen before goes in STATS/_arrivals.jsonl (when it came: the panel's expected times)."""
+    """A model's newest complete run on Open-Meteo's open data (unix seconds) and when it became downloadable
+    (latest_done), None when unknown; asked at most every 2 minutes. A run not seen before goes in
+    STATS/_arrivals.jsonl (when it came: the panel's expected times; "made", Open-Meteo's own last_modified_time)."""
     if model not in cache and model in _runs_seen and time.time() - _runs_seen[model][0] < 120:
         cache[model] = _runs_seen[model][1]
     if model not in cache:
@@ -273,17 +291,23 @@ def newest_run(model, cache):
             request = urllib.request.Request(f"{BUCKET}{model}/latest.json", headers=AGENT)
             with urllib.request.urlopen(request, timeout=20) as reply:
                 latest = json.load(reply)
+                done = latest_done(latest, reply.headers)
             run = datetime.fromisoformat(latest["reference_time"].replace("Z", "+00:00")).timestamp() if latest.get("completed") else None
-            done = datetime.fromisoformat(latest["last_modified_time"].replace("Z", "+00:00")).timestamp()
             cache[model] = (run, done)
             _runs_seen[model] = (time.time(), (run, done))
+            _fetch_fails.pop(model, None)
             if run and (model, round(run)) not in _arrived:
-                # latest.json's last change is when the run became complete, whenever we look.
+                # latest.json's write is when the run became complete on S3, whenever we look.
+                made = latest.get("last_modified_time")
                 append(f"{STATS}/_arrivals.jsonl", {"model": model, "run": round(run), "done": round(done or time.time()),
-                                                   "seen": round(time.time())})
+                                                   "seen": round(time.time()),
+                                                   **({"made": round(datetime.fromisoformat(made.replace("Z", "+00:00")).timestamp())} if made else {})})
                 _arrived.add((model, round(run)))
-        except Exception:
+        except Exception as error:
             cache[model] = (None, None)
+            _fetch_fails[model] = _fetch_fails.get(model, 0) + 1
+            if _fetch_fails[model] == 3:
+                log(f"{model}: latest.json not read 3 times in a row ({error})")
     return cache[model]
 
 
@@ -803,6 +827,7 @@ def main():
     log(f"runner: {len(JOBS)} jobs, at most {MAX_TOTAL} at once ({MAX_HEAVY} heavy), work in {WORK}")
     while True:
         now = time.time()
+        house = 0  # the housekeeping's seconds this minute
         if now - last_pull > 600:
             pull()
             last_pull = now
@@ -833,6 +858,7 @@ def main():
                     log(f"cache: {kept} GB kept, {removed} files removed")
             except OSError as error:
                 log(f"cache: {error}")
+            house = time.time() - now
         # Finished runs.
         for name, run in list(running.items()):
             code = run.finished()
@@ -1014,6 +1040,11 @@ def main():
             if not heartbeat(state, live, set(running) | set(others), wrf) and not beat_said:
                 log("no heartbeat: INGEST_TOKEN not in the env file yet (GitHub runs everything meanwhile)")
                 beat_said = True
+        # A minute's work over 60 s holds the new runs' detection (newest_run) that long: said, with the housekeeping's
+        # share (23.10.2026: suspected for ICON-EU's late runs; it was the upload, latest_done).
+        took = time.time() - now
+        if took > 60:
+            log(f"the loop's minute took {took:.0f} s (housekeeping {house:.0f} s)")
         time.sleep(60)
 
 
