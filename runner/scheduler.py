@@ -90,6 +90,12 @@ WRF_MB = int(os.environ.get("MG_WRF_MB", "9000"))
 # usual rhythm (22.10.2026: the waves' first run, killed out of memory at 02:35 UTC, would have waited 12 h; a
 # watching job marked its failed run seen and never made it).
 RETRY_S, RETRIES = 45 * 60, 3
+# Our own map packs kept on D: for the jobs (packcache.py; the owner, 23.10.2026: "Build on D"): mounted at /cache in
+# every job's container, trimmed to CACHE_GB every 10 minutes, least recently used first (a read touches a file). The
+# jobs read each run's newest packs, so more room mostly keeps packs nobody asks for again: the hit rate in
+# STATS/_cache/<job>.json says whether it's enough.
+CACHE = os.environ.get("MG_CACHE_DIR", "/mnt/d/meteogust/cache")
+CACHE_GB = float(os.environ.get("MG_CACHE_GB", "30"))
 OVERCOMMIT = float(os.environ.get("MG_OVERCOMMIT", "1.25"))
 MEM_MARGIN = 2000
 RAMP_S = 10 * 60
@@ -527,6 +533,8 @@ class Running:
                    "-v", f"{REPO}:/code", "-v", f"{folder}:/work", "-v", f"{STATS}:/stats",
                    # Out of memory, the kernel takes a job before WRF or the runner.
                    "--oom-score-adj", str(JOB_OOM_SCORE)]
+        if CACHE and os.path.isdir(CACHE):
+            command += ["-v", f"{CACHE}:/cache", "-e", "MG_CACHE=/cache"]
         if limit_mb:
             command += ["--memory", f"{int(limit_mb)}m"]
         if os.path.exists(ENV_FILE):
@@ -593,6 +601,40 @@ def sampler():
         except Exception as error:
             log(f"sampler: {error}")
         time.sleep(60)
+
+
+def trim_cache():
+    """The packs' cache down to 90% of CACHE_GB when over it, least recently used first; half-written files over an hour
+    old removed. Returns (GB kept, files removed)."""
+    files, total, removed = [], 0, 0
+    for folder, _, names in os.walk(CACHE):
+        for name in names:
+            path = os.path.join(folder, name)
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            if name.endswith(".tmp"):
+                if time.time() - st.st_mtime > 3600:
+                    try:
+                        os.remove(path)
+                        removed += 1
+                    except OSError:
+                        pass
+                continue
+            files.append((st.st_mtime, st.st_size, path))
+            total += st.st_size
+    if total > CACHE_GB * 1e9:
+        for _, size, path in sorted(files):
+            if total <= CACHE_GB * 0.9e9:
+                break
+            try:
+                os.remove(path)
+                total -= size
+                removed += 1
+            except OSError:
+                pass
+    return round(total / 1e9, 1), removed
 
 
 def pull():
@@ -681,6 +723,14 @@ def main():
             # The minute records about 8 days (the panel reads a day: its machine band, Capacity).
             for name in ("_samples.jsonl", "_queue.jsonl"):
                 trim(f"{STATS}/{name}", 12000)
+            # The packs' cache within its cap (packcache.py).
+            try:
+                os.makedirs(CACHE, exist_ok=True)
+                kept, removed = trim_cache()
+                if removed:
+                    log(f"cache: {kept} GB kept, {removed} files removed")
+            except OSError as error:
+                log(f"cache: {error}")
         # Finished runs.
         for name, run in list(running.items()):
             code = run.finished()

@@ -198,7 +198,7 @@ def make(spec, local, limit, force, places=None):
     times = [f["time"] for f in frames]
     started = time.time()
     with ThreadPoolExecutor(16) as pool:
-        headers = list(pool.map(lambda f: spot_points.PackReader(FILES + f"tiles/{folder}/{f[layer]}"), frames))
+        headers = list(pool.map(lambda f: spot_points.PackReader(FILES + f"tiles/{folder}/{f[layer]}", whole=True), frames))
     # The first hour's pack: the widest (regional models end sooner).
     first = headers[0]
     tiles = area_tiles(set_name, index, first)

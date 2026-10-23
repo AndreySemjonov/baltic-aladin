@@ -683,7 +683,12 @@ def upload(path, data):
             request = urllib.request.Request(UPLOAD + path, data=data, method="PUT",
                                              headers={"Authorization": "Bearer " + token, "User-Agent": maplib.USER_AGENT})
             with urllib.request.urlopen(request, timeout=300) as reply:
-                return reply.read().decode()
+                answer = reply.read().decode()
+            # A pack made here kept on the home runner's disk as it goes up: the jobs that read it never download it.
+            if path.endswith(".pack"):
+                import packcache
+                packcache.store("https://files.meteogust.com/tiles/" + path, data, downloaded=False)
+            return answer
         except urllib.error.HTTPError as error:
             if error.code < 500 or attempt == 3:
                 raise

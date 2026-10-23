@@ -43,6 +43,7 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 
+import packcache
 import quality
 import tiler
 
@@ -146,11 +147,17 @@ CREDIT = ("MET Nordic, MET Norway; HARMONIE DINI, DMI; HARMONIE, FMI; ALADIN, Č
 
 
 def get(url, tries=3):
+    # Our own packs from the home runner's disk when there (packcache: each downloaded once, or never when made here).
+    cached = packcache.read(url)
+    if cached is not None:
+        return cached
     for attempt in range(tries):
         try:
             request = urllib.request.Request(url, headers={"User-Agent": AGENT})
             with urllib.request.urlopen(request, timeout=120) as reply:
-                return reply.read()
+                data = reply.read()
+            packcache.store(url, data)
+            return data
         except Exception:
             if attempt == tries - 1:
                 raise

@@ -35,6 +35,7 @@ import numpy as np
 from PIL import Image
 
 import maplib
+import packcache
 import world_tiles
 
 FILES = "https://files.meteogust.com/"
@@ -66,13 +67,20 @@ WAVE_SEARCH = {"ewam": 8, "ecmwf-waves": 1}
 
 
 def get(url, start=None, length=None, tries=4):
+    # Our own packs from the home runner's disk when there (packcache); a whole one downloaded is kept there too.
+    cached = packcache.read(url) if start is None else packcache.read_range(url, start, length)
+    if cached is not None:
+        return cached
     headers = {"User-Agent": maplib.USER_AGENT}
     if start is not None:
         headers["Range"] = f"bytes={start}-{start + length - 1}"
     for attempt in range(tries):
         try:
             with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60) as reply:
-                return reply.read()
+                data = reply.read()
+            if start is None:
+                packcache.store(url, data)
+            return data
         except urllib.error.HTTPError as error:
             if error.code == 404:
                 return None
@@ -126,8 +134,12 @@ def wanted(spots_list):
 class PackReader:
     """A published pack's header and single tiles, by range requests."""
 
-    def __init__(self, url):
+    def __init__(self, url, whole=False):
         self.url = url
+        # `whole`: the caller reads most of its tiles (series_tiles: every tile of every hour): at home the pack is
+        # fetched once whole into the cache, and every range after is read from the disk (not hundreds of requests).
+        if whole and packcache.enabled() and packcache.read_range(url, 0, 8) is None:
+            get(url)
         head = get(url, 0, 65536)
         if head is None or len(head) < 8:
             raise ValueError("no pack")
