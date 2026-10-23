@@ -32,11 +32,20 @@ jobs:
       - name: Check out
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      # Since 23.10.2026 (the owner: the jobs move to the Tower in groups): while the home runner's heartbeat lists
+      # this job live it is left to home (home_live.py), so the two never publish the same map; a job failing twice
+      # at home leaves that list and is made here again.
+      - name: Is this made at home?
+        id: home
+        run: python3 home_live.py $(case "${{ matrix.set }}" in metnordic-1km) echo nordic-1km ;; metnordic-1km-wx) echo nordic-1km-wx ;; esac) >> "$GITHUB_OUTPUT"
+
       - name: Python version (for the package cache)
+        if: steps.home.outputs.home != 'true'
         id: python
         run: echo "version=$(python3 -c 'import sys; print(sys.version.split()[0])')" >> "$GITHUB_OUTPUT"
 
       - name: Restore the installed packages
+        if: steps.home.outputs.home != 'true'
         id: venv
         uses: actions/cache@v4
         with:
@@ -44,13 +53,14 @@ jobs:
           key: regional-venv-${{ runner.os }}-py${{ steps.python.outputs.version }}-eccodes-numpy-pillow-scipy-omfiles-pyproj-v2
 
       - name: Install ecCodes, NumPy, Pillow and SciPy
-        if: steps.venv.outputs.cache-hit != 'true'
+        if: steps.home.outputs.home != 'true' && (steps.venv.outputs.cache-hit != 'true')
         run: |
           python3 -m venv .venv
           .venv/bin/pip install --quiet eccodes numpy pillow scipy omfiles pyproj
 
       # The wind (2 km, with each model alone too), the air and the rain (3 km), or a model alone.
       - name: Make and upload the ${{ matrix.set }} tiles
+        if: steps.home.outputs.home != 'true'
         env:
           INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
           KNMI_API_KEY: ${{ secrets.KNMI_API_KEY }}
