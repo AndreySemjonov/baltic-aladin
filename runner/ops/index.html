@@ -215,6 +215,10 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 :root { --home: #2b6fd6; --home-soft: #dde8fb }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --home: #6ea2f5; --home-soft: #1b2c4a } }
 :root[data-theme="dark"] { --home: #6ea2f5; --home-soft: #1b2c4a }
+/* The Mac mini (the owner, 23.10.2026: "Magenta for the Mac"): its runs' bars, its band, its name. */
+:root { --mac: #b8327a; --mac-soft: #f6dbe9 }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --mac: #e36fb4; --mac-soft: #4a1d35 } }
+:root[data-theme="dark"] { --mac: #e36fb4; --mac-soft: #4a1d35 }
 .pipe { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); align-items: start }
 .filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px }
 .chip { font: 500 12.5px/1 var(--body); padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer }
@@ -903,7 +907,7 @@ function Warnings(props) {
   const fine = ((ad && ad.feeds) || []).filter((x) => !x.late).length;
   return html`<div class="warnings">
     ${list.map(([k, a, b, href]) => html`<a class=${"w " + k} href=${href}><b>${a}</b> ${b}</a>`)}
-    <a class="w ok" href="#machine">${fine} feeds fine · ${(f.live || []).length} live at home · ${f.wrf && f.wrf.running ? "WRF running" : f.wrf && f.wrf.waiting ? "WRF waiting for GFS" : "WRF next " + clock((f.wrf && f.wrf.next || [])[0])} · heartbeat ${f.beat ? dur(now - f.beat) : "–"}</a>
+    <a class="w ok" href="#machine">${fine} feeds fine · ${(f.live || []).length} live at home · ${f.mac && f.mac.wrf ? (f.mac.wrf.running ? "WRF on the Mac" + (f.mac.wrf.progress != null ? " " + Math.round(f.mac.wrf.progress * 100) + "%" : "") : "WRF on the Mac: " + (f.mac.wrf.stage === "waiting" ? "waiting for GFS" : f.mac.wrf.stage)) : f.wrf && f.wrf.running ? "WRF running" : f.wrf && f.wrf.waiting ? "WRF waiting for GFS" : (f.mac ? "WRF on the Mac next " : "WRF next ") + clock((f.wrf && f.wrf.next || [])[0])} · heartbeat ${f.beat ? dur(now - f.beat) : "–"}${f.mac ? ` · Mac heartbeat ${dur(now - f.mac.beat)}` : ""}</a>
   </div>`;
 }
 
@@ -925,7 +929,7 @@ function TopBar(props) {
   const now = Date.now() / 1000;
   const stale = f.live_t && now - f.live_t > 180;
   return html`<header class="top"><div class="wrap"><div class="row1">
-    <div class="brand"><span class="dot" aria-hidden="true" style=${stale ? "background:var(--bad)" : ""}></span>MeteoGust <small>control · ${f.host || "…"}</small></div>
+    <div class="brand"><span class="dot" aria-hidden="true" style=${stale ? "background:var(--bad)" : ""}></span>MeteoGust <small>control · ${f.host || "…"}${f.mac ? html` + <span style="color:var(--mac)"><span aria-hidden="true" style=${now - f.mac.beat > 600 ? "color:var(--bad)" : ""}>● </span>Mac mini</span>` : null}</small></div>
     <${Nav} sec=${sec} />
     <div class="clock"><b>${clock(now, true)}</b> ${zoneName()}
       <button class="tbtn" onClick=${() => setZone(zone === "UTC" ? "Europe/Riga" : "UTC")}>show ${zone === "UTC" ? "Riga" : "UTC"}</button>
@@ -1009,7 +1013,7 @@ function laneData(maps, fr, f, now, s) {
       // WRF reads GFS from NOAA, hours before Open-Meteo's record: available is when its log had GFS in hand after
       // waiting for it, else WRF's start (GFS was out by then).
       for (const [a, b, ok, ready, waited, cycle] of pipe.wrf) if (cycle) byRun[cycle] = { run: cycle, avail: waited && ready ? ready : a, early: !waited,
-        tower: { start: a, end: b, ok: ok !== false, going: ok === "going", waiting: ok === "waiting", live: true, job: "wrf",
+        tower: { start: a, end: b, ok: ok !== false, going: ok === "going", waiting: ok === "waiting", live: true, job: "wrf", host: pipe.wrf.find((x) => x[0] === a)?.[7] || "tower",
                  phases: pipe.wrf.find((x) => x[0] === a)?.[6] } };
     } else for (const [r, d] of Object.entries(avails)) byRun[+r] = { run: +r, avail: d };
     for (const r of runs) if ((r.published || r.run) >= since) {
@@ -1100,7 +1104,8 @@ function laneData(maps, fr, f, now, s) {
     return { ...m, set, om, wf, wrf, group: groupOf(set), entries, jobs, towerRuns, fresh, status, cad, next, procOnly,
       loose: inputs ? towerLoose : procOnly ? towerRuns : [], home: running, homeAvail, isLive: wrf || jobs.some((j) => live.has(j)),
       towerT: inputs ? med(towerLoose.filter((t) => t.avail && t.exit === 0 && t.end >= day).map((t) => t.end - t.avail))
-        : procOnly ? med(towerRuns.filter((t) => t.exit === 0 && t.end >= day).map((t) => t.end - t.start)) : med(recent.map((e) => e.towerTime).filter((v) => v != null)),
+        : procOnly ? med(towerRuns.filter((t) => t.exit === 0 && t.end >= day).map((t) => t.end - t.start)) : med(recent.filter((e) => !(e.tower && e.tower.host === "mac")).map((e) => e.towerTime).filter((v) => v != null)),
+      macT: med(recent.filter((e) => e.tower && e.tower.host === "mac").map((e) => e.towerTime).filter((v) => v != null)),
       ghT: procOnly ? med(recent.filter((e) => e.gh && e.pub).map((e) => e.pub - e.gh.start)) : med(recent.map((e) => e.ghTime).filter((v) => v != null)),
       offered: recent.filter((e) => e.avail != null).length, skipped: recent.filter((e) => e.skipped).length };
   });
@@ -1110,7 +1115,34 @@ function laneData(maps, fr, f, now, s) {
 const WHY = { slots: "all slots busy", priority3: "priority 3 (a slot kept free)", memory: "memory", behind: "behind one waiting for memory",
   drain: "held for one waiting long", wrf: "too big beside WRF", planned: "the jobs' plans over their cap", heavy: "big jobs at their limit", starting: "starting",
   "?": "not recorded" };
-const BAND_H = 246;
+const BAND_H = 246, MAC_H = 120;
+
+// The Mac mini's band (the owner, 23.10.2026; the server's band.mac from its beats): the Tower's band's look, slimmer.
+function macBandLayer(mac, x, t0, X0, X1, compact, y0) {
+  const step = 120, rows = mac.rows.filter((r) => r[0] + step >= t0);
+  if (!rows.length) return null;
+  const CPU = [y0 + 8, y0 + 58], MEM = [y0 + 68, y0 + 104];
+  const yCpu = (p) => CPU[1] - Math.min(p, 100) / 100 * (CPU[1] - CPU[0]);
+  const yMem = (g) => MEM[1] - Math.min(g, mac.total_gb) / mac.total_gb * (MEM[1] - MEM[0]);
+  const xm = (r) => x(r[0] + step / 2);
+  const area = (f0, f1) => "M" + rows.map((r) => `${xm(r)},${f1(r)}`).join("L") + "L" + [...rows].reverse().map((r) => `${xm(r)},${f0(r)}`).join("L") + "Z";
+  const avg = rows.reduce((a, r) => a + r[1] + r[2], 0) / rows.length, peak = Math.max(...rows.map((r) => r[3]));
+  return html`<g aria-label="The Mac mini">
+    <path d=${area(() => yCpu(0), (r) => yCpu(r[2]))} fill="var(--wrf-soft)"/>
+    <path d=${area((r) => yCpu(r[2]), (r) => yCpu(r[1] + r[2]))} fill="var(--mac-soft)"/>
+    <path d=${"M" + rows.map((r) => `${xm(r)},${yCpu(r[1] + r[2])}`).join("L")} fill="none" stroke="var(--mac)" stroke-width="1.3"/>
+    ${[50, 100].map((p) => html`<line x1=${X0} x2=${X1} y1=${yCpu(p)} y2=${yCpu(p)} stroke="var(--line)" stroke-dasharray="3 3"/>${compact ? null : html`<text x=${X0 - 6} y=${yCpu(p) + 4} text-anchor="end">${p}%</text>`}`)}
+    <path d=${"M" + rows.map((r) => `${xm(r)},${yMem(r[3])}`).join("L")} fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+    ${compact ? html`<text class="cap" x=${X0 + 2} y=${CPU[0] + 11}><tspan class="grp" style="fill:var(--mac)">MAC MINI </tspan><tspan style="fill:var(--ink)">CPU ${mac.threads} cores · avg ${Math.round(avg)}%</tspan></text>
+        <text class="cap" x=${X0 + 2} y=${MEM[0] + 11}><tspan class="grp" style="fill:var(--muted)">MEMORY </tspan><tspan style="fill:var(--ink)">peak ${peak.toFixed(1)} GB</tspan></text>`
+      : html`<text class="grp" x="0" y=${CPU[0] + 12} style="fill:var(--mac)">MAC MINI</text><text x="0" y=${CPU[0] + 26}>CPU · ${mac.threads} cores</text>
+        <text class="grp" x="0" y=${MEM[0] + 12}>MEMORY</text><text x="0" y=${MEM[0] + 26}>used</text>
+        <text x=${X0 - 6} y=${MEM[0] + 8} text-anchor="end">${Math.round(mac.total_gb)} GB</text>
+        <text x=${X1 + 22} y=${CPU[0] + 14}>avg ${Math.round(avg)}%</text>
+        <text x=${X1 + 22} y=${MEM[0] + 14}>peak ${peak.toFixed(1)} GB</text>`}
+    <line x1="0" x2=${compact ? X1 + 6 : X1 + 250} y1=${y0 + 112} y2=${y0 + 112} stroke="var(--line)"/>
+  </g>`;
+}
 
 // The machine on top of the lanes (the owner, 22.10.2026: "on top we could add a total PC usage graph"; mockup
 // pipeline-machine-band-2026-10-22): CPU (WRF, jobs), jobs running and waiting against the slots, memory against the
@@ -1479,7 +1511,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
     return () => { removeEventListener("resize", measure); if (ro) ro.disconnect(); };
   }, []);
   const compact = boxW > 0 && boxW < LANES_MIN_W, NAME_H = compact ? 16 : 0;
-  const W = compact ? boxW : Math.max(LANES_MIN_W, boxW || 1460), X0 = compact ? 6 : 244, X1 = compact ? W - 6 : W - 210;
+  const W = compact ? boxW : Math.max(LANES_MIN_W, boxW || 1460), X0 = compact ? 6 : 244, X1 = compact ? W - 6 : W - 260;
   const x = (t) => X0 + (Math.max(t0, Math.min(t1, t)) - t0) / (t1 - t0) * (X1 - X0);
   const w = (a, b, min = 1.5) => Math.max(x(b) - x(a), min);
   // The hours' labels at least ~70 px apart (at the usual width: each hour on 6 h, every 2 on 12 h, every 3 on 24 h).
@@ -1544,7 +1576,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
     box.current.scrollLeft = box.current.scrollWidth;
     if (bandRef.current) bandRef.current.scrollLeft = box.current.scrollLeft;
   }, [back]);
-  const BH = band && band.rows && band.rows.length ? BAND_H : 0;
+  const BH = band && band.rows && band.rows.length ? BAND_H + (band.mac && band.mac.rows.length ? MAC_H : 0) : 0;
   // Runs that overlap in a lane get sub-rows (the owner, 22.10.2026: "instead of overlapping, we have multiple rows
   // showing one after another"; mockup pipeline-overlap-2026-10-22): each source's bars (GitHub's, the Tower's) packed
   // into the fewest rows, a run into the first row free by its start; a lane grows 9 px a row while an overlap is in view.
@@ -1646,10 +1678,10 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
       const procFrom = a != null ? Math.max(a, t.start) : t.start;
       out.push(html`<g ...${hov(t.going ? { kind: "wrf", l, e, w: wrf } : l.wrf ? { kind: "wrfdone", l, e, t } : { kind: "tower", l, e, t })}>
         ${a != null && t.start > a ? html`<rect x=${x(a)} y=${yt + 17} width=${w(a, t.start, 1)} height="6" rx="1" fill="var(--wait)"/>` : null}
-        <rect x=${x(procFrom)} y=${yt + 17} width=${w(procFrom, t.end)} height="6" rx="1" fill=${t.ok ? "var(--home)" : "var(--bad)"} opacity=${t.live ? 1 : 0.55}/>
+        <rect x=${x(procFrom)} y=${yt + 17} width=${w(procFrom, t.end)} height="6" rx="1" fill=${!t.ok ? "var(--bad)" : t.host === "mac" ? "var(--mac)" : "var(--home)"} opacity=${t.live ? 1 : 0.55}/>
         ${((p) => p ? html`<rect x=${x(p[0])} y=${yt + 17} width=${w(p[0], p[1], 1)} height="6" rx="1" fill="var(--accent)" opacity=${t.live ? 1 : 0.7}/>` : null)(l.wrf ? null : dlPart(t, procFrom, t.end))}
         ${t.live && t.ok && !t.going ? html`<rect x=${x(l.wrf && e.pub ? e.pub : t.end) - 1} y=${yt + 15} width="2.5" height="10" fill="var(--ok)"/>` : null}
-        ${t.going && wEnd ? expect(yt, wEnd.end, "var(--wrf)", `${Math.round(wEnd.pct * 100)}% · ~${clock(wEnd.end)}`, false) : null}</g>`);
+        ${t.going && wEnd ? expect(yt, wEnd.end, t.host === "mac" ? "var(--mac)" : "var(--wrf)", `${Math.round(wEnd.pct * 100)}% · ~${clock(wEnd.end)}`, false) : null}</g>`);
     }
     return out;
   };
@@ -1681,6 +1713,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
       onClick=${(ev) => { if (touched.current) point(ev); }} onPointerLeave=${(ev) => { if (ev.pointerType !== "touch") setTip(null); }}>
     ${hours.map((t) => html`<line x1=${x(t)} x2=${x(t)} y1="22" y2=${TOP} stroke="var(--line)"/>${Math.round(t / 3600) % step === 0 && x(t) > 18 && x(t) < W - 18 ? html`<text x=${x(t)} y="15" text-anchor="middle">${clock(t)}</text>` : null}`)}
     ${BH ? bandLayer(band, x, t0, slots || 4, X0, X1, compact) : null}
+    ${BH && band.mac && band.mac.rows.length ? macBandLayer(band.mac, x, t0, X0, X1, compact, BAND_H + 14) : null}
     ${(() => {
       // The open card's run on the band (the owner, 23.10.2026: "plus the highlight on the band"): the card's timeline,
       // from available (lighter: before it started) to its end (a running one: now), so the card and the machine line up.
@@ -1692,7 +1725,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
         <line x1=${xa} x2=${xa} y1="20" y2=${TOP} stroke="var(--ink)" opacity=".35" stroke-dasharray="2 3"/>
         <line x1=${xs} x2=${xs} y1="20" y2=${TOP} stroke="var(--ink)" opacity=".5"/><line x1=${xb} x2=${xb} y1="20" y2=${TOP} stroke="var(--ink)" opacity=".5"/>`;
     })()}
-    ${compact ? null : html`<text x=${X1 + 22} y="15">Tower</text><text x=${X1 + 86} y="15">GitHub</text><text x=${X1 + 150} y="15">skipped</text>`}
+    ${compact ? null : html`<text x=${X1 + 22} y="15">Tower</text><text x=${X1 + 86} y="15" style="fill:var(--mac)">Mac</text><text x=${X1 + 150} y="15">GitHub</text><text x=${X1 + 214} y="15">skipped</text>`}
     <line x1=${x(now)} x2=${x(now)} y1="20" y2=${TOP} stroke="var(--warn)" stroke-width="2"/>
     ${tip ? html`<line x1=${x(tip.row[0] + 60)} x2=${x(tip.row[0] + 60)} y1="20" y2=${30 + BH - 10} stroke="var(--ink)" opacity=".45"/>` : null}
     </svg></div>${tip ? html`<${BandTip} band=${band} row=${tip.row} left=${tip.left} top=${tip.top} />` : null}</div>
@@ -1700,7 +1733,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
       onPointerDown=${offBar}>
     ${hours.map((t) => html`<line x1=${x(t)} x2=${x(t)} y1=${TOP} y2=${H - 20} stroke="var(--line)"/>`)}
     ${rows.map(({ g, l, y: y0, lay }) => { if (g) return html`<text class="grp" x="0" y=${y0 + 16}>${g.toUpperCase()}</text>
-      ${compact ? html`<text class="grp" x=${W} y=${y0 + 16} text-anchor="end"><tspan style="fill:var(--home)">TOWER</tspan> · GITHUB · <tspan style="fill:var(--bad)">SKIPPED</tspan></text>` : null}`;
+      ${compact ? html`<text class="grp" x=${W} y=${y0 + 16} text-anchor="end"><tspan style="fill:var(--home)">TOWER</tspan> · <tspan style="fill:var(--mac)">MAC</tspan> · GITHUB · <tspan style="fill:var(--bad)">SKIPPED</tspan></text>` : null}`;
       // On a phone the lane's name line, then its bars from y (below it).
       const y = y0 + NAME_H, dot = l.status === "bad" ? "var(--bad)" : l.status === "proc" ? "var(--accent)" : l.status === "wait" ? "var(--warn)" : "var(--ok)";
       return html`<g class=${"row" + (sel === l.name ? " sel" : "")} onClick=${() => setSel(l.name)} style="cursor:pointer">
@@ -1708,9 +1741,9 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
       ${compact ? html`<circle cx="5" cy=${y0 + 9} r="4" fill=${dot}/>
       <text class="lname cap" x="14" y=${y0 + 13}>${((n) => l.label.length > n ? l.label.slice(0, n - 1) + "…" : l.label)(
         Math.max(8, Math.floor((W - 26 - (mins(l.towerT) + " · " + mins(l.ghT) + (l.skipped ? ` · ${l.skipped}/${l.offered}` : "")).length * 7.3) / 6.6)))}</text>
-      <text class="ours cap" x=${W - 2} y=${y0 + 13} text-anchor="end"><tspan style=${"fill:var(--home)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.towerT)}</tspan><tspan style="fill:var(--faint)"> · </tspan><tspan style=${"fill:var(--muted)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.ghT)}</tspan>${l.skipped ? html`<tspan style="fill:var(--bad)"> · ${l.skipped}/${l.offered}</tspan>` : null}</text>`
+      <text class="ours cap" x=${W - 2} y=${y0 + 13} text-anchor="end"><tspan style=${"fill:var(--home)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.towerT)}</tspan><tspan style="fill:var(--faint)"> · </tspan>${l.macT != null ? html`<tspan style="fill:var(--mac)">${mins(l.macT)}</tspan><tspan style="fill:var(--faint)"> · </tspan>` : null}<tspan style=${"fill:var(--muted)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.ghT)}</tspan>${l.skipped ? html`<tspan style="fill:var(--bad)"> · ${l.skipped}/${l.offered}</tspan>` : null}</text>`
       : html`${l.wrf ? null : html`<text class="src" x=${X0 - 6} y=${y + 14} text-anchor="end">GitHub${lay.kg > 1 ? " ×" + lay.kg : ""}</text>`}
-      <text class="src" x=${X0 - 6} y=${y + lay.t(null) + 23} text-anchor="end" style="fill:var(--home)">Tower${lay.kt > 1 ? " ×" + lay.kt : ""}</text>
+      <text class="src" x=${X0 - 6} y=${y + lay.t(null) + 23} text-anchor="end" style="fill:var(--home)">${l.wrf ? html`<tspan style="fill:var(--mac)">Mac</tspan><tspan style="fill:var(--faint)"> · </tspan>Tower` : "Tower"}${lay.kt > 1 ? " ×" + lay.kt : ""}</text>
       <circle cx="8" cy=${y + 15} r="4" fill=${dot}/>
       <text class="lname" x="18" y=${y + 19}>${l.label.length > 28 ? l.label.slice(0, 27) + "…" : l.label}</text>`}
       ${l.entries.map((e) => entry(l, e, y, lay))}
@@ -1730,8 +1763,9 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
       ${links(l, y, lay)}
       ${(() => { const out = []; if (l.next) for (let t = l.next; t < t1 && out.length < 30; t += l.cad || 1e9) if (t > now) out.push(html`<path d=${`M${x(t)} ${y + 6} l5 9 -5 9 -5 -9 Z`} fill="none" stroke="var(--faint)"><title>${l.label}: next run expected about ${clock(t)}</title></path>`); return out; })()}
       ${compact ? null : html`<text class="ours" x=${X1 + 22} y=${y + 19} style=${"fill:var(--home)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.towerT)}</text>
-      <text class="ours" x=${X1 + 86} y=${y + 19} style=${"fill:var(--muted)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.ghT)}</text>
-      ${l.skipped ? html`<text class="ours" x=${X1 + 150} y=${y + 19} style="fill:var(--bad)">${l.skipped} of ${l.offered}</text>` : null}`}
+      <text class="ours" x=${X1 + 86} y=${y + 19} style="fill:var(--mac)">${l.macT != null ? mins(l.macT) : "–"}</text>
+      <text class="ours" x=${X1 + 150} y=${y + 19} style=${"fill:var(--muted)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.ghT)}</text>
+      ${l.skipped ? html`<text class="ours" x=${X1 + 214} y=${y + 19} style="fill:var(--bad)">${l.skipped} of ${l.offered}</text>` : null}`}
     </g>`; })}
     <line x1=${x(now)} x2=${x(now)} y1=${TOP} y2=${H - 18} stroke="var(--warn)" stroke-width="2"/><text x=${x(now) + 5} y=${H - 6} style="fill:var(--warn)">now ${clock(now)}</text>
   </svg>
@@ -1828,18 +1862,19 @@ function Pipeline({ maps, fr, f, now, s, cap }) {
   return html`<div class="panel pstrip">
       <div><span class="v" style="color:var(--home)">${mins(tMed)}</span><span class="l">our time today, Tower (median)</span></div>
       <div><span class="v">${mins(gMed)}</span><span class="l">GitHub</span></div>
+      ${((l) => l && l.macT != null ? html`<div><span class="v" style="color:var(--mac)">${mins(l.macT)}</span><span class="l">WRF, Mac mini</span></div>` : null)(lanes.find((o) => o.wrf))}
       <div><span class="v">${waitShare == null ? "–" : Math.round(waitShare * 100) + "%"}</span><span class="l">of GitHub's time is waiting for its job to start</span></div>
       <div><span class="v" style=${skipped ? "color:var(--warn)" : ""}>${skipped}</span><span class="l">runs skipped today of ${offered} offered</span></div>
       <div><span class="v">${sooner} of ${compared.length}</span><span class="l">maps the Tower makes sooner</span></div></div>
     <div class="pipe" style="margin-top:16px">
     <section class="panel" aria-label="Pipeline">
       ${!maps ? html`<h2>Every map: from available to published · last ${back} h and next ${ahead} · ${zoneName()} time</h2><p class="empty">Reading admin's map history…</p>` : html`
-      <${Lanes} lanes=${lanes} now=${now} sel=${sel} setSel=${choose} back=${back} ahead=${ahead} band=${band} slots=${f && f.slots} wrf=${f && f.wrf}
+      <${Lanes} lanes=${lanes} now=${now} sel=${sel} setSel=${choose} back=${back} ahead=${ahead} band=${band} slots=${f && f.slots} wrf=${f && f.mac && f.mac.wrf && f.mac.wrf.running ? { ...(f.wrf || {}), ...f.mac.wrf } : f && f.wrf}
         head=${html`<h2>Every map: from available to published · last ${back} h and next ${ahead} · ${zoneName()} time</h2>
         <div class="filters">${RANGES.map(([b]) => html`<span class=${"chip" + (range === b ? " on" : "")} onClick=${() => setRange(b)}>${b} h</span>`)}<span style="width:10px"></span>
           ${chips.map(([k, label]) => html`<span class=${"chip" + (filter === k ? " on" : "")} onClick=${() => setFilter(k)}>${label}</span>`)}</div>`} />
-      <div class="legend"><span style="--c:var(--wrf)">CPU: WRF</span><span style="--c:var(--home)">CPU: jobs · jobs running</span><span style="--c:var(--wait)">jobs waiting · waiting to start</span><span style="--c:var(--accent)">memory used (dashed: the jobs' budget) · a run's downloading</span><span style="--c:var(--net)">network in (dashed: out)</span><span style="--c:var(--room)">waiting with room (CPU &lt; 50%, &gt; 6 GB free)</span></div>
-      <div class="legend"><span class="t">▼ run available to us (Open-Meteo's record; a mix: a new input published; a line down: its bars in a lane with more rows)</span><span style="--c:var(--gh)">GitHub (upper bar)</span><span style="--c:var(--home)">Tower (lower bar; faint: shadow, not published)</span>
+      <div class="legend"><span style="--c:var(--wrf)">CPU: WRF</span><span style="--c:var(--home)">CPU: jobs · jobs running</span><span style="--c:var(--mac)">Mac mini: its other work</span><span style="--c:var(--wait)">jobs waiting · waiting to start</span><span style="--c:var(--accent)">memory used (dashed: the jobs' budget) · a run's downloading</span><span style="--c:var(--net)">network in (dashed: out)</span><span style="--c:var(--room)">waiting with room (CPU &lt; 50%, &gt; 6 GB free)</span></div>
+      <div class="legend"><span class="t">▼ run available to us (Open-Meteo's record; a mix: a new input published; a line down: its bars in a lane with more rows)</span><span style="--c:var(--gh)">GitHub (upper bar)</span><span style="--c:var(--home)">Tower (lower bar; faint: shadow, not published)</span><span style="--c:var(--mac)">Mac mini (lower bar)</span>
         <span style="--c:var(--wait)">waiting to start</span><span style="--c:var(--ok)">published</span><span class="t" style="color:var(--bad)">× a source run nobody took</span><span class="t">◇ next run expected</span><span class="t">right: our time, median of 24 h (italic: the job's own time, no "available" moment)</span></div>
       <p class="note" style="margin:8px 0 0">Each bar starts when the run was complete on Open-Meteo's open data, where our jobs read it, and ends when riders could see it. The maker's own time before that is left out. Sooner is better. "Available" is recorded for every model from 21.10.2026 evening; older runs start at GitHub's job.</p>`}
     </section>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The Mac mini's beat for the ops panel (the owner, 23.10.2026): mac_beat.py every 2 minutes (CPU, memory, the WRF run
+     going and its last runs to runner/mac.json). Installed in ~/Library/LaunchAgents, loaded with:
+     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.meteogust.beat.plist (off: launchctl bootout gui/$(id -u)/com.meteogust.beat). -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.meteogust.beat</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/tower-mini/baltic-aladin/.venv/bin/python</string>
+    <string>/Users/tower-mini/baltic-aladin/wrf_poc/mac_beat.py</string>
+    <string>tarifa</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>120</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/tower-mini/wrf-logs/beat.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/tower-mini/wrf-logs/beat.log</string>
+</dict>
+</plist>

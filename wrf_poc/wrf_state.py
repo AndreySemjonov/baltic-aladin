@@ -22,6 +22,18 @@ DONE_FOR = 5 * 3600    # a "done" this recent is the cycle the Tower is about to
 STUCK = 4 * 3600       # working this long: stuck (a 48 h run takes ~2.5 h on the Mac, 23.10.2026)
 # The run's start, kept between the puts of one run (a new "waiting" starts a new run).
 LOCAL = os.path.expanduser("~/wrf-logs/.state-{region}.json")
+# The Mac's last runs, for the ops panel (the owner, 23.10.2026: the Mac's runs in it; mac_beat.py uploads them):
+# each one's stage times ("at"), cycle and result, the newest last.
+RUNS = os.path.expanduser("~/wrf-logs/.runs-{region}.json")
+KEEP = 20
+
+
+def history(region):
+    try:
+        with open(RUNS.format(region=region)) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return []
 
 
 def put(region, stage, cycle=""):
@@ -38,8 +50,14 @@ def put(region, stage, cycle=""):
     if stage == "waiting" or not mine.get("started"):
         mine = {"started": now}
     mine.update({"t": now, "host": os.uname().nodename, "stage": stage, **({"cycle": cycle} if cycle else {})})
+    # When each stage began (the beat's repeats keep the first time).
+    mine.setdefault("at", {}).setdefault(stage, now)
     with open(path, "w") as f:
         json.dump(mine, f)
+    if stage in ("done", "failed"):
+        runs = [r for r in history(region) if r.get("started") != mine["started"]] + [mine]
+        with open(RUNS.format(region=region), "w") as f:
+            json.dump(runs[-KEEP:], f)
     request = urllib.request.Request(UPLOAD.format(region=region), data=json.dumps(mine).encode(), method="PUT",
                                      headers={"Authorization": "Bearer " + token, **AGENT})
     with urllib.request.urlopen(request, timeout=30):

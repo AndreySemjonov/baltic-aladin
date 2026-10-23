@@ -488,6 +488,12 @@ def wrf_runs(since):
         start = datetime.strptime(m.group(1), "%Y%m%dT%H%M").replace(tzinfo=timezone.utc).timestamp()
         end = os.path.getmtime(path)
         text = read(path, "") or ""
+        # Since 23.10.2026 the Mac makes the runs and tower.sh stands aside (wrf_state.py): a log in which the Tower never
+        # started WRF itself ("WRF tarifa, 48 hours, on 20 cores") is no run of the Tower's; nor the newest while the Mac
+        # is on it (the Tower's own GFS wait before it asks).
+        if not re.search(r"^\d\d:\d\d:\d\d WRF \w+, \d+ hours", text, re.M) and (
+                "the Mac (" in text or (path == logs[-1] and (mac_state() or {}).get("wrf"))):
+            continue
         # The run going now: its log stops changing a few minutes in (the model's progress goes to rsl.out.*); or
         # still waiting for GFS (wrf_state's "waiting").
         state = wrf_state() if path == logs[-1] else {}
@@ -648,7 +654,7 @@ class Records:
         for c in (live or {}).get("running", []):
             if c.get("started"):
                 items.append({"lane": lane(c["job"]), "job": c["job"], "a": c["started"], "b": now, "kind": "run"})
-        for a, b, ok in wrf_runs(since):
+        for a, b, ok in wrf_runs(since) + [(r[0], r[1], r[2]) for r in mac_wrf_runs(since)]:
             items.append({"lane": "WRF", "job": "wrf", "a": a, "b": b, "kind": "run" if ok in ("going", "waiting") else "wrf" if ok else "bad"})
         wrf_typ = 3.5 * 3600
         for t in wrf_next(now):
@@ -694,7 +700,9 @@ class Records:
             if a.get("done", 0) >= now - 40 * 3600:
                 arrived.setdefault((a["model"], a["run"]), a["done"])
         pipe = {"arrivals": [[m, r, d] for (m, r), d in arrived.items()], "gh": views.GH.pipe(),
-                "wrf": [[round(a), round(b), ok if ok in ("going", "waiting") else bool(ok), *wrf_gfs(a), wrf_phases(a)] for a, b, ok in wrf_runs(now - 36 * 3600)]}
+                # Each WRF run with the machine that made it, the Tower's and the Mac's, by start.
+                "wrf": sorted([[round(a), round(b), ok if ok in ("going", "waiting") else bool(ok), *wrf_gfs(a), wrf_phases(a), "tower"]
+                               for a, b, ok in wrf_runs(now - 36 * 3600)] + mac_wrf_runs(now - 36 * 3600))}
         self.slow = {"home": home, "pipe": pipe, "t": round(now), "from": round(since), "to": round(now + 6 * 3600), "lanes": [n for n, _ in LANES],
                      "items": items, "arrivals": arr, "runs": recent, "hosts": hosts, "typical": typical,
                      "github_at": round(self.github_at) or None}
@@ -750,6 +758,66 @@ def capacity():
 
 
 _band = {"at": 0, "hours": 0, "data": {}}
+# The Mac mini (the owner, 23.10.2026: both WRF runs on the Mac, "the Mac's runs and CPU/memory in its state file, the
+# panel reading it"): its beat (wrf_poc/mac_beat.py, every 2 minutes: CPU with WRF's apart, memory, the WRF run going,
+# its last runs) read at most once a minute; each new beat's numbers kept for the Mac's band.
+MAC_URL = "https://files.meteogust.com/runner/mac.json"
+MAC_SAMPLES = f"{STATS}/_mac_samples.jsonl"
+_mac = {"at": 0, "data": None, "lock": threading.Lock()}
+
+
+def mac_state():
+    """The Mac's newest beat ({} keys as mac_beat.py writes them), None before its first."""
+    now = time.time()
+    with _mac["lock"]:
+        if now - _mac["at"] < 60:
+            return _mac["data"]
+        _mac["at"] = now
+        try:
+            request = urllib.request.Request(f"{MAC_URL}?t={int(now)}", headers=AGENT)
+            with urllib.request.urlopen(request, timeout=10) as reply:
+                data = json.loads(reply.read().decode())
+        except Exception:
+            return _mac["data"]
+        if data.get("t") and data.get("t") != (_mac["data"] or {}).get("t"):
+            try:
+                with open(MAC_SAMPLES, "a") as f:
+                    f.write(json.dumps({"t": data["t"], "wrf": data.get("cpu_wrf"), "other": data.get("cpu_other"),
+                                        "mem": data.get("mem_used")}) + "\n")
+                # About 8 days at one a beat, as the scheduler keeps its own samples.
+                if os.path.getsize(MAC_SAMPLES) > 600_000:
+                    keep = (read(MAC_SAMPLES, "") or "").splitlines()[-6000:]
+                    with open(MAC_SAMPLES, "w") as f:
+                        f.write("\n".join(keep) + "\n")
+            except OSError:
+                pass
+        _mac["data"] = data
+        return data
+
+
+def mac_wrf_runs(since):
+    """The Mac's WRF runs since `since` as the Pipeline's WRF tuples: [start, end, ok, GFS in hand, waited for it, cycle,
+    phases, "mac"] (ok: "going" or "waiting" for the run on now)."""
+    m = mac_state() or {}
+    out = []
+    for r in (m.get("runs") or []) + ([m["wrf"]] if m.get("wrf") else []):
+        at = r.get("at") or {}
+        start = r.get("started")
+        if not start:
+            continue
+        going = r is m.get("wrf")
+        end = time.time() if going else at.get("done") or at.get("failed") or r.get("t") or start
+        if end < since:
+            continue
+        ok = ("waiting" if r.get("stage") == "waiting" else "going") if going else r.get("stage") == "done"
+        ready = at.get("wps")
+        cycle = None
+        c = re.match(r"(\d{4}-\d\d-\d\d)T(\d\d)Z", r.get("cycle") or "")
+        if c:
+            cycle = int(datetime.strptime(f"{c[1]} {c[2]}", "%Y-%m-%d %H").replace(tzinfo=timezone.utc).timestamp())
+        phases = {k: v for k, v in {"gfs_done": ready, "wps": ready, "model": at.get("wrf"), "end": at.get("tiles")}.items() if v}
+        out.append([round(start), round(end), ok, ready, bool(ready and ready - start > 300), cycle, phases, "mac"])
+    return out
 
 
 def band(hours=12):
@@ -834,6 +902,22 @@ def band(hours=12):
         rows.append([b, round(jobs / count, 1), round(wrf / count, 1), round(used, 1), running, len(who), 1 if on else 0,
                      why, who, budget, round(net_in / net_n, 1) if net_n else None, round(net_out / net_n, 1) if net_n else None])
     data = {"t": round(now), "hours": hours, "step": step, "threads": threads, "total_gb": round(total, 1), "names": names, "rows": rows}
+    # The Mac's band under the Tower's (the owner, 23.10.2026): [time, CPU of its other work %, CPU of WRF %, memory GB]
+    # in the same steps, from its beats (mac_state).
+    mac = mac_state()
+    beats = [x for x in jsonl(MAC_SAMPLES, hours * 30 + 60) if x.get("t", 0) >= since]
+    if mac and beats:
+        mrows, i = [], 0
+        for b in range(int(since // step * step), int(now), step):
+            inside = []
+            while i < len(beats) and beats[i]["t"] < b + step:
+                if beats[i]["t"] >= b:
+                    inside.append(beats[i])
+                i += 1
+            if inside:
+                mrows.append([b, round(sum(x.get("other") or 0 for x in inside) / len(inside), 1),
+                              round(sum(x.get("wrf") or 0 for x in inside) / len(inside), 1), max(x.get("mem") or 0 for x in inside)])
+        data["mac"] = {"threads": mac.get("cores") or 10, "total_gb": mac.get("mem_total") or 16, "rows": mrows}
     _band.update(at=now, hours=hours, data=data)
     return data
 
@@ -899,7 +983,12 @@ def fast():
     if wc:
         wrf.update({"cpu": wc["cpu"], "mem": wc["mem"]})
     wrf["next"] = wrf_next(time.time(), 2)
-    return {"t": snap.get("t"), "host": live.get("host") or socket.gethostname(), "cores": snap.get("cores", []),
+    # The Mac mini: its beat (a day old at most), the WRF run it's making.
+    m = mac_state()
+    mac = ({"beat": m.get("t"), "host": m.get("host"), "cores": m.get("cores"), "mem_total": m.get("mem_total"),
+            "mem_used": m.get("mem_used"), "cpu_wrf": m.get("cpu_wrf"), "cpu_other": m.get("cpu_other"), "wrf": m.get("wrf")}
+           if m and time.time() - (m.get("t") or 0) < 86400 else None)
+    return {"t": snap.get("t"), "host": live.get("host") or socket.gethostname(), "mac": mac, "cores": snap.get("cores", []),
             "mem_total": snap.get("mem_total"), "mem_avail": snap.get("mem_avail"),
             "containers": snap.get("containers", []), "net_in": snap.get("net_in"), "net_out": snap.get("net_out"),
             "net_hist": hist, "sources_now": DOWNLOADS.rates(), "jobs": jobs, "wrf": wrf,
