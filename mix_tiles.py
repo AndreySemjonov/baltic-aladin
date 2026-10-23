@@ -30,12 +30,14 @@ import hashlib
 import io
 import json
 import math
+import os
 import struct
 import sys
 import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 from PIL import Image
@@ -132,6 +134,11 @@ NONE = "------"
 # the tiles had a newer model run, HARM-EU's and MET Nordic's every hour; riders look at today and tomorrow most).
 # Each frame says when its pack was made ("made").
 FAR_FROM, FAR_EVERY = 24 * 3600, 3 * 3600
+# Under the home runner in shadow (--local, its /stats folder): the shadow's own last index stands for the published one,
+# so a shadow run keeps what it made (far hours, unchanged hours) as the live job does (the owner, 23.10.2026: against
+# GitHub's index every far hour was remade, "0 kept", 38 CPU-hours a day at home). An hour with a changed input is made
+# whole there (its old tiles aren't kept on disk; live it's patched from the published pack).
+SHADOW = Path("/stats/shadow/mix.json") if os.environ.get("MG_JOB") and os.path.isdir("/stats") else None
 CREDIT = ("MET Nordic, MET Norway; HARMONIE DINI, DMI; HARMONIE, FMI; ALADIN, ČHMÚ; AROME, Météo-France (Etalab 2.0); "
           "ICON-D2 and ICON-EU, DWD; ICON-CH1, MeteoSwiss; HARMONIE-AROME, KNMI; ICON-2I, ItaliaMeteo; "
           "ECMWF open data (CC BY 4.0); GFS, NOAA; UKV, Met Office; ICON-CH2, MeteoSwiss; HARMONIE-AROME Europe, KNMI; "
@@ -611,11 +618,29 @@ def main():
     if not out.wanted:
         print(f"Mix {run_time:%Y%m%dT%HZ} already published")
         return
+    # The shadow's own "already published": this hour's run made already (SHADOW).
+    if local and SHADOW is not None and "--force" not in args:
+        try:
+            made = json.loads(SHADOW.read_text()).get("runName")
+        except (OSError, ValueError):
+            made = None
+        if made == out.folder:
+            print(f"Mix {run_time:%Y%m%dT%HZ} already made (shadow)")
+            return
     coast = Coast()
     # What the published run's tiles were made with (only what changed is made again).
     weights_mark = mark(json.dumps([VERSION, [(m.name, m.weight, m.coast_km) for m in models], weight_points(),
                                     sorted(FRESH.items()), coast.folder, list(ZOOMS), MARGIN, list(box)], default=str))
-    previous = {} if "--force" in args else (tiler.world_tiles.published_index("mix") or {})
+    shadowing = bool(local) and SHADOW is not None
+    if "--force" in args:
+        previous = {}
+    elif shadowing:
+        try:
+            previous = json.loads(SHADOW.read_text())
+        except (OSError, ValueError):
+            previous = {}
+    else:
+        previous = tiler.world_tiles.published_index("mix") or {}
     before = {}
     if previous.get("srcWeights") == weights_mark and previous.get("srcModels"):
         for f in previous.get("frames") or []:
@@ -738,6 +763,9 @@ def main():
               f"{', '.join(out.frames[t]['models'])}, {time.time() - started:.0f} s", flush=True)
     out.finish(weights={m.label: m.weight for m in models}, freshness={k: round(v, 3) for k, v in FRESH.items()},
                srcModels=[m.name for m in models], srcWeights=weights_mark)
+    if shadowing and (Path(local) / "index.json").exists():
+        SHADOW.parent.mkdir(parents=True, exist_ok=True)
+        SHADOW.write_bytes((Path(local) / "index.json").read_bytes())
     memory_report(models, coast, "at the end")
     print(f"Mix done in {time.time() - started:.0f} s: {kept} hours kept as published, {far} far hours kept (remade every {FAR_EVERY // 3600} h), {partial} in part, {whole} whole")
 

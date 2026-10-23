@@ -22,6 +22,7 @@ length]}}, written last (station-history reads a tile's file through it; the old
 """
 import json
 import math
+import os
 import struct
 import sys
 import time
@@ -152,6 +153,28 @@ def series_file(times, size, pixels):
     return b"MGS1" + struct.pack("<I", len(head)) + head + b"".join(parts)
 
 
+# Under the home runner in shadow (--local, its /stats folder): the run each set was last made from, so a shadow run
+# skips what it made already, as the live job does with done.json (the owner, 23.10.2026: without it every one of the
+# 28 shadow runs a day remade every set, 65 CPU-hours and 752 GB downloaded at home, a third of the machine).
+SHADOW = Path("/stats/shadow/series.json") if os.environ.get("MG_JOB") and os.path.isdir("/stats") else None
+
+
+def shadow_made():
+    try:
+        return json.loads(SHADOW.read_text()) if SHADOW else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def shadow_note(set_name, run):
+    if not SHADOW:
+        return
+    made = shadow_made()
+    made[set_name] = run
+    SHADOW.parent.mkdir(parents=True, exist_ok=True)
+    SHADOW.write_text(json.dumps(made))
+
+
 def make(spec, local, limit, force, places=None):
     # A wind set, or "<folder>:<layer>" (a weather layer's packs: the frames' "temp", "rain", "cloud").
     folder, layer = spec.split(":", 1) if ":" in spec else (spec, "file")
@@ -164,6 +187,9 @@ def make(spec, local, limit, force, places=None):
     run = index["runName"]
     if local is None and not force and spot_points.get(FILES + f"series/{set_name}/{run}/done.json"):
         print(f"{set_name} {run}: series made already", flush=True)
+        return
+    if local is not None and SHADOW and not force and shadow_made().get(set_name) == run:
+        print(f"{set_name} {run}: series made already (shadow)", flush=True)
         return
     frames = sorted((f for f in index["frames"] if f.get(layer)), key=lambda f: f["time"])
     if not frames:
@@ -231,6 +257,7 @@ def make(spec, local, limit, force, places=None):
     if local:
         (local / f"series/{set_name}/{run}").mkdir(parents=True, exist_ok=True)
         (local / f"series/{set_name}/{run}/done.json").write_bytes(done)
+        shadow_note(set_name, run)
     else:
         world_tiles.upload(f"series/{set_name}/{run}/done.json", done)
         # This run and the one before (station-history reads the one before while the next is made).
