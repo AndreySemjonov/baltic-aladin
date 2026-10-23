@@ -838,20 +838,36 @@ def band(hours=12):
     return data
 
 
-def usage(job, start):
+def usage(job, start, due=None):
     """A run's usage samples (runner/measure.py: STATS/_usage/<job>-<start>.json), the one that started nearest `start`
-    within 5 minutes (a running job's start here is its container's, a few seconds before measure.py's); None if none."""
+    within 5 minutes (a running job's start here is its container's, a few seconds before measure.py's), {} if none;
+    with `due`, "wait": why the scheduler held it from due to start ({reason: its minute records}, STATS/_queue.jsonl;
+    the run card's timeline, 23.10.2026). None for a bad job name."""
     if not re.fullmatch(r"[\w.-]+", job or ""):
         return None
-    best = None
+    best, out = None, {}
     try:
         for name in os.listdir(f"{STATS}/_usage"):
             m = re.fullmatch(re.escape(job) + r"-(\d+)\.json", name)
             if m and abs(int(m.group(1)) - start) < 300 and (best is None or abs(int(m.group(1)) - start) < best[0]):
                 best = (abs(int(m.group(1)) - start), name)
     except OSError:
-        return None
-    return read(f"{STATS}/_usage/{best[1]}") if best else None
+        pass
+    if best:
+        try:
+            out = json.loads(read(f"{STATS}/_usage/{best[1]}") or "{}")
+        except ValueError:
+            out = {}
+    if due and start - due > 60:
+        wait = {}
+        # The queue's records are about a minute apart: a day back is enough for the panel's runs.
+        for q in jsonl(f"{STATS}/_queue.jsonl", min(1500, int((time.time() - due) / 60) + 30)):
+            if due <= q.get("t", 0) <= start:
+                for name, kind, _priority in q.get("wait") or []:
+                    if name == job:
+                        wait[kind] = wait.get(kind, 0) + 1
+        out["wait"] = wait
+    return out
 
 
 def live_state():
@@ -967,10 +983,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             elif url.path == "/api/usage":
                 q = urllib.parse.parse_qs(url.query)
                 try:
-                    body = usage(q.get("job", [""])[0], float(q.get("start", ["0"])[0]))
+                    due = q.get("due", [""])[0]
+                    body = usage(q.get("job", [""])[0], float(q.get("start", ["0"])[0]), float(due) if due else None)
                 except ValueError:
                     body = None
-                self.reply(200, "application/json", (body or "null").encode())
+                self.reply(200, "application/json", json.dumps(body, separators=(",", ":")).encode())
             elif url.path == "/api/log":
                 self.log_stream(urllib.parse.parse_qs(url.query).get("job", [""])[0])
             else:
