@@ -610,6 +610,8 @@ class Running:
                    # glibc's per-thread memory pools kept GBs the jobs had freed (the Mix: 5.1 GB process, 2.2 GB in its
                    # caches, 21.10.2026); two pools are enough for their few threads.
                    "-e", "MALLOC_ARENA_MAX=2",
+                   # Its planned memory and limit (MB) into its usage samples (measure.py): the panel card's dashed lines.
+                   "-e", f"MG_PLAN_MB={round(mem_need(job))}", "-e", f"MG_LIMIT_MB={round(limit_mb) if limit_mb else ''}",
                    "-v", f"{REPO}:/code", "-v", f"{folder}:/work", "-v", f"{STATS}:/stats",
                    # Out of memory, the kernel takes a job before WRF or the runner.
                    "--oom-score-adj", str(JOB_OOM_SCORE)]

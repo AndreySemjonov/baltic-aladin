@@ -12,8 +12,9 @@ it wrote to --local (what it would have uploaded); disk_peak_mb the most /work h
 
 Its use over the run (the owner, 23.10.2026: "on card also graph for usage ... CPU, RAM ... during its run"): every
 USAGE_STEP seconds the container's CPU (% of one thread), resident memory (MB, the cgroup's, what the scheduler plans
-with) and download (MB/s), in /stats/_usage/<job>-<start>.json, written every 30 s while it runs ("end": null) and at
-its end; past USAGE_POINTS samples two neighbours merge (the step doubles: CPU and download averaged, memory the higher).
+with), download and upload (MB/s; "net", "out"), with its planned memory and limit (the scheduler's), in
+/stats/_usage/<job>-<start>.json, written every 30 s while it runs ("end": null) and at its end; past USAGE_POINTS
+samples two neighbours merge (the step doubles: CPU and the network averaged, memory the higher).
 
     python /code/runner/measure.py <job> -- <command ...>   (the repo's copy: no image rebuild for a change here)
 """
@@ -48,42 +49,47 @@ def cgroup_now():
 
 
 class Usage:
-    """The run's CPU, memory and download every USAGE_STEP s (the module's note)."""
+    """The run's CPU, memory, download and upload every USAGE_STEP s (the module's note)."""
 
     def __init__(self, job, start):
         self.path = f"/stats/_usage/{job}-{round(start)}.json"
-        self.head = {"job": job, "start": round(start)}
-        self.step, self.cpu, self.mem, self.net = USAGE_STEP, [], [], []
+        # Its planned memory and container limit (MB, the scheduler's MG_PLAN_MB, MG_LIMIT_MB): the card's dashed lines.
+        plan, limit = (os.environ.get(k) for k in ("MG_PLAN_MB", "MG_LIMIT_MB"))
+        self.head = {"job": job, "start": round(start), "plan_mb": int(plan) if plan and plan.isdigit() else None,
+                     "limit_mb": int(limit) if limit and limit.isdigit() else None}
+        self.step, self.cpu, self.mem, self.net, self.out = USAGE_STEP, [], [], [], []
         self.last, self.acc = None, []  # the previous reading; the raw samples not yet a point (a step over USAGE_STEP)
 
     def sample(self):
-        now, cg, (rx, _) = time.time(), cgroup_now(), net_bytes()
+        now, cg, (rx, tx) = time.time(), cgroup_now(), net_bytes()
         if cg is None:
             return
         if self.last:
-            t0, cpu0, rx0 = self.last
+            t0, cpu0, rx0, tx0 = self.last
             dt = max(now - t0, 0.1)
-            self.acc.append(((cg[0] - cpu0) / dt / 1e7, cg[1] / 2**20, max(rx - rx0, 0) / dt / 1e6))
+            self.acc.append(((cg[0] - cpu0) / dt / 1e7, cg[1] / 2**20, max(rx - rx0, 0) / dt / 1e6,
+                             max(tx - tx0, 0) / dt / 1e6))
             if len(self.acc) >= self.step // USAGE_STEP:
                 n = len(self.acc)
                 self.cpu.append(round(sum(a[0] for a in self.acc) / n))
                 self.mem.append(round(max(a[1] for a in self.acc)))
                 self.net.append(round(sum(a[2] for a in self.acc) / n, 2))
+                self.out.append(round(sum(a[3] for a in self.acc) / n, 2))
                 self.acc = []
             if len(self.cpu) >= USAGE_POINTS:  # an even count: each merged point two whole steps
                 pairs = lambda v: [v[i:i + 2] for i in range(0, len(v), 2)]
-                self.cpu = [round(sum(p) / len(p)) for p in pairs(self.cpu)]
-                self.mem = [max(p) for p in pairs(self.mem)]
-                self.net = [round(sum(p) / len(p), 2) for p in pairs(self.net)]
+                mean = lambda v, digits: [round(sum(p) / len(p), digits) for p in pairs(v)]
+                self.cpu, self.mem = [round(sum(p) / len(p)) for p in pairs(self.cpu)], [max(p) for p in pairs(self.mem)]
+                self.net, self.out = mean(self.net, 2), mean(self.out, 2)
                 self.step *= 2
-        self.last = (now, cg[0], rx)
+        self.last = (now, cg[0], rx, tx)
 
     def write(self, end=None, peak_mb=None):
         try:
             os.makedirs("/stats/_usage", exist_ok=True)
             with open(self.path + ".tmp", "w") as f:
                 json.dump(dict(self.head, end=round(end) if end else None, step=self.step, peak_mb=peak_mb,
-                               cpu=self.cpu, mem=self.mem, net=self.net), f, separators=(",", ":"))
+                               cpu=self.cpu, mem=self.mem, net=self.net, out=self.out), f, separators=(",", ":"))
             os.replace(self.path + ".tmp", self.path)
         except OSError:
             pass

@@ -298,9 +298,14 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 .bpop .psteps { display: grid; grid-template-columns: 44px auto 1fr; gap: 3px 8px; margin-top: 8px; align-items: baseline }
 .bpop .psteps .st { font: 12px var(--mono); color: var(--muted) } .bpop .psteps .sw { font-weight: 600; white-space: nowrap } .bpop .psteps .sd { font: 11.5px var(--mono); color: var(--muted) }
 .bpop .pchart { margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--line) }
-.bpop .pchart svg { display: block; overflow: visible } .bpop .pchart text { font: 10.5px var(--mono); fill: var(--muted) }
+.bpop .pchart svg { display: block; overflow: visible } .bpop .pnote { color: var(--muted); font-size: 12px }
 .bpop .pchart .cap { paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round }
-.bpop .pchart tspan.grp { font: 600 10.5px var(--display); letter-spacing: .08em } .bpop .pnote { color: var(--muted); font-size: 12px }
+.bpop .pkey { color: var(--muted); font: 11px var(--mono); margin-top: 2px } .bpop .pkey i { display: inline-block; width: 10px; height: 8px;
+  background: var(--machine); margin-right: 5px; vertical-align: 0 }
+.bpop.wide { width: 560px }
+:root { --machine: rgba(93, 109, 124, .16); --hl: rgba(19, 32, 43, .07) }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --machine: rgba(139, 156, 173, .16); --hl: rgba(219, 229, 238, .08) } }
+:root[data-theme="dark"] { --machine: rgba(139, 156, 173, .16); --hl: rgba(219, 229, 238, .08) }
 .bpop .pbar i.rest { background: repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px) }
 .bpop .plog { margin-top: 6px; font: 11px var(--mono); color: var(--muted); background: var(--bg); border-radius: 6px; padding: 5px 7px; overflow-wrap: anywhere } .btip .k { color: var(--muted) } .btip .room { color: var(--bad); font-weight: 600 }
 .pstrip { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: baseline }
@@ -1220,11 +1225,13 @@ function wrfEnd(w, now) {
 }
 
 // A home run's use over its run (the owner, 23.10.2026: "on card also graph for usage. So we see used CPU, RAM ...
-// during its run"): measure.py's samples (every 5 s, merged to at most 240 points), CPU in threads, memory in GB,
-// download in MB/s, over the run's own time; fetched as the popup opens, again every 15 s while it runs. Runs from
-// before 23.10 evening have none.
+// during its run"; then "same style card as we have on resources on top"): measure.py's samples (every 5 s, merged to
+// at most 240 points) drawn like the machine band (bandLayer): CPU as a share of all the threads, memory against the
+// machine's memory with the job's plan dashed, network in (out dashed); behind them in grey the whole machine at the
+// same time (the band's rows), so the job's share shows. A phone gets the band's compact form (captions in the rows).
+// Fetched as the popup opens, again every 15 s while it runs. Runs from before 23.10 evening have none.
 const usageCache = new Map();
-function UsageChart({ job, start, running, now }) {
+function UsageChart({ job, start, running, now, band, compact }) {
   const key = `${job}|${Math.round(start || 0)}`;
   const [u, setU] = useState(() => usageCache.get(key));
   useEffect(() => {
@@ -1238,38 +1245,69 @@ function UsageChart({ job, start, running, now }) {
   }, [key, running]);
   if (u === undefined) return html`<div class="pchart pnote">usage …</div>`;
   if (!u || !u.cpu || u.cpu.length < 2) return html`<div class="pchart pnote">${running ? "usage: the first samples in a minute" : "no usage graph for this run (recorded from 23.10)"}</div>`;
-  const W = 356, RH = 30, GAP = 13, n = u.cpu.length;
-  const x = (i) => (i / (n - 1) * W).toFixed(1);
+  const threads = (band && band.threads) || 20, total = (band && band.total_gb) || 25, n = u.cpu.length;
+  const t0 = u.start, t1 = u.end || u.start + n * u.step;
+  const W = compact ? 356 : 536, X0 = compact ? 0 : 158, X1 = W - 1;
+  const CPU = [22, 78], MEM = [90, 130], NET = [142, 182], H = 188;
+  const x = (t) => X0 + (t - t0) / Math.max(t1 - t0, 1) * (X1 - X0);
+  const xi = (i) => x(t0 + (i + 0.5) * u.step);
+  // The machine at the same time: the band's 2-minute rows over the run.
+  const step = (band && band.step) || 120;
+  const mrows = ((band && band.rows) || []).filter((r) => r[0] + step > t0 && r[0] < t1);
+  const out = u.out || [];
+  const netPeak = Math.max(5, ...u.net, ...out, ...mrows.map((r) => r[10] || 0));
+  const yCpu = (p) => CPU[1] - Math.min(p, 100) / 100 * (CPU[1] - CPU[0]);
+  const yMem = (g) => MEM[1] - Math.min(g, total) / total * (MEM[1] - MEM[0]);
+  const yNet = (v) => NET[1] - Math.min(v, netPeak) / netPeak * (NET[1] - NET[0]);
+  const jobCpu = u.cpu.map((c) => c / threads), jobMem = u.mem.map((m) => m / 1000);  // GB as the card's other lines count them
+  const line = (v, y) => v.map((a, i) => `${i ? "L" : "M"}${xi(i).toFixed(1)},${y(a).toFixed(1)}`).join("");
+  const area = (v, y, base) => `${line(v, y)}L${xi(v.length - 1).toFixed(1)},${base}L${xi(0).toFixed(1)},${base}Z`;
+  // A stepped grey area of the machine's rows, clipped to the run.
+  const machine = (f, y, base) => mrows.length ? "M" + mrows.map((r) => { const a = x(Math.max(r[0], t0)), b = x(Math.min(r[0] + step, t1));
+    return `${a.toFixed(1)},${base}L${a.toFixed(1)},${y(f(r)).toFixed(1)}L${b.toFixed(1)},${y(f(r)).toFixed(1)}L${b.toFixed(1)},${base}`; }).join("L") + "Z" : "";
+  // Time ticks like the band's hours: a round step giving at most 5.
+  const span = t1 - t0, tick = [60, 120, 300, 600, 900, 1800, 3600, 7200, 10800].find((s) => span / s <= 5) || 21600;
+  const ticks = [];
+  for (let t = Math.ceil(t0 / tick) * tick; t <= t1; t += tick) ticks.push(t);
   const avg = (v) => v.reduce((s, a) => s + a, 0) / v.length;
-  const f1 = (v) => v >= 10 ? Math.round(v) : v.toFixed(1);
-  const rows = [
-    { title: "CPU", v: u.cpu.map((c) => c / 100), min: 1, c: "var(--home)", soft: "var(--home-soft)",
-      text: (v, m) => `avg ${f1(avg(v))} · peak ${f1(m)} threads` },
-    // measure.py's record peak (getrusage) catches a spike shorter than a sample.
-    { title: "MEMORY", v: u.mem.map((m) => m / 1024), min: 0.5, c: "var(--accent)", soft: "var(--accent-soft)",
-      text: (v, m) => `peak ${m.toFixed(1)} GB${u.peak_mb && u.peak_mb / 1024 > m + 0.2 ? ` · spike ${(u.peak_mb / 1024).toFixed(1)} GB between samples` : ""}` },
-    { title: "DOWNLOAD", v: u.net, min: 1, c: "var(--net)", soft: "var(--net-soft)",
-      text: (v, m) => `avg ${MBs(avg(v))} · peak ${MBs(m)} MB/s` }];
-  const H = rows.length * (RH + GAP) + 14;
-  return html`<div class="pchart"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="CPU, memory and download over the run">
-    ${rows.map((r, k) => {
-      const top = k * (RH + GAP) + 12, m = Math.max(r.min, ...r.v), y = (v) => (top + RH - v / m * RH).toFixed(1);
-      const line = r.v.map((v, i) => `${i ? "L" : "M"}${x(i)},${y(v)}`).join("");
-      return html`<text class="cap" x="0" y=${top - 3}><tspan class="grp">${r.title + " "}</tspan><tspan style="fill:var(--ink)">${r.text(r.v, Math.max(...r.v))}</tspan></text>
-        <line x1="0" x2=${W} y1=${top + RH} y2=${top + RH} stroke="var(--line)"/>
-        <path d=${`${line}L${x(n - 1)},${top + RH}L0,${top + RH}Z`} fill=${r.soft}/>
-        <path d=${line} fill="none" stroke=${r.c} stroke-width="1.4" stroke-linejoin="round"/>`;
-    })}
-    <text x="0" y=${H - 1}>${clock(u.start)}</text>
-    <text x=${W / 2} y=${H - 1} text-anchor="middle">every ${u.step} s</text>
-    <text x=${W} y=${H - 1} text-anchor="end">${u.end ? clock(u.end) : `now ${clock(now)}`}</text>
-  </svg></div>`;
+  const pk = (v) => Math.max(...v);
+  const memPeak = pk(jobMem);
+  const plan = u.plan_mb ? u.plan_mb / 1000 : null;
+  const stats = {
+    cpu: `avg ${Math.round(avg(jobCpu))}% · peak ${Math.round(pk(jobCpu))}%`,
+    mem: plan ? `peak ${memPeak.toFixed(1)} · plan ${plan.toFixed(1)} GB` : `peak ${memPeak.toFixed(1)} GB`,
+    net: `avg ${MBs(avg(u.net))} · peak ${MBs(pk(u.net))} MB/s` };
+  const cap = (y, title, rest) => html`<text class="cap" x=${X0 + 2} y=${y + 11}><tspan class="grp">${title + " "}</tspan><tspan style="fill:var(--ink)">${rest}</tspan></text>`;
+  const scale = (y, t) => compact ? html`<text class="cap" x=${X1 - 2} y=${y + 11} text-anchor="end">${t}</text>` : html`<text x=${X0 - 6} y=${y + 8} text-anchor="end">${t}</text>`;
+  const label = (y, title, sub, st) => html`<text class="grp" x="0" y=${y + 12}>${title}</text><text x="0" y=${y + 26}>${sub}</text><text x="0" y=${y + 40} style="fill:var(--ink)">${st}</text>`;
+  return html`<div class="pchart"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="CPU, memory and network over the run, against the whole machine">
+    ${ticks.map((t) => html`<line x1=${x(t)} x2=${x(t)} y1=${CPU[0] - 4} y2=${NET[1]} stroke="var(--line)"/><text x=${x(t)} y="11" text-anchor="middle">${clock(t)}</text>`)}
+    <path d=${machine((r) => r[1] + r[2], yCpu, CPU[1])} fill="var(--machine)"/>
+    <path d=${area(jobCpu, yCpu, CPU[1])} fill="var(--home-soft)"/>
+    <path d=${line(jobCpu, yCpu)} fill="none" stroke="var(--home)" stroke-width="1.3" stroke-linejoin="round"/>
+    ${[50, 100].map((p) => html`<line x1=${X0} x2=${X1} y1=${yCpu(p)} y2=${yCpu(p)} stroke="var(--line)" stroke-dasharray="3 3"/>${compact ? null : html`<text x=${X0 - 6} y=${yCpu(p) + 4} text-anchor="end">${p}%</text>`}`)}
+    <path d=${machine((r) => r[3], yMem, MEM[1])} fill="var(--machine)"/>
+    <path d=${area(jobMem, yMem, MEM[1])} fill="var(--accent-soft)"/>
+    <path d=${line(jobMem, yMem)} fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round"/>
+    ${plan ? html`<line x1=${X0} x2=${X1} y1=${yMem(plan)} y2=${yMem(plan)} stroke="var(--accent)" stroke-dasharray="4 3"/>` : null}
+    <path d=${machine((r) => r[10] || 0, yNet, NET[1])} fill="var(--machine)"/>
+    <path d=${area(u.net, yNet, NET[1])} fill="var(--net-soft)"/>
+    <path d=${line(u.net, yNet)} fill="none" stroke="var(--net)" stroke-width="1.4" stroke-linejoin="round"/>
+    ${out.length ? html`<path d=${line(out, yNet)} fill="none" stroke="var(--net)" stroke-width="1" stroke-dasharray="3 3"/>` : null}
+    ${[CPU, MEM, NET].map((r) => html`<line x1=${X0} x2=${X1} y1=${r[1]} y2=${r[1]} stroke="var(--line)"/>`)}
+    ${compact ? html`${cap(CPU[0], "CPU", stats.cpu)}${scale(CPU[0], `${threads} thr`)}
+      ${cap(MEM[0], "MEMORY", stats.mem)}${scale(MEM[0], `${Math.round(total)} GB`)}
+      ${cap(NET[0], "NETWORK", stats.net)}${scale(NET[0], `${Math.round(netPeak)} MB/s`)}`
+    : html`${label(CPU[0], "CPU", `${threads} threads`, stats.cpu)}
+      ${label(MEM[0], "MEMORY", plan ? "used · plan" : "used", stats.mem)}${scale(MEM[0], `${Math.round(total)} GB`)}
+      ${label(NET[0], "NETWORK", out.length ? "in · out (dashed)" : "in", stats.net)}${scale(NET[0], `${Math.round(netPeak)} MB/s`)}`}
+  </svg><div class="pkey"><i></i>the whole machine at the time · every ${u.step} s${running ? ` · now ${clock(now)}` : ""}</div></div>`;
 }
 
 // What a bar is (the owner, 22.10.2026: "on hover on each line a popup ... if active, how much it uses, status ...
 // combining what we see in Machine; if finished, the same as on click at the bottom"; then "show also available time,
 // waited time, download time and when started"): its steps as a short timeline over a segmented bar.
-function BarPop({ d, now, left, top, onClose }) {
+function BarPop({ d, now, left, top, onClose, band, compact }) {
   const { kind, l } = d;
   const e = d.e || {}, a = e.avail;
   const size = (mb) => mb >= 1000 ? `${(mb / 1000).toFixed(1)} GB` : `${Math.round(mb)} MB`;
@@ -1311,7 +1349,7 @@ function BarPop({ d, now, left, top, onClose }) {
       ${running ? kv([["CPU now", r.cpu != null ? `${r.cpu}%` : "–"], ["Memory", `${r.mem != null ? GB(r.mem) : "–"} GB${r.need ? ` of the ${(r.need / 1000).toFixed(1)} planned` : ""}`]])
         : kv([e.pub ? ["GitHub", `published ${clock(e.pub)}${a != null ? ` · ${mins(e.pub - a)}` : ""}${e.gh && a != null ? ` (waited ${mins(Math.max(0, e.gh.start - a))})` : ""}`] : null,
           r.cpu != null ? ["This run cost", `${Math.round(r.cpu)} CPU min · ${r.peak ? (r.peak / 1000).toFixed(1) : "–"} GB peak · ${r.net != null ? (r.net / 1000).toFixed(1) : "–"} GB down`] : null])}
-      <${UsageChart} job=${r.job} start=${start} running=${running} now=${now} />
+      <${UsageChart} job=${r.job} start=${start} running=${running} now=${now} band=${band} compact=${compact} />
       ${running ? html`<div class="pspark"><span>↓ ${r.download ? r.download.host : "no download now"}</span><${Spark} values=${r.speeds} w=${150} h=${22} /><b>${MBs(r.net_in || 0)} MB/s</b></div>
         ${r.download ? html`<div class="plog">${base(r.download.url)}${r.download.done ? " · done" : ""}</div>` : null}` : null}`;
   } else if (kind === "wrfwait") {
@@ -1361,7 +1399,7 @@ function BarPop({ d, now, left, top, onClose }) {
         e.pub ? [e.pub, "published", a != null ? `${mins(e.pub - a)} from available` : ""] : null])}
       ${kv([["Use", "GitHub doesn't report it per run"]])}`;
   }
-  return html`<div class="bpop" style=${`left:${left}px;top:${top}px`}>
+  return html`<div class=${"bpop" + ((kind === "running" || kind === "tower") && !compact ? " wide" : "")} style=${`left:${left}px;top:${top}px`}>
     <button class="px" aria-label="Close" onClick=${(ev) => { ev.stopPropagation(); onClose && onClose(); }}>✕</button>${body}</div>`;
 }
 
@@ -1416,8 +1454,9 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
     const b = box.current.getBoundingClientRect();
     // Above the pointer near the chart's foot (below it hung past the edge: an inner scrollbar, the popup hidden).
     const y = ev.clientY - b.top;
-    const ph = d.kind === "running" || d.kind === "tower" ? 430 : 290;  // a home run's popup has its usage chart (23.10.2026)
-    setPop({ d, left: Math.max(box.current.scrollLeft + 4, Math.min(ev.clientX - b.left + box.current.scrollLeft + 14, box.current.scrollLeft + b.width - 390)),
+    // A home run's popup has its usage chart (23.10.2026): taller, and wider off a phone.
+    const home = d.kind === "running" || d.kind === "tower", ph = home ? 470 : 290, pw = home && !compact ? 570 : 390;
+    setPop({ d, left: Math.max(box.current.scrollLeft + 4, Math.min(ev.clientX - b.left + box.current.scrollLeft + 14, box.current.scrollLeft + b.width - pw)),
       top: y + ph > b.height ? Math.max(4, y - ph) : y + 14 });
   };
   // A mouse (or pen) shows a bar's popup on hover; a finger with a tap (the owner, 22.10.2026: "on phone I want to have
@@ -1585,6 +1624,16 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
       onClick=${(ev) => { if (touched.current) point(ev); }} onPointerLeave=${(ev) => { if (ev.pointerType !== "touch") setTip(null); }}>
     ${hours.map((t) => html`<line x1=${x(t)} x2=${x(t)} y1="22" y2=${TOP} stroke="var(--line)"/>${Math.round(t / 3600) % step === 0 && x(t) > 18 && x(t) < W - 18 ? html`<text x=${x(t)} y="15" text-anchor="middle">${clock(t)}</text>` : null}`)}
     ${BH ? bandLayer(band, x, t0, slots || 4, X0, X1, compact) : null}
+    ${(() => {
+      // The open card's run on the band (the owner, 23.10.2026: "plus the highlight on the band"): its start to its end
+      // (a running one to now), so the card's chart and the machine line up in time.
+      const k = pop && pop.d.kind, r = k === "tower" ? pop.d.t : k === "running" ? pop.d.j : null;
+      const a = r && (r.started || r.start), b = r && (k === "tower" ? r.end : now);
+      if (!BH || !a || !b || b < t0) return null;
+      const xa = Math.max(x(a), X0), xb = Math.min(x(b), X1);
+      return xb > xa - 1 ? html`<rect x=${xa} y="20" width=${Math.max(xb - xa, 2)} height=${TOP - 20} fill="var(--hl)"/>
+        <line x1=${xa} x2=${xa} y1="20" y2=${TOP} stroke="var(--ink)" opacity=".5"/><line x1=${xa + Math.max(xb - xa, 2)} x2=${xa + Math.max(xb - xa, 2)} y1="20" y2=${TOP} stroke="var(--ink)" opacity=".5"/>` : null;
+    })()}
     ${compact ? null : html`<text x=${X1 + 22} y="15">Tower</text><text x=${X1 + 86} y="15">GitHub</text><text x=${X1 + 150} y="15">skipped</text>`}
     <line x1=${x(now)} x2=${x(now)} y1="20" y2=${TOP} stroke="var(--warn)" stroke-width="2"/>
     ${tip ? html`<line x1=${x(tip.row[0] + 60)} x2=${x(tip.row[0] + 60)} y1="20" y2=${30 + BH - 10} stroke="var(--ink)" opacity=".45"/>` : null}
@@ -1629,7 +1678,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
     <line x1=${x(now)} x2=${x(now)} y1=${TOP} y2=${H - 18} stroke="var(--warn)" stroke-width="2"/><text x=${x(now) + 5} y=${H - 6} style="fill:var(--warn)">now ${clock(now)}</text>
   </svg>
     ${pop ? html`<${BarPop} d=${{ ...pop.d, w: wrf, j: (pop.d.kind === "running" && (lanes.find((o) => o.name === pop.d.l.name) || {}).home) || pop.d.j }}
-      now=${now} left=${pop.left} top=${pop.top} onClose=${() => setPop(null)} />` : null}</div>`;
+      now=${now} left=${pop.left} top=${pop.top} band=${band} compact=${compact} onClose=${() => setPop(null)} />` : null}</div>`;
 }
 
 function RunBars({ l }) {
