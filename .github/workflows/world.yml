@@ -38,14 +38,40 @@ jobs:
       group: world-${{ matrix.model }}
       cancel-in-progress: false
     steps:
+      # Since 23.10.2026 (the owner: "put group 1 live now: the world models and ICON-EU"): while the home runner's
+      # heartbeat (under 20 minutes old, as helper-trigger reads it) lists this model's job live, it is left to home,
+      # so the two never publish the same map. A job failing twice at home leaves the list and is made here again.
+      - name: Is this model made at home?
+        id: home
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, time, urllib.request
+          job = {"gfs": "world-gfs", "ecmwf": "world-ecmwf", "icon": "world-icon", "gdps": "world-gdps"}.get("${{ matrix.model }}", "${{ matrix.model }}")
+          try:
+              request = urllib.request.Request(f"https://files.meteogust.com/runner/heartbeat.json?t={int(time.time())}",
+                                               headers={"User-Agent": "baltic-aladin world.yml"})
+              hb = json.load(urllib.request.urlopen(request, timeout=20))
+              home = time.time() - hb.get("t", 0) < 1200 and job in (hb.get("live") or [])
+          except Exception:
+              home = False
+          print("home=" + ("true" if home else "false"))
+          PY
+
+      - name: Made at home
+        if: steps.home.outputs.home == 'true'
+        run: echo "${{ matrix.model }} is made live at home now, left out here"
+
       - name: Check out
+        if: steps.home.outputs.home != 'true'
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Python version (for the package cache)
+        if: steps.home.outputs.home != 'true'
         id: python
         run: echo "version=$(python3 -c 'import sys; print(sys.version.split()[0])')" >> "$GITHUB_OUTPUT"
 
       - name: Restore the installed packages
+        if: steps.home.outputs.home != 'true'
         id: venv
         uses: actions/cache@v4
         with:
@@ -53,12 +79,13 @@ jobs:
           key: world-venv-${{ runner.os }}-py${{ steps.python.outputs.version }}-eccodes-numpy-pillow-scipy-omfiles-v3
 
       - name: Install ecCodes, NumPy, Pillow, SciPy and omfiles (ECMWF 9 km's files)
-        if: steps.venv.outputs.cache-hit != 'true'
+        if: steps.home.outputs.home != 'true' && steps.venv.outputs.cache-hit != 'true'
         run: |
           python3 -m venv .venv
           .venv/bin/pip install --quiet eccodes numpy pillow scipy omfiles
 
       - name: Make and upload the newest run's tiles
+        if: steps.home.outputs.home != 'true'
         env:
           INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
           FORCE: ${{ inputs.force }}
