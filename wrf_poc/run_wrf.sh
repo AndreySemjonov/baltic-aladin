@@ -3,10 +3,13 @@
 # the boundaries from the met_em files), then wrf.exe over the three boxes (9, 3 and 1 km) on every
 # core. NLEV and NSOIL (the met_em files' levels) come from /work/env, read on the runner.
 set -euo pipefail
-source /work/env
-source "/poc/regions/$REGION.env"
+# The folders: the container's by default; the Mac mini passes its own (mac_wrf.sh, 23.10.2026).
+WORK=${WRF_WORKDIR:-/work}
+POCDIR=${WRF_POCDIR:-/poc}
+source "$WORK/env"
+source "$POCDIR/regions/$REGION.env"
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
-timed() { local name=$1; shift; local t0; t0=$(date +%s); "$@" || return $?; echo "$name $(( $(date +%s) - t0 ))" >> /work/times.txt; log "$name done"; }
+timed() { local name=$1; shift; local t0; t0=$(date +%s); "$@" || return $?; echo "$name $(( $(date +%s) - t0 ))" >> "$WORK/times.txt"; log "$name done"; }
 # The container's own set-up (its entrypoint is bypassed): Intel's MPI and compilers, the user's paths.
 set +u
 [ -f /opt/intel/oneapi/setvars.sh ] && source /opt/intel/oneapi/setvars.sh --force > /dev/null 2>&1 || true
@@ -15,6 +18,7 @@ set -u
 # The libraries the programs miss (the image sets no library path: NetCDF, Intel's runtime):
 # each one found in the image and its folder added to LD_LIBRARY_PATH.
 libraries() {
+  command -v ldd > /dev/null || return 0  # macOS has none (and needs none: Homebrew's libraries)
   local extra="" lib dir
   for exe in "$@"; do
     for lib in $(ldd "$exe" 2>/dev/null | awk '/not found/ {print $1}'); do
@@ -26,19 +30,21 @@ libraries() {
   log "library path: $LD_LIBRARY_PATH"
   for exe in "$@"; do ldd "$exe" | grep "not found" && log "still missing for $exe" || true; done
 }
-ulimit -s unlimited || true
+ulimit -s unlimited 2> /dev/null || ulimit -s hard 2> /dev/null || true  # macOS: 64 MB at most
 
-WRFEXE=$(find / -name wrf.exe -path "*run*" -not -path "/proc/*" -not -path "/work/*" 2>/dev/null | head -1)
+# WRF_RUNDIR: WRF's run folder (the Mac's ~/wrf/WRF/run); else found in the container.
+WRFEXE=${WRF_RUNDIR:+$WRF_RUNDIR/wrf.exe}
+[ -n "$WRFEXE" ] || WRFEXE=$(find / -name wrf.exe -path "*run*" -not -path "/proc/*" -not -path "/work/*" 2>/dev/null | head -1)
 [ -n "$WRFEXE" ] || WRFEXE=$(find / -name wrf.exe -not -path "/proc/*" -not -path "/work/*" 2>/dev/null | head -1)
 RUN=$(dirname "$WRFEXE")
 # The tables WRF reads sit in WRF/run (the executables there are links to WRF/main).
 [ -f "$RUN/RRTMG_LW_DATA" ] || RUN=$(dirname "$(dirname "$WRFEXE")")/run
 log "WRF at $RUN"
 libraries "$RUN"/real.exe "$RUN"/wrf.exe
-mkdir -p /work/wrf && cd /work/wrf
+mkdir -p "$WORK/wrf" && cd "$WORK/wrf"
 for f in "$RUN"/*; do ln -sf "$f" .; done
 rm -f namelist.input met_em.* wrfout_* wrfinput_* wrfbdy_* rsl.*
-ln -sf /work/wps/met_em.* .
+ln -sf "$WORK"/wps/met_em.* .
 
 y() { echo "${1:0:4}"; }; m() { echo "${1:5:2}"; }; d() { echo "${1:8:2}"; }; h() { echo "${1:11:2}"; }
 plus() { date -u -d "${1:0:10} ${1:11:8} UTC + $2 hours" +%Y-%m-%d_%H:00:00; }

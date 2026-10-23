@@ -3,10 +3,13 @@
 # three nested boxes: 9, 3 and 1 km, the 1 km one Cádiz to Málaga with Tangier, tilted about 10°), ungrib (the GFS files), metgrid (GFS onto the
 # boxes). Each step timed into /work/times.txt. START and END come from /work/env.
 set -euo pipefail
-source /work/env
-source "/poc/regions/$REGION.env"
+# The folders: the container's by default; the Mac mini passes its own (mac_wrf.sh, 23.10.2026).
+WORK=${WRF_WORKDIR:-/work}
+POCDIR=${WRF_POCDIR:-/poc}
+source "$WORK/env"
+source "$POCDIR/regions/$REGION.env"
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
-timed() { local name=$1; shift; local t0; t0=$(date +%s); "$@" || return $?; echo "$name $(( $(date +%s) - t0 ))" >> /work/times.txt; log "$name done"; }
+timed() { local name=$1; shift; local t0; t0=$(date +%s); "$@" || return $?; echo "$name $(( $(date +%s) - t0 ))" >> "$WORK/times.txt"; log "$name done"; }
 # The container's own set-up (its entrypoint is bypassed): Intel's MPI and compilers, the user's paths.
 set +u
 [ -f /opt/intel/oneapi/setvars.sh ] && source /opt/intel/oneapi/setvars.sh --force > /dev/null 2>&1 || true
@@ -15,6 +18,7 @@ set -u
 # The libraries the programs miss (the image sets no library path: NetCDF, Intel's runtime):
 # each one found in the image and its folder added to LD_LIBRARY_PATH.
 libraries() {
+  command -v ldd > /dev/null || return 0  # macOS has none (and needs none: Homebrew's libraries)
   local extra="" lib dir
   for exe in "$@"; do
     for lib in $(ldd "$exe" 2>/dev/null | awk '/not found/ {print $1}'); do
@@ -27,13 +31,15 @@ libraries() {
   for exe in "$@"; do ldd "$exe" | grep "not found" && log "still missing for $exe" || true; done
 }
 
-GEOGRID=$(find / -name geogrid.exe -not -path "/proc/*" -not -path "/work/*" 2>/dev/null | head -1)
+# WRF_WPSDIR: where WPS is (the Mac's ~/wrf/WPS); else found in the container.
+if [ -n "${WRF_WPSDIR:-}" ]; then GEOGRID=$WRF_WPSDIR/geogrid/src/geogrid.exe; else
+GEOGRID=$(find / -name geogrid.exe -not -path "/proc/*" -not -path "/work/*" 2>/dev/null | head -1); fi
 WPS=$(dirname "$GEOGRID")
 # geogrid.exe may sit in WPS/geogrid/src (the link at WPS's top is what the tables sit beside).
 [ -d "$WPS/geogrid" ] || WPS=$(dirname "$(dirname "$(dirname "$GEOGRID")")")
 log "WPS at $WPS"
 libraries "$WPS"/geogrid/src/geogrid.exe "$WPS"/ungrib/src/ungrib.exe "$WPS"/metgrid/src/metgrid.exe
-mkdir -p /work/wps && cd /work/wps
+mkdir -p "$WORK/wps" && cd "$WORK/wps"
 rm -f geogrid.exe ungrib.exe metgrid.exe GRIBFILE.* FILE:* met_em.* geo_em.* Vtable
 for exe in geogrid ungrib metgrid; do
   ln -sf "$(find "$WPS" -name "$exe.exe" | head -1)" "$exe.exe"
@@ -65,7 +71,7 @@ cat > namelist.wps <<EOF
  truelat1  = $TRUELAT1,
  truelat2  = $TRUELAT2,
  stand_lon = $STAND_LON,
- geog_data_path = '/geog/WPS_GEOG/',
+ geog_data_path = '${WRF_GEOGDIR:-/geog}/WPS_GEOG/',
  opt_geogrid_tbl_path = '$WPS/geogrid/',
 /
 &ungrib
@@ -82,7 +88,7 @@ EOF
 # The GFS files as GRIBFILE.AAA, .AAB, ... (link_grib.csh without csh).
 letters=({A..Z})
 i=0
-for f in /work/gfs/gfs.*; do
+for f in "$WORK"/gfs/gfs.*; do
   a=${letters[$((i / 676 % 26))]}; b=${letters[$((i / 26 % 26))]}; c=${letters[$((i % 26))]}
   ln -sf "$f" "GRIBFILE.$a$b$c"
   i=$((i + 1))

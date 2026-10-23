@@ -22,6 +22,21 @@ log() { echo "$(date -u +%H:%M:%S) $*"; }
 export GFS_BACK=2 GFS_WAIT=100 GFS_POLL=120
 ( cd "$HERE" && HOURS="$HOURS" "$HERE/.venv/bin/python" wrf_poc/gfs.py --wait ) || log "the GFS wait failed: WRF picks its cycle itself"
 
+# The Mac mini makes the runs (the owner, 23.10.2026: "A: move both WRF runs to the Mac on 6 processes, the Tower's WRF
+# as the fallback"; mac_wrf.sh): this one goes on only when the Mac doesn't answer, failed or is stuck (wrf_state.py),
+# checked every 5 minutes while the Mac works. Without the Mac's state file (before it runs, or the file store down)
+# the Tower runs as before. MAC_FALLBACK=0: run here regardless.
+if [ "${MAC_FALLBACK:-1}" = 1 ]; then
+  while :; do
+    ( cd "$HERE" && "$HERE/.venv/bin/python" wrf_poc/wrf_state.py check "$REGION" )
+    case $? in
+      0) log "the Mac made this run: nothing to do here"; exit 0 ;;
+      1) sleep 300 ;;
+      *) log "the Tower runs it"; break ;;
+    esac
+  done
+fi
+
 exec 9> /root/wrf-logs/.lock
 if ! flock -n 9; then
   log "a run is going already: this one left out"
