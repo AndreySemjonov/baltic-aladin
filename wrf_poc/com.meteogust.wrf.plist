@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- WRF's runs on the Mac mini (the owner, 23.10.2026: both runs on the Mac, the Tower as the fallback): mac_wrf.sh at
+     11:45 and 23:45 Mac time (Riga), as the Tower's Task Scheduler starts tower.sh. Installed in
+     ~/Library/LaunchAgents and loaded with: launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.meteogust.wrf.plist
+     (removed with launchctl bootout gui/$(id -u)/com.meteogust.wrf). A time missed while the Mac slept runs when it wakes. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.meteogust.wrf</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/tower-mini/baltic-aladin/wrf_poc/mac_wrf.sh</string>
+    <string>tarifa</string>
+    <string>48</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>11</integer><key>Minute</key><integer>45</integer></dict>
+    <dict><key>Hour</key><integer>23</integer><key>Minute</key><integer>45</integer></dict>
+  </array>
+  <key>StandardOutPath</key>
+  <string>/Users/tower-mini/wrf-logs/launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/tower-mini/wrf-logs/launchd.log</string>
+</dict>
+</plist>
