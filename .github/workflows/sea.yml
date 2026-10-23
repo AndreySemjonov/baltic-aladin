@@ -6,8 +6,9 @@ run-name: Europe's seas (Copernicus level, temperature, current, ice)
 # Iberia-Biscay-Ireland, Black Sea, Mediterranean, the global model under them in Europe's box)
 # blended into tiles/sea, the Baltic's ice beside it. Twice a day, after the models' runs are out.
 on:
-  schedule:
-    - cron: "20 9,21 * * *"
+  # No cron of its own since 23.10.2026 (the owner: the job runs live at home, runner/jobs.py): helper-trigger starts
+  # it at its slot and on a new source run only while the home runner's heartbeat doesn't list it live, so the
+  # two never publish the same map; with home down or failing GitHub has it again within 20 minutes.
   workflow_dispatch:
     inputs:
       hours:

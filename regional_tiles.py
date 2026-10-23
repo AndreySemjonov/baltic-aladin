@@ -233,6 +233,22 @@ def own_folder(folder, info, run_name, local):
     return own
 
 
+HEARTBEAT = "https://files.meteogust.com/runner/heartbeat.json"
+
+
+def home_live():
+    """The jobs the home runner runs live now (its heartbeat under 20 minutes old, as helper-trigger reads it), else
+    none: on GitHub a regional model whose own set is made at home is left to it (the owner, 23.10.2026: the per-model
+    jobs live at home, the blends still here)."""
+    try:
+        request = urllib.request.Request(f"{HEARTBEAT}?t={int(time.time())}", headers={"User-Agent": "MeteoGust helper"})
+        with urllib.request.urlopen(request, timeout=20) as reply:
+            beat = json.load(reply)
+        return set(beat.get("live") or []) if time.time() - beat.get("t", 0) < 1200 else set()
+    except Exception:
+        return set()
+
+
 def published_run(model):
     if shadowing:
         return (shadow_read(model) or {}).get("runName")
@@ -331,10 +347,19 @@ def main():
     # The models whose own set is published at their newest run (left as they are; with MET Nordic new
     # their data still goes into the blend).
     same = set()
+    # Publishing (GitHub): the models whose own set the home runner makes live (its jobs regional-<folder>, -wx).
+    home = home_live() if not local and not only else set()
+    if home:
+        print("Made at home now: " + ", ".join(sorted(j for j in home if j.startswith("regional-"))), flush=True)
 
     def check(name, run_time):
-        """Before a model's data is read: its own set published at this run already? Without a new MET
-        Nordic run it is then skipped altogether."""
+        """Before a model's data is read: its own set published at this run already, or made at home live? Without a
+        new MET Nordic run it is then skipped altogether."""
+        if run_time is not None and f"regional-{MODEL_SETS[name][0]}{'' if wind_set else '-wx'}" in home:
+            if not mn_new:
+                raise Unchanged(run_time)
+            same.add(name)
+            return
         if force or run_time is None:
             return
         index = published_index(MODEL_SETS[name][0] + ("" if wind_set else "-wx"))
