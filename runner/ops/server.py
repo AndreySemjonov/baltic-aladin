@@ -1094,8 +1094,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             elif not adminproxy.allowed_post(self):
                 self.reply(403, "application/json", b'{"error": "Changes only from the control panel page"}')
             else:
+                # Up to admin's own limit, a spot video's 40 MB (made small in the editor, ~19 MB); bigger is refused
+                # here, not passed on empty.
                 length = int(self.headers.get("Content-Length") or 0)
-                body = self.rfile.read(length) if 0 < length <= 30_000_000 else b""
+                if length > adminproxy.MAX_BODY:
+                    self.reply(413, "application/json", json.dumps({"error": f"Too big for the panel ({length // 1_000_000} MB, at most 41)"}).encode())
+                    return
+                body = self.rfile.read(length) if length > 0 else b""
                 self.reply(*adminproxy.pass_post(url.path[len("/admin/api/"):], url.query, body, self.headers.get("Content-Type")))
         except (BrokenPipeError, ConnectionResetError):
             pass

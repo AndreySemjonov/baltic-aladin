@@ -357,10 +357,88 @@ label.row { display: inline-flex !important; gap: 6px; align-items: center; colo
 @media (max-width: 760px) { .form.four { grid-template-columns: 1fr 1fr } }
 .avatar { width: 22px; height: 22px; border-radius: 50%; vertical-align: middle; object-fit: cover }
 .st.unknown { background: var(--line); color: var(--muted) }
+/* The spot editor and riders' suggestions, ported from admin.meteogust.com's own page (tools/admin/worker.js in the app's
+   repo; the owner, 23.10.2026: "spots missing a lot of from original admin ... so we can retire admin.meteogust.com").
+   Its rules, scoped here, with its colour names on the panel's tokens. */
+.oldspot { --edge: var(--line); --label: var(--ink); --dim: var(--faint); --btn: var(--bg); --green: var(--ok); --red: var(--bad);
+  --link: var(--accent); --blue: var(--accent); --yellow: var(--warn) }
+.oldspot h3 { font: 600 13px/1.3 var(--display); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px }
+.oldspot button { font: 600 13px var(--body); padding: 6px 10px; border-radius: 6px; border: 1px solid var(--accent); color: var(--accent);
+  background: transparent; cursor: pointer; margin: 4px 6px 0 0 }
+.oldspot button.primary { background: var(--accent); color: var(--panel) }
+.oldspot button:disabled { opacity: .5 }
+.oldspot .tick { display: inline-block; font: 500 13px var(--body); border: 1px solid var(--line); color: var(--ink); background: var(--panel);
+  margin: 3px 6px 3px 0; padding: 5px 11px; border-radius: 14px; cursor: pointer }
+.oldspot .tick.on { background: var(--accent); border-color: var(--accent); color: var(--panel) }
+.oldspot button.mini { font: 500 12px var(--body); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; margin: 0 }
+.oldspot input:not([type=checkbox]):not([type=range]):not([type=radio]), .oldspot textarea, .oldspot select { font: 14px var(--body); padding: 6px 8px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); min-width: 0 }
+.oldspot .note { font-size: 12.5px; color: var(--muted); margin-top: 8px; max-width: none }
+.oldspot .dim { color: var(--faint) }
+.oldspot .mono { font-family: var(--mono); font-size: 12px }
+.oldspot .ed { display: grid; grid-template-columns: 1fr 1fr; gap: 14px }
+@media (max-width: 900px) { .oldspot .ed { grid-template-columns: 1fr } }
+.oldspot .ed label { display: block; font-size: 12.5px; color: var(--muted); margin: 10px 0 3px }
+.oldspot .ed input:not([type=checkbox]), .oldspot .ed textarea { width: 100% }
+.oldspot .ed textarea { height: 92px; resize: vertical }
+.oldspot .ed .rule { display: flex; gap: 6px; margin-bottom: 6px }
+.oldspot .ed .rule input.d { flex: 0 0 84px }
+.oldspot .rosebox { display: flex; gap: 12px; align-items: center; margin-top: 8px; flex-wrap: wrap }
+.oldspot .rosebox .note { max-width: 220px }
+.oldspot .rkeys { display: flex; flex-wrap: wrap; gap: 8px; font-size: 11.5px; color: var(--muted); margin-top: 2px; max-width: 220px }
+.oldspot .rk i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px }
+.oldspot .sugg { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px }
+.oldspot .sh { display: flex; gap: 10px; align-items: center; margin-bottom: 6px }
+.oldspot .face { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; background: var(--line); display: inline-block; flex: none }
+.oldspot .snote { font-size: 13.5px; margin: 4px 0 8px; color: var(--ink) }
+.oldspot .chg { display: block; font-size: 13px; margin: 3px 0 }
+.oldspot .sphs { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 }
+.oldspot .sph { position: relative }
+.oldspot .sph img { width: 120px; height: 80px; object-fit: cover; border-radius: 6px; display: block }
+.oldspot .sph input { position: absolute; top: 4px; left: 4px }
+.oldspot .months { display: flex; gap: 6px; align-items: flex-end; height: 120px; max-width: 560px }
+.oldspot .months div { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; font-size: 11px }
+.oldspot .months i { display: block; width: 100%; background: linear-gradient(180deg, #16C6D9, #0057B8); border-radius: 4px 4px 0 0 }
+.oldspot .months b { font-size: 10.5px; color: var(--ink); margin-top: 2px }
+.oldspot .months span { color: var(--faint) }
+.oldspot .photos { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 6px }
+.oldspot .ph { position: relative; width: 170px; display: block }
+.oldspot .ph img { width: 170px; height: 110px; object-fit: cover; border-radius: 8px; display: block; background: none }
+.oldspot .phb { position: absolute; top: 4px; right: 4px; display: flex; gap: 2px }
+.oldspot .phb .mini { margin: 0; padding: 1px 6px; background: rgba(13, 17, 23, .8); color: #fff; border-color: rgba(255, 255, 255, .25) }
+.oldspot .ph .tb { position: relative; width: 170px; height: 110px; border-radius: 8px; overflow: hidden; background: #222 }
+.oldspot .ph .tb img { border-radius: 0 }
+.oldspot .ph .tb .blur { position: absolute; left: -12px; top: -12px; width: 194px; height: 134px; filter: blur(10px) brightness(.6) }
+.oldspot .ph .tb .whole { position: absolute; inset: 0; margin: auto; width: auto; max-width: 170px; height: 110px; object-fit: contain }
+.oldspot .vplay { position: absolute; left: 50%; top: 50%; width: 32px; height: 32px; margin: -16px 0 0 -16px; border-radius: 50%; background: rgba(0, 0, 0, .5);
+  border: 1.5px solid #fff; color: #fff; font-size: 12px; line-height: 29px; text-align: center; box-sizing: border-box }
+.oldspot .vlen { position: absolute; right: 5px; bottom: 5px; color: #fff; font-size: 10.5px; font-weight: 600; background: rgba(0, 0, 0, .55); border-radius: 99px; padding: 1px 6px }
+.oldspot .phm { font-size: 11px; color: var(--muted); margin-top: 2px }
+.oldspot .phc { width: 100%; margin-top: 4px; font-size: 12px !important; padding: 3px 6px !important }
+.oldspot .cover { position: absolute; top: 4px; left: 4px; background: var(--accent); color: var(--panel); font-size: 10.5px; font-weight: 700; border-radius: 5px; padding: 1px 6px }
+.oldspot .conv { display: grid; grid-template-columns: 200px 1fr; gap: 14px; margin: 10px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg) }
+@media (max-width: 600px) { .oldspot .conv { grid-template-columns: 1fr } }
+.oldspot .conv video { width: 200px; max-height: 240px; background: #000; border-radius: 8px }
+.oldspot .cstrip { position: relative; display: flex; height: 40px; border-radius: 6px; overflow: hidden; margin-top: 10px; cursor: pointer; background: var(--line) }
+.oldspot .cstrip img { flex: 1 1 0; min-width: 0; height: 40px; object-fit: cover; opacity: .6 }
+.oldspot .csel { position: absolute; top: 0; bottom: 0; border: 2.5px solid #ffd60a; border-radius: 6px; box-sizing: border-box; pointer-events: none }
+.oldspot .cpost { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; box-shadow: 0 0 3px #000; pointer-events: none }
+.oldspot .ctimes { display: flex; justify-content: space-between; font: 11.5px var(--mono); color: var(--muted); margin-top: 2px }
+.oldspot .cbar { height: 7px; border-radius: 4px; background: var(--line); overflow: hidden }
+.oldspot .cbar i { display: block; height: 100%; width: 0; background: var(--accent) }
+.oldspot .maptools { display: flex; flex-wrap: wrap }
+.oldspot .maptools .tick { font-size: 12px; padding: 4px 9px }
+.oldspot #i-map { position: relative; z-index: 0 }
+.oldspot .corner span { display: block; width: 14px; height: 14px; border-radius: 3px; background: #fff; border: 2px solid #0d1117; box-sizing: border-box; cursor: move }
+.oldspot .corner.add span { width: 16px; height: 16px; border-radius: 50%; background: rgba(255, 255, 255, .75); border: 1px solid #0d1117; color: #0d1117;
+  font: 700 12px/14px sans-serif; text-align: center; cursor: pointer }
+.oldspot .pinicon span { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .5); font-size: 16px }
+.oldspot .described { margin: 6px 0 0 }
 </style>
 <div id="app"><main class="wrap"><p class="empty">Connecting to the Tower…</p></main></div>
 <script type="module">
-import { html, render, useState, useEffect, useRef } from "https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js";
+import { html, render, useState, useEffect, useRef, Component } from "https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js";
 
 const GB = (b) => (b / 1e9).toFixed(1);
 const MBs = (v) => v >= 20 ? Math.round(v) : v >= 1 ? v.toFixed(1) : v > 0 ? v.toFixed(2) : "0";
@@ -1927,7 +2005,7 @@ function Quality({ ad, now }) {
 
 // MARK: App & riders
 
-function AppRiders({ ad, spots, roles, builds, refresh, now }) {
+function AppRiders({ ad, spots, roles, builds, refresh, now, goTab }) {
   const o = ad && ad.overview;
   const [notes, setNotes] = useState("");
   const [num, setNum] = useState("");
@@ -1942,10 +2020,10 @@ function AppRiders({ ad, spots, roles, builds, refresh, now }) {
         <div><b>${p.name}</b> <span class="whytxt">by ${p.author || "a rider"} · ${hrs(now - (p.created || now))} ago</span></div>
         <span class="whytxt">${(+p.lat).toFixed(3)}, ${(+p.lon).toFixed(3)}</span>
         <div class="btns"><${ActButton} label="Approve" primary=${true} run=${async () => { const d = await adminPost("spots", { code: p.code, action: "approve" }); refresh(); return d; }} />
-          <a class="btn" href="/admin/#spots">Edit</a>
+          <button class="btn" onClick=${() => goTab("spots")}>Details</button>
           <${ActButton} label="Reject" danger=${true} run=${async () => { const d = await adminPost("spots", { code: p.code, action: "reject" }); refresh(); return d; }} /></div></div>`)
         : html`<p class="whytxt">Nothing waiting.</p>`}
-      <p class="whytxt">Public rider spots ${spots ? (spots.published || []).length : "…"} · catalog ${spots ? (spots.official || []).length : "…"} · <a href="/admin/#spots" style="color:var(--accent)">all spots, weights</a></p></div>
+      <p class="whytxt">Public rider spots ${spots ? (spots.published || []).length : "…"} · catalog ${spots ? (spots.official || []).length : "…"} · <a href="#app" onClick=${(e) => { e.preventDefault(); goTab("spots"); }} style="color:var(--accent)">all spots, suggestions, the editor</a></p></div>
     <div class="panel s4"><h2>Builds and releases</h2>
       <div class="kv">${newest ? html`<span>Newest build</span><span>${newest.number} · ${newest.result || newest.progress || ""}</span><span>Started</span><span>${newest.started ? hrs(now - newest.started) + " ago" : "–"}</span>` : html`<span>Builds</span><span>…</span>`}</div>
       <div class="btns" style="margin-top:12px"><${ActButton} label="Start build" primary=${true} run=${() => adminPost("run", { what: "build" })} /></div>
@@ -2035,11 +2113,7 @@ const WEIGHT_MODELS = [["dmi_harmonie_arome_europe", "HARM-DK 2 km"], ["metno_no
   ["meteofrance_arome_france", "AROME-FR 2.5 km"], ["ncep_hrrr_conus", "HRRR 3 km"], ["gem_hrdps_continental", "HRDPS 2.5 km"],
   ["knmi_harmonie_arome_europe", "HARMONIE 5 km"], ["icon_eu", "ICON 7 km"], ["ecmwf_ifs", "ECMWF 9 km"], ["gfs_global", "GFS 13 km"],
   ["icon_global", "ICON 13 km"], ["gem_global", "GDPS 15 km"], ["wrf_tarifa", "WRF 1 km (ours, Tarifa)"]];
-const INFO_TICKS = { sports: ["kite", "wing", "windsurf", "sup", "surf", "snowkite"], levels: ["beginner", "intermediate", "expert"],
-  water: ["flat", "chop", "smallWaves", "bigWaves"], beach: ["sand", "stones", "grass"],
-  hazards: ["nets", "rocks", "piers", "shipping", "current", "sandbar"], amenities: ["parking", "toilet", "shower", "food", "school", "rental", "shop"] };
 const ROLES = ["basic", "plus", "tester", "admin"];
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 // A POST whose answer is shown as it came (admin answers some refusals with HTTP 200 and {error}, a far move with
 // {far:true}): {status, data}.
@@ -2063,145 +2137,1073 @@ function WeightsGrid({ value, onChange }) {
       onChange=${(e) => { const n = parseFloat(String(e.target.value).replace(",", ".")); const next = { ...v }; if (n > 0) next[k] = n / 100; else delete next[k]; onChange(next); }}/></label>`)}</div>`;
 }
 
-async function toJpeg(file) {
-  const img = await createImageBitmap(file);
-  const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
-  const c = document.createElement("canvas");
-  c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
-  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-  for (const q of [0.86, 0.76, 0.66, 0.56]) {
-    const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", q));
-    if (blob && blob.size < 1550 * 1024) return { blob, w: c.width, h: c.height };
+// The spot editor and the riders' suggestions: admin.meteogust.com's own page code (tools/admin/worker.js in the app's
+// repo), ported whole so nothing is lost on the way (the owner, 23.10.2026: "spots missing a lot of from original
+// admin.meteogust.com. For example now wind direction edit, map etc."): the wind rose, the map with pins and zones and
+// OpenStreetMap's amenities, photos and videos (the in-browser converter), rules, water level, best months from
+// history, weights, moving the point, draft and publish. Its own scope, as its names (MONTHS, WEIGHT_MODELS...) are
+// the panel's too; its calls go to /admin/api/.
+const OldSpots = (() => {
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+// A pending public spot's description from its rider (approved with the spot, it becomes its info).
+function described(r) {
+  const x = r.described;
+  if (!x) return "";
+  const list = (label, v) => (v && v.length ? "<div><b>" + label + "</b> " + esc(v.join(", ")) + "</div>" : "");
+  return '<div class="sugg" style="margin:-4px 0 12px 12px">' +
+    (x.note ? '<div class="snote">“' + esc(x.note) + "”</div>" : "") + (x.info ? "" : list("Level", x.levels) + list("Water", x.water) + list("Hazards", x.hazards)) +
+    (x.info ? Object.keys(SUGG_FIELDS).filter((k) => k !== "about" && x.info[k] != null).map((k) => "<div><b>" + SUGG_FIELDS[k] + "</b> " + esc(suggLabel(k, x.info[k])) + "</div>").join("") :
+      list("Amenities", x.amenities) + (x.crowds ? "<div><b>Crowds</b> " + esc(x.crowds) + "</div>" : "") + (x.rule ? "<div><b>Rule</b> " + esc(x.rule) + "</div>" : "")) +
+    (x.photos && x.photos.length ? '<div class="sphs">' + x.photos.map((u) => '<a target="_blank" href="' + esc(u) + '"><img src="' + esc(u) + '" style="width:120px;height:80px;object-fit:cover;border-radius:6px"></a>').join("") + "</div>" : "") +
+    '<div class="note" style="margin:6px 0 0">Approve: the description becomes the spot page (photos credited to ' + esc(x.by || r.author || "the rider") + "). Reject: deleted with its photos.</div></div>";
+}
+// The forecast's models (the app's ForecastSpots.json) for the weights' boxes.
+const WEIGHT_MODELS = [["dmi_harmonie_arome_europe", "HARM-DK 2 km"], ["metno_nordic", "MET Nordic 1 km"], ["aladin", "ALADIN 2.3 km"],
+  ["fmi", "HARM-FI 2.5 km"], ["meteofrance_arome_france_hd", "AROME-FR 1.5 km"], ["knmi_harmonie_arome_netherlands", "HARM-NL 2 km"],
+  ["ukmo_uk_deterministic_2km", "UKV 2 km"], ["icon_d2", "ICON-D2 2.2 km"], ["meteoswiss_icon_ch1", "ICON-CH1 1 km"],
+  ["meteoswiss_icon_ch2", "ICON-CH2 2 km"], ["italia_meteo_arpae_icon_2i", "ICON-2I 2.2 km"], ["meteofrance_arome_france", "AROME-FR 2.5 km"],
+  ["ncep_hrrr_conus", "HRRR 3 km"], ["gem_hrdps_continental", "HRDPS 2.5 km"], ["knmi_harmonie_arome_europe", "HARMONIE 5 km"],
+  ["icon_eu", "ICON 7 km"], ["ecmwf_ifs", "ECMWF 9 km"], ["gfs_global", "GFS 13 km"], ["icon_global", "ICON 13 km"], ["gem_global", "GDPS 15 km"],
+  ["wrf_tarifa", "WRF 1 km (ours, Tarifa)"]];
+// A box per model (percent; empty: not used), prefilled from the weights (shares).
+function weightsGrid(prefix, weights) {
+  return '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:4px 12px;margin:6px 0">' +
+    WEIGHT_MODELS.map(([key, name]) => {
+      const v = weights && weights[key] ? Math.round(weights[key] * 1000) / 10 : "";
+      return '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--label);margin:0">' +
+        '<input data-weight="' + prefix + '" data-key="' + key + '" value="' + v + '" style="width:64px;display:inline-block" inputmode="decimal"> % ' + esc(name) + "</label>";
+    }).join("") + "</div>";
+}
+function readWeights(prefix) {
+  const out = {};
+  for (const input of document.querySelectorAll('input[data-weight="' + prefix + '"]')) {
+    const v = parseFloat(String(input.value).replace(",", "."));
+    if (Number.isFinite(v) && v > 0) out[input.dataset.key] = v;
   }
-  throw new Error("The photo stays over 1.6 MB");
+  return out;
 }
 
-function SpotEdit({ code, onClose, onSaved }) {
-  const [s, setS] = useState(null);
-  const [err, setErr] = useState("");
-  const [msg, setMsg] = useState("");
-  const [uploaded, setUploaded] = useState([]);
-  const load = async () => { try { setS(await adminGet("spots/info?code=" + encodeURIComponent(code))); } catch (e) { setErr(String(e.message || e)); } };
-  useEffect(() => { load(); }, [code]);
-  if (err) return html`<div class="panel"><p class="whytxt" style="color:var(--bad)">${err}</p><button class="btn" onClick=${onClose}>Close</button></div>`;
-  if (!s) return html`<div class="panel"><p class="empty">Reading the spot…</p></div>`;
-  if (s.error) return html`<div class="panel"><p class="whytxt">${s.error}</p><button class="btn" onClick=${onClose}>Close</button></div>`;
-  const info = s.info || {};
-  const set = (k, v) => setS({ ...s, info: { ...info, [k]: v } });
-  const tick = (group, val) => { const now = new Set(info[group] || []); now.has(val) ? now.delete(val) : now.add(val); set(group, [...now]); };
-  const photos = info.photos || [];
-  const save = async (publish) => {
-    setMsg("…");
-    const { data } = await adminPostRaw("spots", { action: "info", code, info, publish, kiteable: s.kiteable || "", best: s.best || "", offshore: s.offshore || "", photosLoaded: uploaded });
-    setMsg(data.error ? data.error : publish ? "✓ published" : "✓ draft saved");
-    if (!data.error) { setUploaded([]); onSaved && onSaved(); }
+async function spotAction(body) {
+  const r = await fetch("/admin/api/spots", { method: "POST", headers: { "content-type": "application/json", "x-shorewind-admin": "1" }, body: JSON.stringify(body) });
+  const reply = await r.json();
+  if (!reply.ok) alert("Not done: " + reply.error);
+  return reply;
+}
+// The spot info editor (the app's About on the spot page).
+const INFO_LABELS = {
+  sports: [["kite", "Kite"], ["wing", "Wing"], ["windsurf", "Windsurf"], ["sup", "SUP"], ["surf", "Surf"], ["snowkite", "Snowkite"]],
+  levels: [["beginner", "Beginner"], ["intermediate", "Intermediate"], ["expert", "Expert"]],
+  water: [["flat", "Flat"], ["chop", "Chop"], ["smallWaves", "Small waves"], ["bigWaves", "Big waves"]],
+  beach: [["sand", "Sand"], ["stones", "Stones"], ["grass", "Grass"]],
+  hazards: [["nets", "Fishing nets"], ["rocks", "Rocks"], ["piers", "Piers"], ["shipping", "Shipping"], ["current", "Strong current"], ["sandbar", "Sandbar"]],
+  amenities: [["parking", "Parking"], ["toilet", "Toilet"], ["shower", "Shower"], ["food", "Food"], ["school", "School"], ["rental", "Rental"], ["shop", "Shop"]],
+};
+function ticks(group, chosen, single) {
+  return '<div data-group="' + group + '"' + (single ? ' data-single="1"' : "") + ">" + INFO_LABELS[group].map((o) =>
+    '<button type="button" class="tick' + ((chosen || []).includes(o[0]) ? " on" : "") + '" data-value="' + o[0] + '">' + esc(o[1]) + "</button>").join("") + "</div>";
+}
+function ruleRow(r) {
+  return '<div class="rule"><input class="rt" placeholder="A rule, e.g. No kiting in the swimming zone by the pier" value="' + esc((r && r.text) || "") + '">' +
+    '<input class="d rf" placeholder="from 06-01" value="' + esc((r && r.from) || "") + '"><input class="d rto" placeholder="to 08-31" value="' + esc((r && r.to) || "") + '"></div>';
+}
+INFO_LABELS.crowds = [["quiet", "Quiet"], ["medium", "Medium"], ["busy", "Busy"]];
+INFO_LABELS.standing = [["yes", "Yes"], ["no", "No"]];
+INFO_LABELS.launch = [["big", "Big launch area"]];
+INFO_LABELS.tide = [["show", "Show"], ["hide", "Hide"]];
+INFO_LABELS.goodMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].map((m, n) => [String(n + 1), m]);
+// In the panel: drawn into "box"; hooks.saved() after a save or a move, hooks.close() on Close.
+async function openInfo(code, box, hooks) {
+  box.innerHTML = '<p class="empty">Reading the spot…</p>';
+  const d = await (await fetch("/admin/api/spots/info?code=" + encodeURIComponent(code), { cache: "no-store" })).json();
+  if (d.error) { box.textContent = "Can't load: " + d.error; return; }
+  const i = d.info || {};
+  const rules = (i.rules || []).concat([{}]);
+  box.innerHTML = "<h3>SPOT INFO · " + esc(d.name).toUpperCase() + ' <span class="dim">' + (d.draft ? "draft, not published" : d.published ? "published" : "nothing yet") + "</span></h3>" +
+    '<label style="display:block;font-size:12px;color:var(--muted);margin:4px 0 4px">Photos and videos (the first is the cover; ← → to order; up to 15 photos and 3 videos)</label>' +
+    '<div class="photos" id="i-photos"></div>' +
+    '<label class="tick" style="display:inline-block;cursor:pointer">+ Add photos<input type="file" id="i-addphoto" accept="image/*" multiple style="display:none"></label>' +
+    '<label class="tick" style="display:inline-block;cursor:pointer">+ Add video<input type="file" id="i-addvideo" accept="video/*" style="display:none"></label>' +
+    '<span class="note" id="i-photonote" style="margin-left:8px"></span>' +
+    '<div id="i-conv"></div>' +
+    '<div class="ed"><div>' +
+    '<label>About (English, a few lines)</label><textarea id="i-about">' + esc(i.about || "") + "</textarea>" +
+    "<label>Sports</label>" + ticks("sports", i.sports) +
+    "<label>Level</label>" + ticks("levels", i.levels) +
+    '<label>Possible wind directions: kiteable, where the wind comes from (degrees, clockwise)</label><input id="i-kiteable" value="' + esc(d.kiteable) + '" placeholder="185-355">' +
+    '<label>Best wind directions: where it works best, inside the possible ones</label><input id="i-best" value="' + esc(d.best || "") + '" placeholder="225-300">' +
+    '<label>Offshore directions: from land (empty: reckoned from the sea direction, within 60° of straight from land)</label><input id="i-offshore" value="' + esc(d.offshore || "") + '" placeholder="45-160">' +
+    '<div class="note">E.g. 185-355 or 20-60, 200-340. ' + (d.offshoreBearing != null ? "Open sea is towards " + Math.round(d.offshoreBearing) + "°. " : "") + "Saved when you publish. Best: the app's rose shows them darker, and hours from the other possible directions get one star fewer.</div>" +
+    '<div class="rosebox"><div id="i-rose"></div><div class="note" style="margin:0">Tap a sector: not working → possible → best → not working (the fields follow; ' +
+    "or type in them and the rose follows). Red: offshore, from land. Where the wind comes from.</div></div>" +
+    "<label>Water</label>" + ticks("water", i.water) +
+    "<label>Water level in the forecast: every rider's default here (none ticked: the app decides, shown where the tide is big; a rider's own choice wins)</label>" +
+    ticks("tide", i.tide ? [i.tide] : i.levelMatters ? ["show"] : [], true) +
+    "<label>Standing depth</label>" + ticks("standing", i.standing === true ? ["yes"] : i.standing === false ? ["no"] : [], true) +
+    '<input id="i-standing" placeholder="e.g. first 40 m" value="' + esc(i.standingNote || "") + '" style="margin-top:4px">' +
+    "</div><div>" +
+    "<label>Beach</label>" + ticks("beach", i.beach) + ticks("launch", i.bigLaunch ? ["big"] : []) +
+    "<label>Crowds</label>" + ticks("crowds", i.crowds ? [i.crowds] : [], true) +
+    '<label>Rules (dates: only between them each year, MM-DD; empty: always)</label><div id="i-rules">' + rules.map(ruleRow).join("") + "</div>" +
+    '<button type="button" id="i-addrule">+ Add a rule</button>' +
+    "<label>Hazards</label>" + ticks("hazards", i.hazards) +
+    '<input id="i-hazard" placeholder="More about them, e.g. nets 300-500 m out in spring and autumn" value="' + esc(i.hazardNote || "") + '" style="margin-top:4px">' +
+    "<label>Amenities (near the launch)</label>" + ticks("amenities", i.amenities) +
+    "</div></div>" +
+    '<label style="display:block;font-size:12px;color:var(--muted);margin:14px 0 4px">On the spot: pins and zones (tap a tool, then the map; drag a pin to move it, tap it to add a note)</label>' +
+    '<div class="maptools" id="i-tools"></div>' +
+    '<div id="i-map" style="height:420px;border-radius:10px;border:1px solid var(--edge);margin-top:6px"></div>' +
+    '<div class="note" id="i-mapnote"></div>' +
+    '<div class="note" style="margin-top:6px">Where the spot is (the blue dot: its marker, and where the forecast is read): drag it, or type ' +
+    '<input id="i-lat" value="' + d.lat + '" style="width:92px;display:inline-block"> <input id="i-lon" value="' + d.lon + '" style="width:92px;display:inline-block"> ' +
+    '<button type="button" id="i-move">Move the spot here</button> <span id="i-movenote"></span></div>' +
+    '<label style="display:block;font-size:12px;color:var(--muted);margin:14px 0 4px">Best months (from 10 years of hourly wind history at the spot, ERA5 via Open-Meteo)</label>' +
+    '<div id="i-months"></div>' +
+    '<button type="button" id="i-compute">Compute from history</button><span class="note" id="i-monthsnote" style="margin-left:8px"></span>' +
+    '<label style="display:block;font-size:12px;color:var(--muted);margin:14px 0 4px">Best months by experience (riders\' and yours, for when there\'s no history; the old editor dropped them on save)</label>' +
+    ticks("goodMonths", (i.goodMonths || []).map(String)) +
+    '<label style="display:block;font-size:12px;color:var(--muted);margin:14px 0 4px">Model weights (the blend of the spot forecast, and the weights of the Mix map and of new spots round here; percent, only the ratios count)</label>' +
+    weightsGrid("i", d.weights) +
+    '<input id="i-wsource" placeholder="Where from (a note)" value="' + esc(d.weightsSource || "") + '" style="width:260px;display:inline-block"> ' +
+    '<button type="button" id="i-wsave">Save weights</button> <span class="note" id="i-wout"></span>' +
+    '<div style="margin-top:12px"><button type="button" id="i-publish" class="primary">Publish</button><button type="button" id="i-draft">Save draft</button><button type="button" id="i-close">Close</button>' +
+    '<span class="note" id="i-out" style="margin-left:8px"></span></div>' +
+    '<div class="note">Published info reaches the app with the spot catalog (phones check every few hours); a draft stays here.</div>';
+  for (const b of box.querySelectorAll("button.tick")) {
+    b.onclick = () => {
+      const group = b.parentElement;
+      if (group.dataset.single) for (const other of group.querySelectorAll("button.tick")) if (other !== b) other.classList.remove("on");
+      b.classList.toggle("on");
+    };
+  }
+  document.getElementById("i-addrule").onclick = () => document.getElementById("i-rules").insertAdjacentHTML("beforeend", ruleRow({}));
+  // The wind rose for the two direction fields, as in the app; a tap on a sector changes it.
+  const drawRose = () => {
+    const possible = readSectorsHere(document.getElementById("i-kiteable").value) || [];
+    const best = readSectorsHere(document.getElementById("i-best").value) || [];
+    const offshore = readSectorsHere(document.getElementById("i-offshore").value) || [];
+    document.getElementById("i-rose").innerHTML = roseSvg(possible, best, d.offshoreBearing, offshore);
+    for (const seg of document.querySelectorAll("#i-rose [data-seg]")) {
+      seg.onclick = () => {
+        const n = +seg.dataset.seg;
+        const p = roseSegments(possible), b = roseSegments(best);
+        // Offshore as shown: the marked sectors, else the reckoned ones (so marking one keeps the rest).
+        const o = offshore.length ? roseSegments(offshore) : roseOffshore(d.offshoreBearing).map((x, i) => x && !p[i] && !b[i]);
+        const wasP = p[n] || b[n], wasB = b[n], wasO = o[n];
+        // not working -> possible -> best -> offshore -> not working
+        if (o[n] && !p[n] && !b[n]) { o[n] = false; } else if (b[n]) { b[n] = false; p[n] = false; o[n] = true; } else if (p[n]) { b[n] = true; } else { p[n] = true; o[n] = false; }
+        // Only the field that changed is rewritten (typed edges elsewhere stay as typed).
+        if ((p[n] || b[n]) !== wasP) document.getElementById("i-kiteable").value = segmentsText(p.map((x, i) => x || b[i]));
+        if (b[n] !== wasB) document.getElementById("i-best").value = segmentsText(b);
+        if (o[n] !== wasO) document.getElementById("i-offshore").value = segmentsText(o);
+        drawRose();
+      };
+    }
   };
-  const saveWeights = async () => {
-    setMsg("…");
-    const { data } = await adminPostRaw("spots", { action: "weights", code, weights: s.weights || {}, source: s.weightsSource || "" });
-    setMsg(data.error ? data.error : "✓ weights saved");
-    if (!data.error) setS({ ...s, weights: data.weights });
+  document.getElementById("i-kiteable").oninput = drawRose;
+  document.getElementById("i-best").oninput = drawRose;
+  document.getElementById("i-offshore").oninput = drawRose;
+  drawRose();
+  // Photos and videos in one row (the owner, 23.10.2026: videos, and vertical ones shown whole): saved as the photos
+  // in their order and the videos with "at", the number of photos before each.
+  const media = (i.photos || []).map((x) => ({ ...x, kind: "photo" }));
+  for (const v of (i.videos || []).slice().sort((a, b) => (a.at || 0) - (b.at || 0))) {
+    let k = 0, n = 0;
+    while (k < media.length && n < (v.at || 0)) { if (media[k].kind === "photo") n++; k++; }
+    while (k < media.length && media[k].kind === "video") k++;
+    media.splice(k, 0, { ...v, kind: "video" });
+  }
+  // The photos it opened with: saving keeps any added elsewhere meanwhile (an approved suggestion's).
+  const photosLoaded = media.filter((x) => x.kind === "photo").map((x) => x.url);
+  const drawPhotos = () => {
+    document.getElementById("i-photos").innerHTML = media.map((x, n) => {
+      const src = esc(x.kind === "video" ? x.poster : x.url), wide = !(x.w && x.h) || x.w >= x.h;
+      const meta = x.kind === "video" ? "video · " + x.w + "×" + x.h + " · " + (x.sound ? "sound" : "no sound") + " · " + x.mb + " MB"
+        : "photo" + (x.w && x.h ? " · " + x.w + "×" + x.h + (wide ? "" : " portrait") : "");
+      return '<div class="ph"><div class="tb">' + (wide ? '<img class="fill" src="' + src + '">' : '<img class="blur" src="' + src + '"><img class="whole" src="' + src + '">') +
+        (x.kind === "video" ? '<span class="vplay">▶</span><span class="vlen">' + videoClock(x.s) + "</span>" : "") + "</div>" +
+        '<div class="phb"><button type="button" class="mini" data-pl="' + n + '">←</button>' +
+        '<button type="button" class="mini" data-pr="' + n + '">→</button><button type="button" class="mini" data-px="' + n + '">✕</button></div>' +
+        '<input class="phc" data-pc="' + n + '" placeholder="' + (x.kind === "video" ? "Video" : "Photo") + ' by…" value="' + esc(x.credit || "") + '">' +
+        (n === 0 ? '<span class="cover">cover</span>' : "") + '<div class="phm">' + meta + "</div></div>";
+    }).join("") || '<div class="note" style="margin:0">No photos yet.</div>';
+    const move = (n, by) => { const m = n + by; if (m < 0 || m >= media.length) return; [media[n], media[m]] = [media[m], media[n]]; drawPhotos(); };
+    for (const b of box.querySelectorAll("button[data-pl]")) b.onclick = () => move(+b.dataset.pl, -1);
+    for (const b of box.querySelectorAll("button[data-pr]")) b.onclick = () => move(+b.dataset.pr, 1);
+    for (const b of box.querySelectorAll("button[data-px]")) b.onclick = () => { media.splice(+b.dataset.px, 1); drawPhotos(); };
+    for (const c of box.querySelectorAll("input[data-pc]")) c.oninput = () => { media[+c.dataset.pc].credit = c.value; };
   };
-  const move = async (far) => {
-    const lat = parseFloat(s.newLat ?? s.lat), lon = parseFloat(s.newLon ?? s.lon);
-    const { data } = await adminPostRaw("spots", { action: "move", code, lat, lon, far: far === true });
-    if (data.far && !far) { setS({ ...s, askFar: data.error }); return; }
-    setMsg(data.error ? data.error : `✓ moved ${Math.round(data.distance)} m`);
-    if (!data.error) { setS({ ...s, lat, lon, askFar: null }); onSaved && onSaved(); }
+  drawPhotos();
+  const savedMedia = () => {
+    const photos = [], videos = [];
+    for (const x of media) {
+      const { kind, ...rest } = x;
+      if (kind === "video") videos.push({ ...rest, at: photos.length }); else photos.push(rest);
+    }
+    return { photos, videos };
   };
-  const upload = async (e) => {
-    const files = [...e.target.files];
-    for (const f of files) {
+  // A video: made small here (smallVideo), its part and poster picked first, then the poster and the video uploaded.
+  document.getElementById("i-addvideo").onchange = (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    if (media.filter((x) => x.kind === "video").length >= 3) { document.getElementById("i-photonote").textContent = "Three videos at most: remove one first."; return; }
+    videoConverter(document.getElementById("i-conv"), file, code, (added) => {
+      media.push({ ...added, kind: "video" });
+      drawPhotos();
+      document.getElementById("i-photonote").textContent = "Added: save or publish to keep it.";
+    });
+  };
+  document.getElementById("i-addphoto").onchange = async (e) => {
+    const note = document.getElementById("i-photonote");
+    for (const file of e.target.files) {
+      note.textContent = "Uploading " + file.name + "…";
       try {
-        setMsg("resizing " + f.name + "…");
-        const { blob, w, h } = await toJpeg(f);
-        const r = await fetch("/admin/api/spots/photo?code=" + encodeURIComponent(code), { method: "POST", headers: { "content-type": "image/jpeg", "x-shorewind-admin": "1" }, body: blob });
-        const d = await r.json();
-        if (!d.ok) throw new Error(d.error || "not stored");
-        info.photos = [...(info.photos || []), { url: d.url, w, h }];
-        setUploaded((u) => [...u, d.url]);
-        setS({ ...s, info: { ...info } });
-        setMsg("✓ photo added (save or publish to keep it)");
-      } catch (x) { setMsg(String(x.message || x)); }
+        const small = await smallerJpeg(file, 1600);
+        const r = await fetch("/admin/api/spots/photo?code=" + encodeURIComponent(code), { method: "POST", headers: { "content-type": "image/jpeg", "x-shorewind-admin": "1" }, body: small.blob });
+        const reply = await r.json();
+        if (!reply.ok) throw new Error(reply.error);
+        media.push({ url: reply.url, w: small.w, h: small.h, kind: "photo" });
+        drawPhotos();
+        note.textContent = "Added: save or publish to keep them.";
+      } catch (err) { note.textContent = "Not added: " + err.message; }
     }
     e.target.value = "";
   };
-  const movePhoto = (i, d) => { const p = [...photos]; const [x] = p.splice(i, 1); p.splice(Math.max(0, Math.min(p.length, i + d)), 0, x); set("photos", p); };
-  return html`<div class="panel editor">
-    <div class="dhead"><b>${s.name}</b><span class="whytxt">${s.id} · ${s.code}</span>${s.draft ? html`<span class="st wait">draft</span>` : null}${s.published ? html`<span class="st ok">published</span>` : null}
-      <span style="margin-left:auto" class="btns"><a class="btn" href=${"/admin/#spots"} title="Rules, map pins and zones are drawn there">Map pins, zones, rules ↗</a><button class="btn" onClick=${onClose}>Close</button></span></div>
-    <div class="egrid">
-      <div class="egroup"><h3>Wind</h3>
-        <label>Kiteable directions<input value=${s.kiteable || ""} placeholder="185-355, 20-60" onInput=${(e) => setS({ ...s, kiteable: e.target.value })}/></label>
-        <label>Best<input value=${s.best || ""} placeholder="200-260" onInput=${(e) => setS({ ...s, best: e.target.value })}/></label>
-        <label>Offshore (dangerous)<input value=${s.offshore || ""} placeholder="20-110" onInput=${(e) => setS({ ...s, offshore: e.target.value })}/></label>
-        <p class="whytxt">Sectors in degrees the wind comes from, "from-to", comma between.</p></div>
-      <div class="egroup"><h3>About</h3><textarea rows="6" maxlength="2000" value=${info.about || ""} onInput=${(e) => set("about", e.target.value)}></textarea>
-        <label>Crowds<select value=${info.crowds || ""} onChange=${(e) => set("crowds", e.target.value || undefined)}><option value="">–</option><option value="quiet">quiet</option><option value="medium">medium</option><option value="busy">busy</option></select></label>
-        <label class="row"><input type="checkbox" checked=${!!info.standing} onChange=${(e) => set("standing", e.target.checked)}/> Standing depth</label>
-        ${info.standing ? html`<label>Standing note<input maxlength="80" value=${info.standingNote || ""} onInput=${(e) => set("standingNote", e.target.value)}/></label>` : null}
-        <label class="row"><input type="checkbox" checked=${!!info.bigLaunch} onChange=${(e) => set("bigLaunch", e.target.checked || undefined)}/> Big launch area</label>
-        <label class="row"><input type="checkbox" checked=${!!info.levelMatters} onChange=${(e) => set("levelMatters", e.target.checked || undefined)}/> Level matters</label>
-        <label>Hazard note<input maxlength="500" value=${info.hazardNote || ""} onInput=${(e) => set("hazardNote", e.target.value)}/></label></div>
-      <div class="egroup"><h3>Ticks</h3>${Object.entries(INFO_TICKS).map(([g, vals]) => html`<div class="ticks"><span>${g}</span>${vals.map((v) => html`<label class="row"><input type="checkbox" checked=${(info[g] || []).includes(v)} onChange=${() => tick(g, v)}/> ${v}</label>`)}</div>`)}
-        <div class="ticks"><span>good months</span>${MONTHS.map((m, i) => html`<label class="row"><input type="checkbox" checked=${(info.goodMonths || []).includes(i + 1)} onChange=${() => { const g = new Set(info.goodMonths || []); g.has(i + 1) ? g.delete(i + 1) : g.add(i + 1); set("goodMonths", [...g].sort((a, b) => a - b)); }}/> ${m}</label>`)}</div>
-        <p class="whytxt">Kept as they are: ${(info.rules || []).length} rules, ${(info.pins || []).length} map pins, ${(info.zones || []).length} zones${info.months ? ", the months' wind" : ""}.</p></div>
-      <div class="egroup wide"><h3>Photos · the first is the cover</h3><div class="photos">${photos.map((p, i) => html`<div class="ph">
-          <img src=${p.url} alt="" loading="lazy"/>
-          <input placeholder="credit" maxlength="60" value=${p.credit || ""} onInput=${(e) => { const q = [...photos]; q[i] = { ...p, credit: e.target.value }; set("photos", q); }}/>
-          <div class="btns"><button class="btn" onClick=${() => movePhoto(i, -1)} disabled=${i === 0}>←</button><button class="btn" onClick=${() => movePhoto(i, 1)} disabled=${i === photos.length - 1}>→</button>
-            <button class="btn danger" onClick=${() => set("photos", photos.filter((_, j) => j !== i))}>Remove</button></div></div>`)}
-        <label class="ph add">+ Add photos<input type="file" accept="image/*" multiple onChange=${upload} style="display:none"/></label></div></div>
-      <div class="egroup wide"><h3>Weights · in %, only the ratios count</h3><${WeightsGrid} value=${s.weights} onChange=${(w) => setS({ ...s, weights: w })} />
-        <label>Where these weights come from<input maxlength="80" value=${s.weightsSource || ""} onInput=${(e) => setS({ ...s, weightsSource: e.target.value })}/></label>
-        <div class="btns" style="margin-top:8px"><button class="btn primary" onClick=${saveWeights}>Save weights</button></div></div>
-      <div class="egroup"><h3>Position</h3>
-        <label>Latitude<input value=${s.newLat ?? s.lat} onInput=${(e) => setS({ ...s, newLat: e.target.value })}/></label>
-        <label>Longitude<input value=${s.newLon ?? s.lon} onInput=${(e) => setS({ ...s, newLon: e.target.value })}/></label>
-        <div class="btns"><button class="btn" onClick=${() => move(false)}>Move</button></div>
-        ${s.askFar ? html`<div class="confirm">${s.askFar}. <button class="btn danger" onClick=${() => move(true)}>Move it that far</button></div>` : null}</div>
-    </div>
-    <div class="btns ebar"><button class="btn" onClick=${() => save(false)}>Save draft</button>
-      <${ActButton} label="Publish to the app" ask="Publish to every rider? Click again" primary=${true} run=${async () => { await save(true); return { ok: true }; }} />
-      <${Saved} msg=${msg} /></div>
-  </div>`;
+  const onMap = await spotMap(d, i, box);
+  let months = i.months || null;
+  const drawMonths = () => {
+    const names = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+    document.getElementById("i-months").innerHTML = months
+      ? '<div class="months">' + months.good.map((v, n) => '<div><i style="height:' + Math.max(2, (85 * v) / Math.max(1, ...months.good)) + '%"></i><b>' + v + "</b><span>" + names[n] + "</span></div>").join("") + "</div>" +
+        '<div class="note">Days with ' + months.hours + "+ hours of " + months.min + "–" + months.max + " m/s from a good direction, " + esc(months.years) + ".</div>"
+      : '<div class="note" style="margin:0">Not computed yet.</div>';
+  };
+  drawMonths();
+  document.getElementById("i-compute").onclick = async () => {
+    const note = document.getElementById("i-monthsnote");
+    const sectors = readSectorsHere(document.getElementById("i-kiteable").value);
+    if (sectors === null) { note.textContent = "Good directions: write them like 185-355, 20-60"; return; }
+    note.textContent = "Fetching 10 years of hourly wind…";
+    try {
+      months = await bestMonths(d.lat, d.lon, sectors, note);
+      drawMonths();
+      note.textContent = "Done: save or publish to keep it." + (sectors.length ? "" : " (No good directions set: every direction counted.)");
+    } catch (err) { note.textContent = "Couldn't compute: " + err.message; }
+  };
+  document.getElementById("i-close").onclick = () => hooks.close();
+  const save = async (publish) => {
+    const chosen = (group) => [...box.querySelectorAll('[data-group="' + group + '"] button.on')].map((b) => b.dataset.value);
+    const standing = chosen("standing")[0];
+    const info = {
+      about: document.getElementById("i-about").value, sports: chosen("sports"), levels: chosen("levels"), water: chosen("water"),
+      standing: standing === "yes" ? true : standing === "no" ? false : null, standingNote: document.getElementById("i-standing").value,
+      beach: chosen("beach"), bigLaunch: chosen("launch").length > 0, tide: chosen("tide")[0] || null, levelMatters: chosen("tide")[0] === "show", crowds: chosen("crowds")[0] || null,
+      rules: [...box.querySelectorAll("#i-rules .rule")].map((r) => ({ text: r.querySelector(".rt").value, from: r.querySelector(".rf").value.trim(), to: r.querySelector(".rto").value.trim() })),
+      hazards: chosen("hazards"), hazardNote: document.getElementById("i-hazard").value, amenities: chosen("amenities"),
+      pins: onMap.pins, zones: onMap.zones, ...savedMedia(), months, goodMonths: chosen("goodMonths").map(Number),
+    };
+    const reply = await spotAction({ action: "info", code, info, publish, photosLoaded, kiteable: document.getElementById("i-kiteable").value,
+                                     best: document.getElementById("i-best").value, offshore: document.getElementById("i-offshore").value });
+    if (reply.ok) {
+      document.getElementById("i-out").textContent = (publish ? "Published " : "Draft saved ") + new Date().toLocaleTimeString();
+      hooks.saved();
+    }
+  };
+  // Publish asks once more, as every change in the panel does (it goes to every rider).
+  const publishButton = document.getElementById("i-publish");
+  let asking = null;
+  publishButton.onclick = () => {
+    if (!asking) {
+      publishButton.textContent = "Publish to every rider? Click again";
+      asking = setTimeout(() => { asking = null; publishButton.textContent = "Publish"; }, 6000);
+      return;
+    }
+    clearTimeout(asking);
+    asking = null;
+    publishButton.textContent = "Publish";
+    save(true);
+  };
+  document.getElementById("i-draft").onclick = () => save(false);
+  document.getElementById("i-wsave").onclick = async () => {
+    const out = document.getElementById("i-wout");
+    const reply = await spotAction({ action: "weights", code, weights: readWeights("i"), source: document.getElementById("i-wsource").value });
+    out.textContent = reply.ok ? "Saved " + new Date().toLocaleTimeString() + ": the app and the map get them within a few hours."
+      : "Not saved: " + (reply.error || "?");
+  };
+  document.getElementById("i-move").onclick = async () => {
+    const lat = +document.getElementById("i-lat").value, lon = +document.getElementById("i-lon").value;
+    const out = document.getElementById("i-movenote");
+    let reply = await (await fetch("/admin/api/spots", { method: "POST", headers: { "content-type": "application/json", "x-shorewind-admin": "1" },
+                                                    body: JSON.stringify({ action: "move", code, lat, lon }) })).json();
+    if (reply.far) {
+      if (!confirm(reply.error + " from where it is. The forecast's model points were picked for the old place; " +
+                   "so far away they should be picked again. Move it anyway?")) { out.textContent = "Not moved."; return; }
+      reply = await spotAction({ action: "move", code, lat, lon, far: true });
+    } else if (!reply.ok) {
+      alert("Not done: " + reply.error);
+    }
+    if (reply.ok) {
+      d.lat = lat;
+      d.lon = lon;
+      out.textContent = "Moved " + reply.distance + " m (" + new Date().toLocaleTimeString() + "); the app gets it with the spot list within minutes.";
+      hooks.saved();
+    }
+  };
+  box.scrollIntoView({ behavior: "smooth" });
+}
+// The rose's 16 sectors (22.5° each, centred on N, NNE...): which ones the sectors cover.
+const inSectors = (deg, sectors) => sectors.some(([a, b]) => (a === b ? true : a <= b ? deg >= a && deg <= b : deg >= a || deg <= b));
+function roseSegments(sectors) {
+  return Array.from({ length: 16 }, (_, i) => inSectors(i * 22.5, sectors));
+}
+// Sectors -> "355-15, 160-185": each run of chosen sectors from its first's start to its last's end.
+function segmentsText(on) {
+  if (on.every(Boolean)) return "0-360";
+  if (!on.some(Boolean)) return "";
+  const start = on.findIndex((x, i) => x && !on[(i + 15) % 16]);
+  const runs = [];
+  for (let k = 0; k < 16; k++) {
+    const i = (start + k) % 16;
+    if (!on[i]) continue;
+    if (on[(i + 15) % 16] && runs.length) runs[runs.length - 1][1] = i; else runs.push([i, i]);
+  }
+  const edge = (x) => Math.round(((x % 360) + 360) % 360);
+  return runs.map(([a, b]) => edge(a * 22.5 - 11.25) + "-" + edge(b * 22.5 + 11.25)).join(", ");
+}
+// The 16 sectors within 60° of straight from land (the app's offshore when none are marked).
+function roseOffshore(sea) {
+  const land = sea == null ? null : (sea + 180) % 360;
+  return Array.from({ length: 16 }, (_, i) => land != null && Math.min(Math.abs(i * 22.5 - land) % 360, 360 - (Math.abs(i * 22.5 - land) % 360)) <= 60);
 }
 
-function SpotsEditor({ spots, refresh }) {
+function roseSvg(possible, best, sea, offshore) {
+  const size = 220, c = size / 2, inner = 48, outer = 74;
+  const at = (deg, r) => [c + Math.sin(deg * Math.PI / 180) * r, c - Math.cos(deg * Math.PI / 180) * r];
+  const land = sea == null ? null : (sea + 180) % 360;
+  let out = "";
+  for (let i = 0; i < 16; i++) {
+    const mid = i * 22.5, from = mid - 10.5, to = mid + 10.5;
+    const pts = [];
+    for (let k = 0; k <= 6; k++) pts.push(at(from + (to - from) * k / 6, outer));
+    for (let k = 6; k >= 0; k--) pts.push(at(from + (to - from) * k / 6, inner));
+    const off = offshore && offshore.length ? inSectors(mid, offshore) : land != null && Math.min(Math.abs(mid - land) % 360, 360 - (Math.abs(mid - land) % 360)) <= 60;
+    const color = inSectors(mid, best) ? "#16a34a" : inSectors(mid, possible) ? (best.length ? "#a3d977" : "var(--green)") : off ? "var(--red)" : "var(--edge)";
+    out += '<polygon data-seg="' + i + '" points="' + pts.map((q) => q[0].toFixed(1) + "," + q[1].toFixed(1)).join(" ") + '" fill="' + color +
+      '" stroke="var(--bg)" stroke-width="1" style="cursor:pointer"><title>' + Math.round(mid) + "°</title></polygon>";
+  }
+  for (const [name, deg] of [["N", 0], ["E", 90], ["S", 180], ["W", 270]]) {
+    const q = at(deg, outer + 13);
+    out += '<text x="' + q[0].toFixed(1) + '" y="' + (q[1] + 4).toFixed(1) + '" text-anchor="middle" font-size="12" font-weight="700" fill="var(--dim)">' + name + "</text>";
+  }
+  if (sea != null) {
+    const q = at(sea, inner - 12), r = at(sea, 16);
+    out += '<line x1="' + r[0].toFixed(1) + '" y1="' + r[1].toFixed(1) + '" x2="' + q[0].toFixed(1) + '" y2="' + q[1].toFixed(1) + '" stroke="var(--link)" stroke-width="2"/>' +
+      '<text x="' + c + '" y="' + (c + 4) + '" text-anchor="middle" font-size="10" fill="var(--link)">sea</text>';
+  }
+  const key = (col, t) => '<span class="rk"><i style="background:' + col + '"></i>' + t + "</span>";
+  return '<svg viewBox="0 0 ' + size + " " + size + '" width="' + size + '" height="' + size + '">' + out + "</svg>" +
+    '<div class="rkeys">' + (best.length ? key("#16a34a", "best") + key("#a3d977", "possible") : key("var(--green)", "possible")) +
+    key("var(--red)", "offshore") + key("var(--edge)", "not working") + "</div>";
+}
+// "185-355, 20-60" -> [[185, 355], [20, 60]] (as on the server); null: unreadable.
+function readSectorsHere(value) {
+  const sectors = [];
+  for (const part of String(value || "").split(",").map((x) => x.trim()).filter(Boolean)) {
+    const m = part.match(/^(\d{1,3})\s*-\s*(\d{1,3})$/);
+    if (!m || +m[1] > 360 || +m[2] > 360) return null;
+    sectors.push([+m[1] % 360, +m[2] % 360]);
+  }
+  return sectors;
+}
+// Best months from history (here in the browser, the Worker has too little time for it): ten
+// years of ERA5's hourly wind at the spot's cell (the owner, 19.10.2026: off Open-Meteo's archive
+// API, for its licence; baltic-aladin era5_point.py reads it from Open-Meteo's open data on AWS, kept
+// in our files, /api/climate); a good day has at least 3 daytime hours (9-19 local) of 6-17 m/s from a
+// good direction; each month's share of good days.
+async function bestMonths(lat, lon, sectors, note) {
+  let data = null;
+  for (let tries = 0; tries < 40 && !data; tries++) {
+    const r = await fetch("/admin/api/climate", { method: "POST", headers: { "content-type": "application/json", "x-shorewind-admin": "1" },
+      body: JSON.stringify({ lat, lon, start: tries === 0 }) });
+    const reply = await r.json();
+    if (reply.error) throw new Error(reply.error);
+    if (reply.speed) { data = reply; break; }
+    if (note) note.textContent = "Reading 10 years of ERA5 wind on the helper (about a minute)…";
+    await new Promise((done) => setTimeout(done, 10000));
+  }
+  if (!data) throw new Error("the helper's ERA5 job hasn't finished: try again in a few minutes");
+  const inSector = (d) => !sectors.length || sectors.some(([a, b]) => (a <= b ? d >= a && d <= b : d >= a || d <= b));
+  // Local days and hours in the place's zone (its offset taken at each day's noon).
+  const zone = data.zone || "UTC";
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23" });
+  const offsetAt = (t) => {
+    const p = Object.fromEntries(parts.formatToParts(new Date(t * 1000)).map((x) => [x.type, x.value]));
+    return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour) / 1000 - Math.floor(t / 3600) * 3600;
+  };
+  const days = {};
+  const v = data.speed, dir = data.direction;
+  let offset = offsetAt(data.start), offsetDay = -1;
+  for (let n = 0; n < v.length; n++) {
+    const t = data.start + n * 3600;
+    const utcDay = Math.floor(t / 86400);
+    if (utcDay !== offsetDay) { offset = offsetAt(utcDay * 86400 + 43200); offsetDay = utcDay; }
+    const local = new Date((t + offset) * 1000);
+    const hour = local.getUTCHours();
+    const day = local.toISOString().slice(0, 10);
+    if (!(day in days)) days[day] = 0;
+    const speed = v[n] == null ? null : v[n] / 10;
+    if (hour >= 9 && hour <= 19 && speed != null && speed >= 6 && speed <= 17 && dir[n] != null && inSector(dir[n])) days[day]++;
+  }
+  const good = new Array(12).fill(0), all = new Array(12).fill(0);
+  for (const [day, hours] of Object.entries(days)) {
+    const m = +day.slice(5, 7) - 1;
+    all[m]++;
+    if (hours >= 3) good[m]++;
+  }
+  return { good: good.map((g, m) => (all[m] ? Math.round((100 * g) / all[m]) : 0)), min: 6, max: 17, hours: 3, years: data.years };
+}
+// A video made small in this browser (the owner, 23.10.2026: "convert video automatically into lower acceptable
+// quality ... but still have good quality"; "1080p for all", sound "drop"): played in the given <video> element (it
+// knows the phone's rotation, so a vertical clip comes out upright), each frame drawn onto a canvas and encoded by the
+// browser's own H.264 encoder (WebCodecs), at most 1080 on the short side, 30 fps, about 5 Mbit/s at 1080p, from
+// "start" for "len" seconds; the sound (AAC) only when asked. Then a poster JPEG at "posterAt". Takes about the
+// clip's length (it plays through once); the tab must stay in front meanwhile.
+const MP4_MUXER = "https://cdn.jsdelivr.net/npm/mp4-muxer@5.1.3/build/mp4-muxer.mjs";
+const VIDEO_SHORT = 1080, VIDEO_FPS = 30, VIDEO_RATE = 5e6;
+function videoSize(sw, sh) {
+  const k = Math.min(1, VIDEO_SHORT / Math.min(sw, sh));
+  return { w: Math.round((sw * k) / 2) * 2, h: Math.round((sh * k) / 2) * 2 };
+}
+const videoRate = (w, h) => Math.round(Math.max(1.5e6, (VIDEO_RATE * w * h) / (1920 * 1080)));
+function videoEvent(v, name) {
+  return new Promise((ok, no) => {
+    const done = () => { v.removeEventListener(name, done); v.removeEventListener("error", bad); ok(); };
+    const bad = () => { v.removeEventListener(name, done); v.removeEventListener("error", bad); no(new Error("the browser can't read this video")); };
+    v.addEventListener(name, done);
+    v.addEventListener("error", bad);
+  });
+}
+async function videoSeek(v, t) {
+  if (Math.abs(v.currentTime - t) < 0.001 && v.readyState >= 2) return;
+  const seeked = videoEvent(v, "seeked");
+  v.currentTime = t;
+  await seeked;
+}
+async function aacSupported(sampleRate, channels) {
+  if (!window.AudioEncoder) return false;
+  try { return (await AudioEncoder.isConfigSupported({ codec: "mp4a.40.2", sampleRate, numberOfChannels: channels, bitrate: 128000 })).supported; }
+  catch (e) { return false; }
+}
+async function smallVideo(file, v, opt, progress) {
+  if (!window.VideoEncoder) throw new Error("this browser can't make videos: use Chrome or Safari");
+  const { Muxer, ArrayBufferTarget } = await import(MP4_MUXER);
+  const { w, h } = videoSize(v.videoWidth, v.videoHeight);
+  const bitrate = videoRate(w, h);
+  let config = null;
+  for (const codec of ["avc1.640028", "avc1.4d0028", "avc1.42e028"]) {
+    const c = { codec, width: w, height: h, bitrate, framerate: VIDEO_FPS, avc: { format: "avc" }, latencyMode: "quality" };
+    try { if ((await VideoEncoder.isConfigSupported(c)).supported) { config = c; break; } } catch (e) {}
+  }
+  if (!config) throw new Error("this browser has no H.264 encoder for " + w + "×" + h);
+  // The sound: decoded whole by the browser, the kept part encoded as AAC (stereo at most).
+  let audio = null;
+  if (opt.sound) {
+    progress(0, "reading the sound…");
+    try {
+      const actx = new (window.AudioContext || window.webkitAudioContext)();
+      const buffer = await actx.decodeAudioData(await file.arrayBuffer());
+      actx.close();
+      const channels = Math.min(2, buffer.numberOfChannels);
+      if (await aacSupported(buffer.sampleRate, channels)) audio = { buffer, channels, rate: buffer.sampleRate };
+      else throw new Error("this browser can't encode AAC sound: untick Keep sound");
+    } catch (e) {
+      if (String(e.message).indexOf("AAC") >= 0) throw e;
+      audio = null;  // no sound track in the file
+    }
+  }
+  const target = new ArrayBufferTarget();
+  const muxer = new Muxer({ target, video: { codec: "avc", width: w, height: h, frameRate: VIDEO_FPS },
+    audio: audio ? { codec: "aac", numberOfChannels: audio.channels, sampleRate: audio.rate } : undefined,
+    fastStart: "in-memory", firstTimestampBehavior: "offset" });
+  let failed = null;
+  const encoder = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => { failed = e; } });
+  encoder.configure(config);
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const g = canvas.getContext("2d");
+  v.muted = true;
+  await videoSeek(v, opt.start);
+  progress(0, "converting in this browser…");
+  // Frames are taken by their time in the clip, so pausing loses nothing. Playing, a frame comes with each one the
+  // browser shows (requestVideoFrameCallback); the clip pauses while the encoder is behind and while the tab is in the
+  // background. Frames the browser didn't hand over (a slow moment; a tab it slowed, or stopped drawing, without saying
+  // so) are taken one by one by seeking, which nothing slows: a second's worth, then playing again, or on to the end
+  // when playing gave next to nothing. Each frame goes in a slot of an even VIDEO_FPS grid (the MP4 counts time in
+  // those steps; a 60 fps clip keeps every second frame), one frame a slot.
+  const end = Math.round(opt.len * VIDEO_FPS);
+  let frames = 0, slot = -1, held = false, lastTake = Date.now(), played = 0;
+  const take = (n) => {
+    g.drawImage(v, 0, 0, w, h);
+    const frame = new VideoFrame(canvas, { timestamp: Math.round((n * 1e6) / VIDEO_FPS) });
+    encoder.encode(frame, { keyFrame: frames % (VIDEO_FPS * 2) === 0 });
+    frame.close();
+    frames++;
+    played++;
+    slot = n;
+    lastTake = Date.now();
+    progress(Math.min(1, (n + 1) / end));
+  };
+  await new Promise((done, fail) => {
+    let over = false, waiting = false, watch = null;
+    const seen = () => {
+      if (document.hidden) { v.pause(); progress(Math.max(0, slot + 1) / end, "paused while this tab is in the background: come back to it to go on"); }
+      else resume();
+    };
+    const stop = (e) => {
+      if (over) return;
+      over = true;
+      v.pause();
+      v.onended = null;
+      clearInterval(watch);
+      document.removeEventListener("visibilitychange", seen);
+      if (e) fail(e); else done();
+    };
+    const resume = () => {
+      if (over || held || document.hidden) return;
+      lastTake = Date.now();
+      played = 0;
+      v.play().catch(stop);
+    };
+    // One frame callback waiting at a time; whoever holds the clip asks again when it lets go.
+    const ask = () => {
+      if (waiting || over) return;
+      waiting = true;
+      v.requestVideoFrameCallback((now, meta) => { waiting = false; step(meta); });
+    };
+    const catchUp = async () => {
+      if (held || over) return;
+      held = true;
+      v.pause();
+      const toEnd = played < VIDEO_FPS;
+      try {
+        for (let k = 0; (toEnd || k < VIDEO_FPS) && !over; k++) {
+          const n = slot + 1;
+          if (n >= end) { stop(); return; }
+          await videoSeek(v, opt.start + n / VIDEO_FPS);
+          while (encoder.encodeQueueSize > 12) await new Promise((ok) => encoder.addEventListener("dequeue", ok, { once: true }));
+          if (failed) throw failed;
+          take(n);
+        }
+      } catch (e) { stop(e); return; }
+      held = false;
+      ask();
+      resume();
+    };
+    const step = (meta) => {
+      if (over || held) return;
+      if (failed) { stop(failed); return; }
+      const n = Math.round((meta.mediaTime - opt.start) * VIDEO_FPS);
+      // Over one frame missed: taken by seeking (one missed frame is shown a little longer, which no one sees).
+      if (Math.min(n, end) - slot > 2) { catchUp(); return; }
+      if (n >= end) { stop(); return; }
+      if (n > slot) take(n);
+      if (encoder.encodeQueueSize > 12) {
+        held = true;
+        v.pause();
+        const go = () => { if (encoder.encodeQueueSize <= 4) { encoder.removeEventListener("dequeue", go); held = false; ask(); resume(); } };
+        encoder.addEventListener("dequeue", go);
+        return;
+      }
+      ask();
+    };
+    v.onended = () => catchUp();
+    watch = setInterval(() => { if (!over && !held && !document.hidden && Date.now() - lastTake > 1200) catchUp(); }, 500);
+    document.addEventListener("visibilitychange", seen);
+    ask();
+    resume();
+  });
+  await encoder.flush();
+  encoder.close();
+  if (failed) throw failed;
+  if (!frames) throw new Error("no frames came out: keep this tab in front while it converts");
+  if (audio) {
+    const aenc = new AudioEncoder({ output: (chunk, meta) => muxer.addAudioChunk(chunk, meta), error: (e) => { failed = e; } });
+    aenc.configure({ codec: "mp4a.40.2", sampleRate: audio.rate, numberOfChannels: audio.channels, bitrate: 128000 });
+    const from = Math.floor(opt.start * audio.rate), to = Math.min(audio.buffer.length, Math.floor((opt.start + opt.len) * audio.rate));
+    const parts = [];
+    for (let c = 0; c < audio.channels; c++) parts.push(audio.buffer.getChannelData(c));
+    for (let i = from; i < to; i += 1024) {
+      const n = Math.min(1024, to - i), data = new Float32Array(n * audio.channels);
+      for (let c = 0; c < audio.channels; c++) data.set(parts[c].subarray(i, i + n), c * n);
+      const chunk = new AudioData({ format: "f32-planar", sampleRate: audio.rate, numberOfFrames: n, numberOfChannels: audio.channels,
+        timestamp: Math.round(((i - from) / audio.rate) * 1e6), data });
+      aenc.encode(chunk);
+      chunk.close();
+    }
+    await aenc.flush();
+    aenc.close();
+    if (failed) throw failed;
+  }
+  muxer.finalize();
+  const blob = new Blob([target.buffer], { type: "video/mp4" });
+  // The poster: the chosen frame, at most 1280 on the long side.
+  await videoSeek(v, opt.posterAt);
+  const pk = Math.min(1, 1280 / Math.max(w, h)), pc = document.createElement("canvas");
+  pc.width = Math.round(w * pk);
+  pc.height = Math.round(h * pk);
+  pc.getContext("2d").drawImage(v, 0, 0, pc.width, pc.height);
+  const poster = await new Promise((ok, no) => pc.toBlob((b) => (b ? ok(b) : no(new Error("couldn't make the poster"))), "image/jpeg", 0.8));
+  return { blob, poster, w, h, s: Math.round(Math.min(opt.len, (slot + 1) / VIDEO_FPS) * 10) / 10,
+           mb: Math.round((blob.size / 1e6) * 10) / 10, sound: !!audio, frames };
+}
+const videoClock = (s) => Math.floor((s || 0) / 60) + ":" + String(Math.round(s || 0) % 60).padStart(2, "0");
+// The video's panel in the spot editor (the mockup spot-video-2026-10-23, section 3): its preview, a strip of its
+// frames with the kept part (30 s at most, moved with the slider) and the poster's frame (a click on the strip),
+// Keep sound (off: kite clips are mostly wind, the owner 23.10.2026), what it becomes, then Convert and add.
+async function videoConverter(box, file, code, added) {
+  const url = URL.createObjectURL(file);
+  box.innerHTML = '<div class="conv"><video id="i-cv" muted playsinline></video><div>' +
+    "<b>" + esc(file.name) + '</b> <span class="dim" id="i-cstate">reading…</span><div class="dim" id="i-cfrom"></div>' +
+    '<div class="cstrip" id="i-cstrip"><span class="csel" id="i-csel"></span><span class="cpost" id="i-cpost"></span></div>' +
+    '<div class="ctimes"><span>0:00</span><span id="i-ckeep"></span><span id="i-cdur"></span></div>' +
+    '<input type="range" id="i-cstart" min="0" step="0.1" value="0" style="width:100%;margin:2px 0 6px">' +
+    '<label style="display:inline;font-size:13px;color:var(--ink)"><input type="checkbox" id="i-csound"> Keep sound</label> <span class="note">(off: kite clips are mostly wind) · click the strip to pick the poster frame</span>' +
+    '<div class="mono" id="i-cnums" style="margin:6px 0"></div>' +
+    '<div class="cbar"><i id="i-cbar"></i></div><div class="note" id="i-cmsg" style="margin:4px 0 8px">It plays through once while it converts: keep this tab in front.</div>' +
+    '<button type="button" id="i-cgo">Convert and add</button> <button type="button" id="i-cx">Cancel</button></div></div>';
+  const v = document.getElementById("i-cv"), $ = (id) => document.getElementById(id);
+  const close = () => { box.innerHTML = ""; URL.revokeObjectURL(url); };
+  $("i-cx").onclick = close;
+  v.src = url;
+  try { await videoEvent(v, "loadedmetadata"); } catch (e) { $("i-cstate").textContent = "can't be read: " + e.message; return; }
+  const dur = v.duration, len = Math.min(30, dur), out = videoSize(v.videoWidth, v.videoHeight), rate = videoRate(out.w, out.h);
+  let start = 0, posterAt = Math.min(dur, len / 2);
+  $("i-cstate").textContent = "ready to convert";
+  $("i-cfrom").textContent = "from the camera: " + v.videoWidth + "×" + v.videoHeight + " · " + videoClock(dur) + " · " + Math.round(file.size / 1e6) + " MB";
+  $("i-cdur").textContent = videoClock(dur);
+  const range = $("i-cstart");
+  range.max = String(Math.max(0, dur - len));
+  if (dur <= len) range.style.display = "none";
+  const draw = () => {
+    $("i-csel").style.left = (100 * start / dur) + "%";
+    $("i-csel").style.width = (100 * len / dur) + "%";
+    $("i-cpost").style.left = (100 * posterAt / dur) + "%";
+    $("i-ckeep").textContent = "keep " + videoClock(start) + " → " + videoClock(start + len) + (dur > 30 ? " (30 s, the most)" : "") + " · poster at " + videoClock(posterAt);
+    const mb = (rate + ($("i-csound").checked ? 128000 : 0)) * len / 8e6;
+    $("i-cnums").textContent = "becomes " + out.w + "×" + out.h + " · 30 fps · H.264 · " + (rate / 1e6).toFixed(1) + " Mbit/s · ≈ " + Math.round(mb) + " MB (from " + Math.round(file.size / 1e6) + ")";
+  };
+  range.oninput = () => {
+    start = +range.value;
+    if (posterAt < start || posterAt > start + len) posterAt = start + len / 2;
+    draw();
+  };
+  $("i-csound").onchange = draw;
+  $("i-cstrip").onclick = (e) => {
+    const r = $("i-cstrip").getBoundingClientRect();
+    posterAt = Math.min(start + len - 0.1, Math.max(start, (dur * (e.clientX - r.left)) / r.width));
+    draw();
+  };
+  draw();
+  // The strip: 8 frames from a second copy of the video.
+  (async () => {
+    const s = document.createElement("video");
+    s.muted = true;
+    s.preload = "auto";
+    s.src = url;
+    try { await videoEvent(s, "loadeddata"); } catch (e) { return; }
+    const c = document.createElement("canvas");
+    c.height = 48;
+    c.width = Math.round((48 * s.videoWidth) / s.videoHeight);
+    for (let k = 0; k < 8; k++) {
+      await videoSeek(s, ((k + 0.5) * dur) / 8);
+      c.getContext("2d").drawImage(s, 0, 0, c.width, c.height);
+      const img = document.createElement("img");
+      img.src = c.toDataURL("image/jpeg", 0.7);
+      $("i-cstrip") && $("i-cstrip").insertBefore(img, $("i-csel"));
+    }
+  })();
+  $("i-cgo").onclick = async () => {
+    $("i-cgo").disabled = true;
+    $("i-cx").disabled = true;
+    range.disabled = true;
+    $("i-csound").disabled = true;
+    $("i-cstate").textContent = "converting";
+    try {
+      // The time left from its pace so far (about the clip's length; slower when the browser hands frames over slowly).
+      const began = Date.now();
+      const made = await smallVideo(file, v, { start, len, sound: $("i-csound").checked, posterAt }, (p, msg) => {
+        $("i-cbar").style.width = Math.round(p * 100) + "%";
+        const left = p > 0.03 ? ((Date.now() - began) / 1000) * (1 - p) / p : (1 - p) * len;
+        $("i-cmsg").textContent = msg || "converting in this browser · " + Math.round(p * 100) + "% · about " + Math.max(1, Math.round(left)) + " s left";
+      });
+      $("i-cmsg").textContent = "uploading " + made.mb + " MB…";
+      const send = async (path, type, body) => {
+        const reply = await (await fetch(path + "?code=" + encodeURIComponent(code), { method: "POST", headers: { "content-type": type, "x-shorewind-admin": "1" }, body })).json();
+        if (!reply.ok) throw new Error(reply.error);
+        return reply.url;
+      };
+      const poster = await send("/admin/api/spots/photo", "image/jpeg", made.poster);
+      const video = await send("/admin/api/spots/video", "video/mp4", made.blob);
+      added({ url: video, poster, w: made.w, h: made.h, s: made.s, mb: made.mb, ...(made.sound ? { sound: true } : {}) });
+      close();
+    } catch (err) {
+      $("i-cstate").textContent = "not added";
+      $("i-cmsg").textContent = "Not added: " + err.message;
+      $("i-cx").disabled = false;
+    }
+  };
+}
+// A photo made smaller in the browser (at most "side" pixels a side), as a JPEG.
+function smallerJpeg(file, side) {
+  return new Promise((done, fail) => {
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, side / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.round(img.naturalWidth * k), h = Math.round(img.naturalHeight * k);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      canvas.toBlob((blob) => (blob ? done({ blob, w, h }) : fail(new Error("couldn't read the photo"))), "image/jpeg", 0.82);
+      URL.revokeObjectURL(img.src);
+    };
+    img.onerror = () => fail(new Error("not an image the browser can read"));
+    img.src = URL.createObjectURL(file);
+  });
+}
+// The spot map in the editor (Leaflet, OpenStreetMap or satellite): pins and zones, and the
+// amenities around from OpenStreetMap.
+// The launch: the app's kite (front view), as on its spot bubbles.
+const KITE_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" style="vertical-align:-4px;color:#0b8fa8"><g transform="rotate(10 12 12)"><path fill="currentColor" d="M1.8 15.4 C0.6 7.6 5.8 3.0 12.0 3.0 C18.2 3.0 23.4 7.6 22.2 15.4 L19.6 14.9 C20.0 9.6 16.6 7.0 12.0 7.0 C7.4 7.0 4.0 9.6 4.4 14.9 Z"/><path d="M3.1 15.2 L12 21.2 M20.9 15.2 L12 21.2 M7.4 8 L12 21.2 M16.6 8 L12 21.2" stroke="currentColor" stroke-width="1.1" fill="none" stroke-linecap="round"/></g></svg>';
+const PIN_LOOK = { launch: [KITE_ICON, "Launch"], parking: ["🅿️", "Parking"], toilet: ["🚻", "Toilet"], shower: ["🚿", "Shower"], food: ["🍴", "Food"],
+  school: ["🎓", "School"], rental: ["🏄", "Rental"], shop: ["🛍️", "Shop"], hazard: ["⚠️", "Hazard"], note: ["ℹ️", "Note"] };
+const ZONE_LOOK = { nokite: ["#f85149", "No-kite zone"], swim: ["#d29922", "Swimming area"], kite: ["#3fb950", "Kite area"], noaccess: ["#e3b341", "Closed to walking"] };
+let leaflet = null;
+function loadLeaflet() {
+  if (!leaflet) {
+    leaflet = new Promise((done, fail) => {
+      const css = document.createElement("link");
+      css.rel = "stylesheet";
+      css.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      document.head.appendChild(css);
+      const js = document.createElement("script");
+      js.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+      js.onload = () => done(window.L);
+      js.onerror = () => fail(new Error("Leaflet didn't load"));
+      document.head.appendChild(js);
+    });
+  }
+  return leaflet;
+}
+async function spotMap(d, i, box) {
+  const state = { pins: (i.pins || []).map((x) => ({ ...x })), zones: (i.zones || []).map((z) => ({ kind: z.kind, points: z.points.map((q) => q.slice()) })) };
+  let L;
+  try { L = await loadLeaflet(); } catch (e) { document.getElementById("i-mapnote").textContent = "The map didn't load: " + e.message; return state; }
+  const map = L.map("i-map").setView([d.lat, d.lon], 15);
+  const streets = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap contributors" });
+  const satellite = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, attribution: "Imagery © Esri" });
+  satellite.addTo(map);
+  L.control.layers({ Satellite: satellite, Map: streets }).addTo(map);
+  // The spot's point: dragged, its coordinates go to the fields under the map (Move the spot here saves it).
+  const point = L.marker([d.lat, d.lon], { draggable: true, zIndexOffset: 2000,
+    icon: L.divIcon({ className: "", html: '<span style="display:block;width:14px;height:14px;border-radius:50%;background:#0AA2E6;border:2px solid #fff;box-shadow:0 0 3px #000"></span>',
+                      iconSize: [18, 18], iconAnchor: [9, 9] }) }).addTo(map).bindTooltip("The spot's point (marker and forecast): drag to move it");
+  point.on("dragend", () => {
+    const at = point.getLatLng();
+    document.getElementById("i-lat").value = at.lat.toFixed(5);
+    document.getElementById("i-lon").value = at.lng.toFixed(5);
+    document.getElementById("i-movenote").textContent = "Not saved yet: Move the spot here.";
+  });
+  for (const id of ["i-lat", "i-lon"]) {
+    document.getElementById(id).oninput = () => {
+      const a = +document.getElementById("i-lat").value, b = +document.getElementById("i-lon").value;
+      if (Number.isFinite(a) && Number.isFinite(b)) point.setLatLng([a, b]);
+    };
+  }
+  const layer = L.layerGroup().addTo(map);
+  let tool = "launch", drawing = null;
+  const tools = Object.entries(PIN_LOOK).map(([k, v]) => [k, v[0] + " " + esc(v[1])])
+    .concat(Object.entries(ZONE_LOOK).map(([k, v]) => ["zone:" + k, "▱ " + esc(v[1])])).concat([["erase", "✕ Erase"], ["osm", "⤓ Fill from OpenStreetMap"]]);
+  const bar = document.getElementById("i-tools");
+  bar.innerHTML = tools.map((t) => '<button type="button" class="tick" data-tool="' + t[0] + '">' + t[1] + "</button>").join("") +
+    '<button type="button" class="tick" id="i-finish" style="display:none">✓ Finish zone</button>';
+  const note = (text) => { document.getElementById("i-mapnote").textContent = text; };
+  const pick = (t) => {
+    if (t === "osm") { fillFromOsm(); return; }
+    tool = t;
+    for (const b of bar.querySelectorAll("button[data-tool]")) b.classList.toggle("on", b.dataset.tool === t);
+    selected = null;
+    note(t === "erase" ? "Tap a pin or a zone to remove it." : t.startsWith("zone:") ? "Tap the corners of the zone, then Finish zone." :
+      "Tap where the " + PIN_LOOK[t][1].toLowerCase() + " is. Tap a zone to change its shape.");
+    draw();
+  };
+  // The zone being reshaped: its corners can be dragged, removed (tap) and added (tap a + between two).
+  let selected = null;
+  for (const b of bar.querySelectorAll("button[data-tool]")) b.onclick = () => pick(b.dataset.tool);
+  const draw = () => {
+    layer.clearLayers();
+    state.zones.forEach((z, n) => {
+      const color = ZONE_LOOK[z.kind][0];
+      const shape = L.polygon(z.points, { color, weight: selected === n ? 3 : 2, fillOpacity: selected === n ? 0.28 : 0.18,
+                                          dashArray: selected === n || z.kind === "noaccess" ? "6 4" : null }).addTo(layer).bindTooltip(ZONE_LOOK[z.kind][1]);
+      shape.on("click", (e) => {
+        if (drawing) return;
+        L.DomEvent.stop(e);
+        if (tool === "erase") { state.zones.splice(n, 1); selected = null; draw(); return; }
+        selected = selected === n ? null : n;
+        note(selected === null ? "" : "Reshaping the " + ZONE_LOOK[z.kind][1].toLowerCase() +
+          ": drag a corner to move it, tap a corner to remove it, tap a + to add a corner there. Tap the map to finish.");
+        draw();
+      });
+      if (selected !== n) return;
+      const corner = (q) => L.divIcon({ className: "corner", html: "<span></span>", iconSize: [14, 14], iconAnchor: [7, 7] });
+      z.points.forEach((q, i) => {
+        const handle = L.marker(q, { icon: corner(), draggable: true, zIndexOffset: 1000 }).addTo(layer).bindTooltip("Drag to move, tap to remove");
+        handle.on("drag", () => { const at = handle.getLatLng(); z.points[i] = [+at.lat.toFixed(5), +at.lng.toFixed(5)]; shape.setLatLngs(z.points); });
+        handle.on("dragend", draw);
+        handle.on("click", (e) => {
+          L.DomEvent.stop(e);
+          if (z.points.length <= 3) { note("A zone needs at least 3 corners: erase the whole zone instead."); return; }
+          z.points.splice(i, 1);
+          draw();
+        });
+      });
+      z.points.forEach((q, i) => {
+        const r = z.points[(i + 1) % z.points.length];
+        const middle = [(q[0] + r[0]) / 2, (q[1] + r[1]) / 2];
+        const plus = L.marker(middle, { icon: L.divIcon({ className: "corner add", html: "<span>+</span>", iconSize: [16, 16], iconAnchor: [8, 8] }),
+                                        zIndexOffset: 900 }).addTo(layer).bindTooltip("Tap to add a corner here");
+        plus.on("click", (e) => {
+          L.DomEvent.stop(e);
+          z.points.splice(i + 1, 0, [+middle[0].toFixed(5), +middle[1].toFixed(5)]);
+          draw();
+        });
+      });
+    });
+    if (drawing) L.polyline(drawing.points, { color: ZONE_LOOK[drawing.kind][0], dashArray: "5 5" }).addTo(layer);
+    state.pins.forEach((x, n) => {
+      const icon = L.divIcon({ className: "pinicon", html: "<span>" + PIN_LOOK[x.kind][0] + "</span>", iconSize: [30, 30], iconAnchor: [15, 15] });
+      const marker = L.marker([x.lat, x.lon], { icon, draggable: true }).addTo(layer)
+        .bindTooltip(PIN_LOOK[x.kind][1] + (x.note ? ": " + x.note : ""));
+      marker.on("dragend", () => { const at = marker.getLatLng(); x.lat = +at.lat.toFixed(5); x.lon = +at.lng.toFixed(5); });
+      marker.on("click", () => {
+        if (tool === "erase") { state.pins.splice(n, 1); draw(); return; }
+        const text = prompt(PIN_LOOK[x.kind][1] + ": a short note (e.g. free, 200 m from the beach)", x.note || "");
+        if (text !== null) { if (text.trim()) x.note = text.trim().slice(0, 120); else delete x.note; draw(); }
+      });
+    });
+    document.getElementById("i-finish").style.display = drawing ? "" : "none";
+  };
+  map.on("click", (e) => {
+    const at = [+e.latlng.lat.toFixed(5), +e.latlng.lng.toFixed(5)];
+    // A tap outside the zone being reshaped finishes it (no pin there).
+    if (selected !== null) { selected = null; note(""); draw(); return; }
+    if (tool.startsWith("zone:")) {
+      if (!drawing) drawing = { kind: tool.slice(5), points: [] };
+      drawing.points.push(at);
+      draw();
+    } else if (PIN_LOOK[tool]) {
+      state.pins.push({ kind: tool, lat: at[0], lon: at[1] });
+      draw();
+    }
+  });
+  document.getElementById("i-finish").onclick = () => {
+    if (drawing && drawing.points.length >= 3) state.zones.push(drawing);
+    drawing = null;
+    draw();
+  };
+  // Parking, toilets, showers, food, shops and kite schools within a kilometre (OpenStreetMap):
+  // the amenities ticked, the nearest of each kind pinned (check them, erase what's wrong).
+  async function fillFromOsm() {
+    note("Asking OpenStreetMap…");
+    const at = "(around:1000," + d.lat + "," + d.lon + ")";
+    const query = "[out:json][timeout:25];(nwr" + at + '[amenity~"^(parking|toilets|shower|restaurant|cafe|fast_food|bar|ice_cream)$"];' +
+      "nwr" + at + "[shop];nwr(around:2000," + d.lat + "," + d.lon + ')[sport~"kitesurfing|windsurfing"];);out center 120;';
+    let found;
+    try {
+      const reply = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: "data=" + encodeURIComponent(query),
+                                                                             headers: { "content-type": "application/x-www-form-urlencoded" } });
+      found = (await reply.json()).elements || [];
+    } catch (e) { note("OpenStreetMap didn't answer: " + e.message + " (try again in a minute)"); return; }
+    const kindOf = (t) => {
+      if (/kitesurfing|windsurfing/.test(t.sport || "")) return t.shop || /rental/.test(t.amenity || "") ? "rental" : "school";
+      if (t.amenity === "parking") return "parking";
+      if (t.amenity === "toilets") return "toilet";
+      if (t.amenity === "shower") return "shower";
+      if (/^(restaurant|cafe|fast_food|bar|ice_cream)$/.test(t.amenity || "")) return "food";
+      if (t.shop) return "shop";
+      return null;
+    };
+    const metres = (a, b) => Math.hypot((a[0] - b[0]) * 111320, (a[1] - b[1]) * 111320 * Math.cos(a[0] * Math.PI / 180));
+    const byKind = {};
+    for (const e of found) {
+      const kind = kindOf(e.tags || {});
+      const at2 = e.lat != null ? [e.lat, e.lon] : e.center ? [e.center.lat, e.center.lon] : null;
+      if (!kind || !at2) continue;
+      (byKind[kind] = byKind[kind] || []).push({ at: at2, name: (e.tags || {}).name || "", far: metres(at2, [d.lat, d.lon]) });
+    }
+    const added = [];
+    for (const [kind, list] of Object.entries(byKind)) {
+      list.sort((a, b) => a.far - b.far);
+      // The nearest two (one shop), not where a pin of that kind is already.
+      for (const item of list.slice(0, kind === "shop" ? 1 : 2)) {
+        if (state.pins.some((x) => x.kind === kind && metres([x.lat, x.lon], item.at) < 60)) continue;
+        state.pins.push({ kind, lat: +item.at[0].toFixed(5), lon: +item.at[1].toFixed(5), ...(item.name ? { note: item.name.slice(0, 120) } : {}) });
+        added.push(PIN_LOOK[kind][1].toLowerCase());
+      }
+      const tick = box.querySelector('[data-group="amenities"] button[data-value="' + kind + '"]');
+      if (tick) tick.classList.add("on");
+    }
+    draw();
+    note(Object.keys(byKind).length ? "From OpenStreetMap: " + Object.entries(byKind).map(([k, v]) => v.length + " " + PIN_LOOK[k][1].toLowerCase()).join(", ") +
+      " within 1 km. Pinned the nearest" + (added.length ? " (" + added.join(", ") + ")" : ": none new") + " and ticked the amenities: check them, erase what's wrong."
+      : "OpenStreetMap has no parking, toilets, food or shops within 1 km here.");
+  }
+  pick("launch");
+  draw();
+  setTimeout(() => map.invalidateSize(), 50);
+  return state;
+}
+// Riders' suggestions: before -> after for each change, the photos, Approve (the ticked parts) or Reject.
+const SUGG_FIELDS = { about: "About", sports: "Sports", levels: "Level", water: "Water", standing: "Standing depth", standingNote: "Depth note",
+                      beach: "Beach", bigLaunch: "Big launch", levelMatters: "Water level matters", tide: "Water level in the forecast", crowds: "Crowds", rules: "Rules", rule: "New rule", hazards: "Hazards",
+                      hazardNote: "Hazard note", amenities: "Amenities", pins: "Map pins", zones: "Map zones", goodMonths: "Best months",
+                      kiteable: "Possible directions", best: "Best directions" };
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+// A spot info field's value as text (a suggestion's before and after, a new spot's description).
+function suggLabel(k, v) {
+  if (v == null || v === "" || (Array.isArray(v) && !v.length)) return Array.isArray(v) ? "none" : "—";
+  if (k === "kiteable" || k === "best") return v.map((p) => p[0] + "°→" + p[1] + "°").join(", ");
+  if (k === "goodMonths") return v.map((m) => MONTHS[m - 1]).join(", ");
+  if (k === "rules") return v.map((r) => r.text + (r.from && r.to ? " (" + r.from + " to " + r.to + ")" : "")).join("; ");
+  if (k === "pins" || k === "zones") {
+    const kinds = {};
+    for (const x of v) kinds[x.kind] = (kinds[x.kind] || 0) + 1;
+    return v.length + (k === "pins" ? " pins: " : " zones: ") + Object.entries(kinds).map(([kind, n]) => (n > 1 ? n + " " : "") + kind).join(", ") +
+      (k === "pins" && v.some((x) => x.note) ? " · " + v.filter((x) => x.note).map((x) => "“" + x.note + "”").join(", ") : "");
+  }
+  return Array.isArray(v) ? v.join(", ") : v === true ? "yes" : v === false ? "no" : String(v);
+}
+// In the panel: drawn into "box"; hooks.count(n) the number waiting, hooks.changed() after a review, hooks.open(code) a spot.
+async function loadSuggestions(box, hooks) {
+  let d;
+  try { d = await (await fetch("/admin/api/suggestions", { cache: "no-store" })).json(); } catch (e) { d = { error: String(e) }; }
+  if (d.error) { box.textContent = "Can't load: " + d.error; return; }
+  hooks.count(d.suggestions.length);
+  box.innerHTML = d.suggestions.length ? d.suggestions.map((x) => {
+    const face = x.face ? '<img src="' + esc(x.face) + '" class="face">' : '<span class="face"></span>';
+    const rows = Object.keys(x.changes).filter((k) => SUGG_FIELDS[k]).map((k) =>
+      '<label class="chg"><input type="checkbox" data-field="' + k + '" checked> <b>' + SUGG_FIELDS[k] + "</b> " +
+      (k === "rule" ? "" : '<span class="dim">' + esc(suggLabel(k, x.current[k])) + "</span> → ") + esc(suggLabel(k, x.changes[k])) + "</label>").join("");
+    const photos = x.photos.map((u) => '<label class="sph"><img src="' + esc(u) + '"><input type="checkbox" data-photo="' + esc(u) + '" checked></label>').join("");
+    return '<div class="sugg" data-id="' + esc(x.id) + '"><div class="sh">' + face + "<div><b>" + esc(x.spot) + '</b> <span class="dim">· ' + esc(x.rider) +
+      (x.nickname ? " (" + esc(x.nickname) + ")" : "") + " · " + new Date(x.created * 1000).toLocaleString() + "</span></div></div>" +
+      (x.note ? '<div class="snote">“' + esc(x.note) + "”</div>" : "") + rows + (photos ? '<div class="sphs">' + photos + "</div>" : "") +
+      '<div><button type="button" data-sa="approve" class="primary">✓ Approve ticked</button><button type="button" data-sa="reject">✕ Reject</button>' +
+      (x.code ? '<button type="button" data-sedit="' + esc(x.code) + '">✎ Open the spot</button>' : "") + "</div></div>";
+  }).join("") : '<div class="dim">No suggestions waiting.</div>';
+  // Approved photos the spot lost (a later save from an editor opened before): on again with a click.
+  if ((d.missing || []).length) box.innerHTML += '<div class="note" style="margin-top:12px">Approved photos not on their spot:</div>' + d.missing.map((x) =>
+    '<div class="sugg" data-id="' + esc(x.id) + '"><div class="sh"><div><b>' + esc(x.spot) + '</b> <span class="dim">· ' + esc(x.rider) + " · approved " +
+    new Date(x.reviewed * 1000).toLocaleString() + "</span></div></div>" + '<div class="sphs">' +
+    x.photos.map((u) => '<label class="sph"><img src="' + esc(u) + '"><input type="checkbox" data-photo="' + esc(u) + '" checked></label>').join("") +
+    '</div><div><button type="button" data-reapply="1" class="primary">↺ Add ticked to the spot again</button></div></div>').join("");
+  for (const b of box.querySelectorAll("button[data-reapply]")) {
+    b.onclick = async () => {
+      const card = b.closest(".sugg");
+      const photos = [...card.querySelectorAll("input[data-photo]:checked")].map((c) => c.dataset.photo);
+      const r = await fetch("/admin/api/suggestions", { method: "POST", headers: { "content-type": "application/json", "x-shorewind-admin": "1" },
+                                                  body: JSON.stringify({ id: card.dataset.id, action: "reapply", photos }) });
+      const reply = await r.json();
+      if (!reply.ok) alert("Not done: " + reply.error);
+      else alert(reply.added + " photo" + (reply.added === 1 ? "" : "s") + " back on the spot" + (reply.draft ? " (in its open draft: publish it)" : ""));
+      loadSuggestions(box, hooks);
+      hooks.changed();
+    };
+  }
+  for (const b of box.querySelectorAll("button[data-sa]")) {
+    b.onclick = async () => {
+      const card = b.closest(".sugg");
+      const fields = [...card.querySelectorAll("input[data-field]:checked")].map((c) => c.dataset.field);
+      const photos = [...card.querySelectorAll("input[data-photo]:checked")].map((c) => c.dataset.photo);
+      if (b.dataset.sa === "reject" && !confirm("Reject this suggestion? Its photos are deleted.")) return;
+      const r = await fetch("/admin/api/suggestions", { method: "POST", headers: { "content-type": "application/json", "x-shorewind-admin": "1" },
+                                                  body: JSON.stringify({ id: card.dataset.id, action: b.dataset.sa, fields, photos }) });
+      const reply = await r.json();
+      if (!reply.ok) alert("Not done: " + reply.error);
+      loadSuggestions(box, hooks);
+      hooks.changed();
+    };
+  }
+  for (const b of box.querySelectorAll("button[data-sedit]")) b.onclick = () => hooks.open(b.dataset.sedit);
+}
+return { openInfo, loadSuggestions, described };
+})();
+
+// A box Preact draws once and leaves alone: the old code owns what's inside (the panel draws again every second).
+// A new key (another spot) makes a new box.
+class Mount extends Component {
+  shouldComponentUpdate() { return false; }
+  componentDidMount() { this.props.run(this.base); }
+  render() { return html`<div></div>`; }
+}
+
+function SpotEditBox({ code, onClose, onSaved }) {
+  return html`<div class="panel oldspot"><${Mount} key=${code} run=${(box) => OldSpots.openInfo(code, box, { close: onClose, saved: onSaved })} /></div>`;
+}
+
+const osmLink = (o) => `https://www.openstreetmap.org/?mlat=${(+o.lat).toFixed(5)}&mlon=${(+o.lon).toFixed(5)}#map=14/${(+o.lat).toFixed(5)}/${(+o.lon).toFixed(5)}`;
+
+function SpotsEditor({ spots, refresh, now }) {
   const [edit, setEdit] = useState(null);
+  const [waiting, setWaiting] = useState(null);
   if (!spots) return html`<p class="empty">Reading the spots…</p>`;
-  if (edit) return html`<${SpotEdit} code=${edit} onClose=${() => { setEdit(null); refresh(); }} onSaved=${refresh} />`;
+  if (edit) return html`<${SpotEditBox} code=${edit} onClose=${() => { setEdit(null); refresh(); }} onSaved=${refresh} />`;
   const sets = spots.sets || [];
   const official = (spots.official || []).filter((o) => !String(o.spot_id).startsWith("w-"));
-  const groups = [...sets.map((st) => [st, official.filter((o) => (o.sets || [])[0] === st.id)]), [{ id: "", name: "In no set", flag: "" }, official.filter((o) => !sets.some((st) => st.id === (o.sets || [])[0]))]];
+  // A spot under each set it's in (as on the old page), the rest under "In no set".
+  const groups = [...sets.map((st) => [st, official.filter((o) => (o.sets || []).includes(st.id))]),
+    [{ id: "", name: "In no set", flag: "" }, official.filter((o) => !(o.sets || []).some((x) => sets.some((st) => st.id === x)))]];
   const act = async (body) => { const { data } = await adminPostRaw("spots", body); if (data.error) alertMsg(data.error); refresh(); };
+  const riderLinks = (p) => html`<a href=${osmLink(p)} target="_blank" style="color:var(--accent)">${(+p.lat).toFixed(3)}, ${(+p.lon).toFixed(3)}</a> ·
+    <a href=${spots.base + "/s/" + p.code} target="_blank" style="color:var(--accent)">rider link</a>`;
   return html`<div class="grid">
-    ${(spots.pending || []).length ? html`<div class="panel s12"><h2>Riders' spots waiting for review</h2><div class="tablewrap"><table><tbody>
-      ${spots.pending.map((p) => html`<tr><td><b>${p.name}</b><div class="whytxt">by ${p.author || "a rider"} · ${(+p.lat).toFixed(3)}, ${(+p.lon).toFixed(3)}${p.described && p.described.info ? " · with a description" : ""}</div></td>
+    <div class="panel s12 oldspot"><h2>Suggestions from riders${waiting ? ` · ${waiting} waiting` : ""}</h2>
+      <${Mount} key="suggestions" run=${(box) => OldSpots.loadSuggestions(box, { count: setWaiting, changed: refresh, open: setEdit })} />
+      <p class="note">Riders signed in suggest changes to a spot's info in the app. Tick what to take: Approve merges it into the spot's info (its draft when it has one, else straight to the app) with the rider's nickname on the photos. The note isn't copied: put what's useful in About yourself.</p></div>
+    <div class="panel s12 oldspot"><h2>Riders' spots waiting for review · ${(spots.pending || []).length}</h2>
+      ${(spots.pending || []).length ? html`<div class="tablewrap"><table><tbody>
+      ${spots.pending.map((p) => html`<tr><td><b>${p.name}</b><div class="whytxt">by ${p.author || "a rider"} · ${p.updated ? hrs(now - p.updated) + " ago · " : ""}${riderLinks(p)}</div>
+        ${p.described ? html`<div class="described" dangerouslySetInnerHTML=${{ __html: OldSpots.described(p) }}></div>` : null}</td>
         <td class="r"><span class="btns"><${ActButton} label="Approve" primary=${true} run=${async () => { const d = await adminPost("spots", { code: p.code, action: "approve" }); refresh(); return d; }} />
-          <${ActButton} label="Reject" danger=${true} run=${async () => { const d = await adminPost("spots", { code: p.code, action: "reject" }); refresh(); return d; }} /></span></td></tr>`)}</tbody></table></div></div>` : null}
+          <${ActButton} label="Reject" ask="Reject? Its link stops working. Click again" danger=${true} run=${async () => { const d = await adminPost("spots", { code: p.code, action: "reject" }); refresh(); return d; }} /></span></td></tr>`)}</tbody></table></div>`
+        : html`<p class="whytxt">Nothing waiting.</p>`}
+      <p class="note">A rider suggested these as public. Approve: everyone finds them in Add spots. Reject: they stay private and their link stops working.</p></div>
     <div class="panel s12"><h2>Public rider spots · ${(spots.published || []).length}</h2><div class="tablewrap"><table><tbody>
-      ${(spots.published || []).map((p) => html`<tr><td><b>${p.name}</b><div class="whytxt">by ${p.author || "a rider"} · <a href=${spots.base + "/s/" + p.code} style="color:var(--accent)">rider link</a></div></td>
+      ${(spots.published || []).map((p) => html`<tr><td><b>${p.name}</b><div class="whytxt">by ${p.author || "a rider"} · ${riderLinks(p)}</div></td>
         <td class="r"><span class="btns"><select id=${"set-" + p.code}><option value="">set…</option>${sets.map((st) => html`<option value=${st.id}>${st.flag} ${st.name}</option>`)}</select>
           <${ActButton} label="Make official" run=${async () => { const v = document.getElementById("set-" + p.code).value; if (!v) throw new Error("Pick a set first"); const d = await adminPost("spots", { code: p.code, action: "official", set: v }); refresh(); return d; }} />
-          <${ActButton} label="Unpublish" danger=${true} run=${async () => { const d = await adminPost("spots", { code: p.code, action: "unpublish" }); refresh(); return d; }} /></span></td></tr>`)}</tbody></table></div></div>
+          <${ActButton} label="Unpublish" danger=${true} run=${async () => { const d = await adminPost("spots", { code: p.code, action: "unpublish" }); refresh(); return d; }} /></span></td></tr>`)}</tbody></table></div>
+      <p class="note">Make official: the spot joins the chosen set as a MeteoGust spot (offered on first launch).</p></div>
     ${groups.filter(([, list]) => list.length).map(([st, list]) => html`<div class="panel s12"><h2>${st.flag} ${st.name} · ${list.length}</h2><div class="tablewrap"><table><tbody>
-      ${list.sort((a, b) => a.position - b.position).map((o) => html`<tr><td><b>${o.name}</b>${o.hidden ? html` <span class="st unknown">hidden</span>` : null}<div class="whytxt">${o.spot_id} · info ${o.score}/13${o.draft ? " · draft" : ""} · <a href=${`https://www.openstreetmap.org/?mlat=${o.lat}&mlon=${o.lon}#map=13/${o.lat}/${o.lon}`} style="color:var(--accent)">map</a></div></td>
+      ${list.slice().sort((a, b) => a.position - b.position).map((o) => html`<tr><td><b>${o.name}</b>${o.hidden ? html` <span class="st unknown">hidden</span>` : null}<div class="whytxt">${o.spot_id} · info ${o.score}/13${o.draft ? " · draft" : ""} · <a href=${osmLink(o)} target="_blank" style="color:var(--accent)">map</a></div></td>
         <td class="r"><span class="btns"><button class="btn primary" onClick=${() => setEdit(o.code)}>Edit</button>
-          <select value=${(o.sets || [])[0] || ""} onChange=${(e) => act({ code: o.code, action: "set", set: e.target.value })}>${sets.map((x) => html`<option value=${x.id}>${x.flag} ${x.name}</option>`)}</select>
-          <button class="btn" onClick=${() => act({ code: o.code, action: o.hidden ? "show" : "hide" })}>${o.hidden ? "Show" : "Hide"}</button></span></td></tr>`)}</tbody></table></div></div>`)}
+          <select value=${(o.sets || [])[0] || ""} onChange=${(e) => e.target.value && act({ code: o.code, action: "set", set: e.target.value })}>${!(o.sets || []).length ? html`<option value="">set…</option>` : null}${sets.map((x) => html`<option value=${x.id}>${x.flag} ${x.name}</option>`)}</select>
+          <${ActButton} label=${o.hidden ? "Show" : "Hide"} ask=${o.hidden ? null : "Hide? Riders who have it keep it. Click again"} run=${() => act({ code: o.code, action: o.hidden ? "show" : "hide" })} /></span></td></tr>`)}</tbody></table></div></div>`)}
     ${!official.length ? html`<div class="panel s12"><${ActButton} label=${"Import the " + spots.builtIn + " built-in spots"} run=${async () => { const d = await adminPost("spots", { action: "import" }); refresh(); return d; }} /></div>` : null}
+    <p class="whytxt s12" style="margin:0">What the app offers: on first launch by set, and in Add spots. A set change or a hidden spot reaches phones within a few hours, without a new build; a hidden spot keeps working for riders who have it. · ${spots.shared ?? "–"} spots shared by link only · ${spots.rejected ?? "–"} rejected</p>
   </div>`;
 }
 
-let alertMsg = (m) => console.warn(m);
+let alertMsg = (m) => alert("Not done: " + m);
 
 function WeightPoints({ spots, refresh }) {
   const [edit, setEdit] = useState(null);
   const [form, setForm] = useState({ name: "", lat: "", lon: "", weights: {}, source: "" });
   const [msg, setMsg] = useState("");
   if (!spots) return html`<p class="empty">Reading the spots…</p>`;
-  if (edit) return html`<${SpotEdit} code=${edit} onClose=${() => { setEdit(null); refresh(); }} onSaved=${refresh} />`;
+  if (edit) return html`<${SpotEditBox} code=${edit} onClose=${() => { setEdit(null); refresh(); }} onSaved=${refresh} />`;
   const points = (spots.official || []).filter((o) => String(o.spot_id).startsWith("w-"));
   const add = async () => {
     const { data } = await adminPostRaw("spots", { action: "point", name: form.name, lat: form.lat, lon: form.lon, weights: form.weights, source: form.source });
@@ -2340,7 +3342,7 @@ const APP_TABS = [["overview", "Overview"], ["spots", "Spots"], ["points", "Weig
 function AppSection(props) {
   const [tab, setTab] = useState("overview");
   return html`<div class="subtabs">${APP_TABS.map(([k, label]) => html`<button class=${"chip" + (tab === k ? " on" : "")} onClick=${() => setTab(k)}>${label}</button>`)}</div>
-    ${tab === "overview" ? html`<${AppRiders} ...${props} />` : tab === "spots" ? html`<${SpotsEditor} spots=${props.spots} refresh=${props.reloadSpots} />`
+    ${tab === "overview" ? html`<${AppRiders} ...${props} goTab=${setTab} />` : tab === "spots" ? html`<${SpotsEditor} spots=${props.spots} refresh=${props.reloadSpots} now=${props.now} />`
       : tab === "points" ? html`<${WeightPoints} spots=${props.spots} refresh=${props.reloadSpots} />`
       : tab === "roles" ? html`<${RolesEditor} roles=${props.roles} refresh=${props.reloadRoles} now=${props.now} />`
       : html`<${FeaturesEditor} roles=${props.roles} refresh=${props.reloadRoles} />`}`;

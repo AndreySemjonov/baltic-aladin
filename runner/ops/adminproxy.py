@@ -21,6 +21,8 @@ ADMIN = "https://admin.meteogust.com"
 ENV_FILE = os.environ.get("MG_ENV", "/root/.meteogust.env")
 AGENT = "MeteoGust control panel (data.meteogust.com)"
 CACHE_S = {"maps": 600, "overview": 300}
+# A change's body at most: admin takes a spot video up to 40 MiB (spotVideo in tools/admin/worker.js).
+MAX_BODY = 40 * 1024 * 1024 + 65536
 _cache, _lock = {}, threading.Lock()
 
 
@@ -53,8 +55,10 @@ def call(method, path, query="", body=None, content_type=None):
             headers["Content-Type"] = content_type
     url = f"{ADMIN}{path}" + (f"?{query}" if query else "")
     request = urllib.request.Request(url, data=body, headers=headers, method=method)
+    # An upload (a spot's video, ~19 MB) gets longer than a read: the home line's upload speed.
+    timeout = 300 if body and len(body) > 1_000_000 else 60
     try:
-        with urllib.request.urlopen(request, timeout=60) as reply:
+        with urllib.request.urlopen(request, timeout=timeout) as reply:
             return reply.status, reply.headers.get("Content-Type", "application/octet-stream"), reply.read()
     except urllib.error.HTTPError as error:
         return error.code, error.headers.get("Content-Type", "text/plain"), error.read()
