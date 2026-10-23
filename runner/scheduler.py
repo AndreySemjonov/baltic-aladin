@@ -412,6 +412,14 @@ def due(job, state, cache, now, live=False):
                 seen = 0
             if (run > seen or (retry and run >= seen)) and (best is None or run > best):
                 best = run
+        # A watched job with `every` too: due at that interval even with nothing new in the watched file, for a job
+        # whose script reads its maker's own files (23.10.2026: GFS 12Z was out at NOAA, world_tiles.py's source, while
+        # Open-Meteo's copy stood at 32 of 209 steps from 16:03 UTC, and with GitHub standing aside riders kept 06Z).
+        # Its source stays the newest seen (the script finds what's new itself, or exits: published already).
+        if best is None and job.every and since >= job.every * 60:
+            known = [r for r in (newest_run(model, cache)[0] for model, _ in job.watch) if r]
+            if known or mine.get("source"):
+                return max(known + [mine.get("source") or 0])
         return best
     if retry or switched:
         return now

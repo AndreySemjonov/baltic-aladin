@@ -64,13 +64,15 @@ REGIONAL_MODELS = [("icon-d2", "dwd_icon_d2"), ("dini", "dmi_harmonie_arome_euro
 
 JOBS = [
     # The world's models (world.yml).
-    Job("world-gfs", ["world_tiles.py", "gfs"], watch=[("ncep_gfs025", 6)]),
+    # GFS, GDPS and ICON-EU come from their makers (NOAA, Environment Canada, DWD), not the watched Open-Meteo copy: an
+    # hourly look too (every=60; 23.10.2026: GFS 12Z out at NOAA, Open-Meteo's copy stuck, riders on 06Z).
+    Job("world-gfs", ["world_tiles.py", "gfs"], watch=[("ncep_gfs025", 6)], every=60),
     # Three processes (the owner, 23.10.2026: "ECMWF on more workers"; 77 min at home against GitHub's ~40): 9 hours in
     # 143 s against 305 with the sampler's copy gone, 7.9 GB for the container (measured at home).
     Job("world-ecmwf", ["world_tiles.py", "ecmwf", "--workers", "3"], watch=[("ecmwf_ifs", 6)], heavy=True, mem_mb=9000),
     Job("world-icon", ["world_tiles.py", "icon"], watch=[("dwd_icon", 6)], priority=3),
-    Job("world-gdps", ["world_tiles.py", "gdps"], watch=[("cmc_gem_gdps_15km", 12)], priority=3),
-    Job("icon-eu", ["iconeu_tiles.py"], watch=[("dwd_icon_eu", 3)], heavy=True, priority=1),
+    Job("world-gdps", ["world_tiles.py", "gdps"], watch=[("cmc_gem_gdps_15km", 12)], every=60, priority=3),
+    Job("icon-eu", ["iconeu_tiles.py"], watch=[("dwd_icon_eu", 3)], every=60, heavy=True, priority=1),
     Job("ecmwf-waves", ["waves_tiles.py", "ecmwf"], watch=[("ecmwf_wam", 12)], delay=2.5, priority=3),
     Job("ewam", ["waves_tiles.py", "ewam"], watch=[("dwd_ewam", 12)], priority=3),
     # Europe's models from Open-Meteo's open data (bucket.yml, ukmo.yml).
