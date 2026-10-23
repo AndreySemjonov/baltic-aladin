@@ -10,7 +10,12 @@ container's own interface (each run in its own container: other jobs' traffic is
 it wrote to --local (what it would have uploaded); disk_peak_mb the most /work held (sampled every 10 s).
 "worked": False when its output says there was nothing new ("already published", "Nothing new").
 
-    python /measure.py <job> -- <command ...>
+Its use over the run (the owner, 23.10.2026: "on card also graph for usage ... CPU, RAM ... during its run"): every
+USAGE_STEP seconds the container's CPU (% of one thread), resident memory (MB, the cgroup's, what the scheduler plans
+with) and download (MB/s), in /stats/_usage/<job>-<start>.json, written every 30 s while it runs ("end": null) and at
+its end; past USAGE_POINTS samples two neighbours merge (the step doubles: CPU and download averaged, memory the higher).
+
+    python /code/runner/measure.py <job> -- <command ...>   (the repo's copy: no image rebuild for a change here)
 """
 import json
 import os
@@ -21,6 +26,67 @@ import threading
 import time
 
 QUIET = ("already published", "Nothing new", "nothing new", "is published already")
+USAGE_STEP, USAGE_POINTS = 5, 240
+
+
+def cgroup_now():
+    """The container's own CPU time (ns) and resident memory (bytes), cgroups v1 (the Tower) or v2; None unreadable."""
+    for cpu_path, cpu_key, mem_path, mem_key in (
+            ("/sys/fs/cgroup/cpuacct/cpuacct.usage", None, "/sys/fs/cgroup/memory/memory.stat", "total_rss"),
+            ("/sys/fs/cgroup/cpu.stat", "usage_usec", "/sys/fs/cgroup/memory.stat", "anon")):
+        try:
+            with open(cpu_path) as f:
+                text = f.read()
+            cpu = int(text) if cpu_key is None else \
+                int(next(line.split()[1] for line in text.splitlines() if line.startswith(cpu_key + " "))) * 1000
+            with open(mem_path) as f:
+                mem = int(next(line.split()[1] for line in f if line.startswith(mem_key + " ")))
+            return cpu, mem
+        except (OSError, StopIteration, ValueError):
+            continue
+    return None
+
+
+class Usage:
+    """The run's CPU, memory and download every USAGE_STEP s (the module's note)."""
+
+    def __init__(self, job, start):
+        self.path = f"/stats/_usage/{job}-{round(start)}.json"
+        self.head = {"job": job, "start": round(start)}
+        self.step, self.cpu, self.mem, self.net = USAGE_STEP, [], [], []
+        self.last, self.acc = None, []  # the previous reading; the raw samples not yet a point (a step over USAGE_STEP)
+
+    def sample(self):
+        now, cg, (rx, _) = time.time(), cgroup_now(), net_bytes()
+        if cg is None:
+            return
+        if self.last:
+            t0, cpu0, rx0 = self.last
+            dt = max(now - t0, 0.1)
+            self.acc.append(((cg[0] - cpu0) / dt / 1e7, cg[1] / 2**20, max(rx - rx0, 0) / dt / 1e6))
+            if len(self.acc) >= self.step // USAGE_STEP:
+                n = len(self.acc)
+                self.cpu.append(round(sum(a[0] for a in self.acc) / n))
+                self.mem.append(round(max(a[1] for a in self.acc)))
+                self.net.append(round(sum(a[2] for a in self.acc) / n, 2))
+                self.acc = []
+            if len(self.cpu) >= USAGE_POINTS:  # an even count: each merged point two whole steps
+                pairs = lambda v: [v[i:i + 2] for i in range(0, len(v), 2)]
+                self.cpu = [round(sum(p) / len(p)) for p in pairs(self.cpu)]
+                self.mem = [max(p) for p in pairs(self.mem)]
+                self.net = [round(sum(p) / len(p), 2) for p in pairs(self.net)]
+                self.step *= 2
+        self.last = (now, cg[0], rx)
+
+    def write(self, end=None, peak_mb=None):
+        try:
+            os.makedirs("/stats/_usage", exist_ok=True)
+            with open(self.path + ".tmp", "w") as f:
+                json.dump(dict(self.head, end=round(end) if end else None, step=self.step, peak_mb=peak_mb,
+                               cpu=self.cpu, mem=self.mem, net=self.net), f, separators=(",", ":"))
+            os.replace(self.path + ".tmp", self.path)
+        except OSError:
+            pass
 
 
 def net_bytes():
@@ -55,14 +121,23 @@ def main():
     os.makedirs("/stats", exist_ok=True)
     peak = [0]
     done = threading.Event()
-
-    def watch_disk():
-        while not done.wait(10):
-            peak[0] = max(peak[0], folder_bytes("/work"))
-    threading.Thread(target=watch_disk, daemon=True).start()
-
     rx0, tx0 = net_bytes()
     start = time.time()
+    use = Usage(job, start)
+    use.sample()
+
+    def watch():
+        tick = 0
+        while not done.wait(USAGE_STEP):
+            tick += 1
+            use.sample()
+            if tick % 2 == 0:
+                peak[0] = max(peak[0], folder_bytes("/work"))
+            if tick % 6 == 0:
+                use.write()
+    watcher = threading.Thread(target=watch, daemon=True)
+    watcher.start()
+
     tail = []
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
                                env=dict(os.environ, PYTHONUNBUFFERED="1", TMPDIR="/work/tmp"))
@@ -85,6 +160,8 @@ def main():
     }
     with open(f"/stats/{job}.jsonl", "a") as f:
         f.write(json.dumps(record) + "\n")
+    watcher.join(30)
+    use.write(end, record["peak_rss_mb"])
     sys.exit(code)
 
 

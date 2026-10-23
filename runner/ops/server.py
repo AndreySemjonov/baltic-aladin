@@ -12,7 +12,8 @@ and it reloads itself when this file changes.
   once an hour).
 
 Pages: / (index.html), /api/fast and /api/slow (JSON), /api/stream (Server-Sent Events: fast every 2 s, slow every
-30 s), /api/log?job=<name> (a job's log, live). Listens on 127.0.0.1 only: from outside through the Cloudflare
+30 s), /api/log?job=<name> (a job's log, live), /api/usage?job=<name>&start=<t> (a run's CPU, memory and download
+over its run, measure.py's samples). Listens on 127.0.0.1 only: from outside through the Cloudflare
 Tunnel, and a request that came through Cloudflare without Access's sign-in in front is refused.
 
     python3 runner/ops/server.py       (MG_HOME, MG_OPS_PORT 8090, MG_OPS_UDP 8091)
@@ -837,6 +838,22 @@ def band(hours=12):
     return data
 
 
+def usage(job, start):
+    """A run's usage samples (runner/measure.py: STATS/_usage/<job>-<start>.json), the one that started nearest `start`
+    within 5 minutes (a running job's start here is its container's, a few seconds before measure.py's); None if none."""
+    if not re.fullmatch(r"[\w.-]+", job or ""):
+        return None
+    best = None
+    try:
+        for name in os.listdir(f"{STATS}/_usage"):
+            m = re.fullmatch(re.escape(job) + r"-(\d+)\.json", name)
+            if m and abs(int(m.group(1)) - start) < 300 and (best is None or abs(int(m.group(1)) - start) < best[0]):
+                best = (abs(int(m.group(1)) - start), name)
+    except OSError:
+        return None
+    return read(f"{STATS}/_usage/{best[1]}") if best else None
+
+
 def live_state():
     try:
         return json.loads(read(LIVE, "{}") or "{}")
@@ -947,6 +964,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.reply(200, "application/json", json.dumps(ADMIN.data).encode())
             elif url.path == "/api/stream":
                 self.stream()
+            elif url.path == "/api/usage":
+                q = urllib.parse.parse_qs(url.query)
+                try:
+                    body = usage(q.get("job", [""])[0], float(q.get("start", ["0"])[0]))
+                except ValueError:
+                    body = None
+                self.reply(200, "application/json", (body or "null").encode())
             elif url.path == "/api/log":
                 self.log_stream(urllib.parse.parse_qs(url.query).get("job", [""])[0])
             else:

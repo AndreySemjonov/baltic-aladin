@@ -297,6 +297,10 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 .bpop .pspark { display: flex; gap: 8px; align-items: center; margin-top: 6px; font-size: 12px; color: var(--muted) } .bpop .pspark b { font: 500 12px var(--mono); color: var(--ink) }
 .bpop .psteps { display: grid; grid-template-columns: 44px auto 1fr; gap: 3px 8px; margin-top: 8px; align-items: baseline }
 .bpop .psteps .st { font: 12px var(--mono); color: var(--muted) } .bpop .psteps .sw { font-weight: 600; white-space: nowrap } .bpop .psteps .sd { font: 11.5px var(--mono); color: var(--muted) }
+.bpop .pchart { margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--line) }
+.bpop .pchart svg { display: block; overflow: visible } .bpop .pchart text { font: 10.5px var(--mono); fill: var(--muted) }
+.bpop .pchart .cap { paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round }
+.bpop .pchart tspan.grp { font: 600 10.5px var(--display); letter-spacing: .08em } .bpop .pnote { color: var(--muted); font-size: 12px }
 .bpop .pbar i.rest { background: repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px) }
 .bpop .plog { margin-top: 6px; font: 11px var(--mono); color: var(--muted); background: var(--bg); border-radius: 6px; padding: 5px 7px; overflow-wrap: anywhere } .btip .k { color: var(--muted) } .btip .room { color: var(--bad); font-weight: 600 }
 .pstrip { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: baseline }
@@ -1215,6 +1219,53 @@ function wrfEnd(w, now) {
   return { end: from + (now - from) / w.progress, pct: w.progress, from, late: false };
 }
 
+// A home run's use over its run (the owner, 23.10.2026: "on card also graph for usage. So we see used CPU, RAM ...
+// during its run"): measure.py's samples (every 5 s, merged to at most 240 points), CPU in threads, memory in GB,
+// download in MB/s, over the run's own time; fetched as the popup opens, again every 15 s while it runs. Runs from
+// before 23.10 evening have none.
+const usageCache = new Map();
+function UsageChart({ job, start, running, now }) {
+  const key = `${job}|${Math.round(start || 0)}`;
+  const [u, setU] = useState(() => usageCache.get(key));
+  useEffect(() => {
+    if (!job || !start) return;
+    let gone = false;
+    const get = () => fetch(`/api/usage?job=${encodeURIComponent(job)}&start=${Math.round(start)}`, { cache: "no-store" })
+      .then((r) => r.json()).then((v) => { if (gone) return; if (v && v.end) usageCache.set(key, v); setU(v || null); }).catch(() => {});
+    if (usageCache.has(key)) setU(usageCache.get(key)); else get();
+    const timer = running ? setInterval(get, 15000) : null;
+    return () => { gone = true; if (timer) clearInterval(timer); };
+  }, [key, running]);
+  if (u === undefined) return html`<div class="pchart pnote">usage …</div>`;
+  if (!u || !u.cpu || u.cpu.length < 2) return html`<div class="pchart pnote">${running ? "usage: the first samples in a minute" : "no usage graph for this run (recorded from 23.10)"}</div>`;
+  const W = 356, RH = 30, GAP = 13, n = u.cpu.length;
+  const x = (i) => (i / (n - 1) * W).toFixed(1);
+  const avg = (v) => v.reduce((s, a) => s + a, 0) / v.length;
+  const f1 = (v) => v >= 10 ? Math.round(v) : v.toFixed(1);
+  const rows = [
+    { title: "CPU", v: u.cpu.map((c) => c / 100), min: 1, c: "var(--home)", soft: "var(--home-soft)",
+      text: (v, m) => `avg ${f1(avg(v))} · peak ${f1(m)} threads` },
+    // measure.py's record peak (getrusage) catches a spike shorter than a sample.
+    { title: "MEMORY", v: u.mem.map((m) => m / 1024), min: 0.5, c: "var(--accent)", soft: "var(--accent-soft)",
+      text: (v, m) => `peak ${m.toFixed(1)} GB${u.peak_mb && u.peak_mb / 1024 > m + 0.2 ? ` · spike ${(u.peak_mb / 1024).toFixed(1)} GB between samples` : ""}` },
+    { title: "DOWNLOAD", v: u.net, min: 1, c: "var(--net)", soft: "var(--net-soft)",
+      text: (v, m) => `avg ${MBs(avg(v))} · peak ${MBs(m)} MB/s` }];
+  const H = rows.length * (RH + GAP) + 14;
+  return html`<div class="pchart"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="CPU, memory and download over the run">
+    ${rows.map((r, k) => {
+      const top = k * (RH + GAP) + 12, m = Math.max(r.min, ...r.v), y = (v) => (top + RH - v / m * RH).toFixed(1);
+      const line = r.v.map((v, i) => `${i ? "L" : "M"}${x(i)},${y(v)}`).join("");
+      return html`<text class="cap" x="0" y=${top - 3}><tspan class="grp">${r.title + " "}</tspan><tspan style="fill:var(--ink)">${r.text(r.v, Math.max(...r.v))}</tspan></text>
+        <line x1="0" x2=${W} y1=${top + RH} y2=${top + RH} stroke="var(--line)"/>
+        <path d=${`${line}L${x(n - 1)},${top + RH}L0,${top + RH}Z`} fill=${r.soft}/>
+        <path d=${line} fill="none" stroke=${r.c} stroke-width="1.4" stroke-linejoin="round"/>`;
+    })}
+    <text x="0" y=${H - 1}>${clock(u.start)}</text>
+    <text x=${W / 2} y=${H - 1} text-anchor="middle">every ${u.step} s</text>
+    <text x=${W} y=${H - 1} text-anchor="end">${u.end ? clock(u.end) : `now ${clock(now)}`}</text>
+  </svg></div>`;
+}
+
 // What a bar is (the owner, 22.10.2026: "on hover on each line a popup ... if active, how much it uses, status ...
 // combining what we see in Machine; if finished, the same as on click at the bottom"; then "show also available time,
 // waited time, download time and when started"): its steps as a short timeline over a segmented bar.
@@ -1260,6 +1311,7 @@ function BarPop({ d, now, left, top, onClose }) {
       ${running ? kv([["CPU now", r.cpu != null ? `${r.cpu}%` : "–"], ["Memory", `${r.mem != null ? GB(r.mem) : "–"} GB${r.need ? ` of the ${(r.need / 1000).toFixed(1)} planned` : ""}`]])
         : kv([e.pub ? ["GitHub", `published ${clock(e.pub)}${a != null ? ` · ${mins(e.pub - a)}` : ""}${e.gh && a != null ? ` (waited ${mins(Math.max(0, e.gh.start - a))})` : ""}`] : null,
           r.cpu != null ? ["This run cost", `${Math.round(r.cpu)} CPU min · ${r.peak ? (r.peak / 1000).toFixed(1) : "–"} GB peak · ${r.net != null ? (r.net / 1000).toFixed(1) : "–"} GB down`] : null])}
+      <${UsageChart} job=${r.job} start=${start} running=${running} now=${now} />
       ${running ? html`<div class="pspark"><span>↓ ${r.download ? r.download.host : "no download now"}</span><${Spark} values=${r.speeds} w=${150} h=${22} /><b>${MBs(r.net_in || 0)} MB/s</b></div>
         ${r.download ? html`<div class="plog">${base(r.download.url)}${r.download.done ? " · done" : ""}</div>` : null}` : null}`;
   } else if (kind === "wrfwait") {
@@ -1364,8 +1416,9 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
     const b = box.current.getBoundingClientRect();
     // Above the pointer near the chart's foot (below it hung past the edge: an inner scrollbar, the popup hidden).
     const y = ev.clientY - b.top;
+    const ph = d.kind === "running" || d.kind === "tower" ? 430 : 290;  // a home run's popup has its usage chart (23.10.2026)
     setPop({ d, left: Math.max(box.current.scrollLeft + 4, Math.min(ev.clientX - b.left + box.current.scrollLeft + 14, box.current.scrollLeft + b.width - 390)),
-      top: y + 290 > b.height ? Math.max(4, y - 290) : y + 14 });
+      top: y + ph > b.height ? Math.max(4, y - ph) : y + 14 });
   };
   // A mouse (or pen) shows a bar's popup on hover; a finger with a tap (the owner, 22.10.2026: "on phone I want to have
   // possibility to click on bars and open window"), and it stays until a tap elsewhere: a finger's pointerleave comes as

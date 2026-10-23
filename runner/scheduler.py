@@ -613,7 +613,8 @@ class Running:
         if os.path.exists(ENV_FILE):
             command += ["--env-file", ENV_FILE]
         script = ["python", *job.args] + ([] if live else ["--local", "/work/out"])
-        command += [IMAGE, "python", "/measure.py", job.name, "--", *script]
+        # The repo's measure.py (mounted at /code), so a change there needs no image rebuild (23.10.2026: its usage samples).
+        command += [IMAGE, "python", "/code/runner/measure.py", job.name, "--", *script]
         self.log_path = f"{LOGS}/{job.name}-{datetime.now(timezone.utc):%Y%m%dT%H%M}.log"
         self.log_file = open(self.log_path, "w")
         self.process = subprocess.Popen(command, stdout=self.log_file, stderr=subprocess.STDOUT)
@@ -796,6 +797,14 @@ def main():
             # The minute records about 8 days (the panel reads a day: its machine band, Capacity).
             for name in ("_samples.jsonl", "_queue.jsonl"):
                 trim(f"{STATS}/{name}", 12000)
+            # Each run's usage samples (measure.py, the run's popup in the panel) 4 days: a few KB a run.
+            usage_dir = f"{STATS}/_usage"
+            for name in os.listdir(usage_dir) if os.path.isdir(usage_dir) else []:
+                try:
+                    if now - os.path.getmtime(f"{usage_dir}/{name}") > 4 * 86400:
+                        os.remove(f"{usage_dir}/{name}")
+                except OSError:
+                    pass
             # The packs' cache within its cap (packcache.py).
             try:
                 os.makedirs(CACHE, exist_ok=True)
