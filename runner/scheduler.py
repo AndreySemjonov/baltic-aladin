@@ -456,6 +456,9 @@ def mem_peaks(job, _cache={}):
         usual = min(peaks[len(peaks) * 3 // 4] * 1.2, most) if len(peaks) >= 3 else most
         limit = max(peaks[-1] * 1.3, usual * (2 if len(peaks) < 5 else 1), 1500)
         value = (int(usual), int(limit))
+    # jobs.py's floor for a job whose shape changed (its old peaks too low: 23.10.2026, ECMWF's --workers).
+    if job.mem_mb:
+        value = (max(value[0], job.mem_mb), max(value[1], int(job.mem_mb * 1.3)))
     _cache[job.name] = (now, value)
     return value
 

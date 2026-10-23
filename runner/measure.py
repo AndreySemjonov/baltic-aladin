@@ -5,7 +5,8 @@ to /stats/<job>.jsonl:
     {"job", "start", "end", "wall_s", "cpu_user_s", "cpu_sys_s", "peak_rss_mb", "net_in_mb", "net_out_mb",
      "out_mb", "disk_peak_mb", "exit", "worked", "tail"}
 
-CPU and the peak memory are the job's processes' own (getrusage of the children); the network the
+CPU is the job's processes' own (getrusage of the children), the peak memory the biggest process's or the
+container's sampled total, whichever is higher; the network the
 container's own interface (each run in its own container: other jobs' traffic isn't counted); out_mb what
 it wrote to --local (what it would have uploaded); disk_peak_mb the most /work held (sampled every 10 s).
 "worked": False when its output says there was nothing new ("already published", "Nothing new").
@@ -84,6 +85,10 @@ class Usage:
                 self.step *= 2
         self.last = (now, cg[0], rx, tx)
 
+    def peak(self):
+        """The container's most resident memory (MB) in the samples so far, 0 without any."""
+        return max(self.mem + [a[1] for a in self.acc], default=0)
+
     def write(self, end=None, peak_mb=None):
         try:
             os.makedirs("/stats/_usage", exist_ok=True)
@@ -147,8 +152,11 @@ def main():
     tail = []
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
                                env=dict(os.environ, PYTHONUNBUFFERED="1", TMPDIR="/work/tmp"))
+    # Each line on at once (23.10.2026: to a file our stdout is block-buffered, so a run's log stayed empty until its
+    # end: World ECMWF's 72 minutes).
     for line in process.stdout:
         sys.stdout.write(line)
+        sys.stdout.flush()
         tail = (tail + [line.rstrip()])[-12:]
     code = process.wait()
     end = time.time()
@@ -159,7 +167,9 @@ def main():
     record = {
         "job": job, "start": round(start), "end": round(end), "wall_s": round(end - start, 1),
         "cpu_user_s": round(usage.ru_utime, 1), "cpu_sys_s": round(usage.ru_stime, 1),
-        "peak_rss_mb": round(usage.ru_maxrss / 1024),
+        # The biggest process's peak or the container's sampled one, whichever is higher (23.10.2026: ru_maxrss is one
+        # process's, so a job on several processes, ECMWF's --workers, would be planned at a third of its memory).
+        "peak_rss_mb": max(round(usage.ru_maxrss / 1024), use.peak()),
         "net_in_mb": round((rx1 - rx0) / 1e6, 1), "net_out_mb": round((tx1 - tx0) / 1e6, 1),
         "out_mb": round(out / 1e6, 1), "disk_peak_mb": round(max(peak[0], folder_bytes("/work")) / 1e6),
         "exit": code, "worked": not any(q in line for line in tail for q in QUIET), "tail": tail[-3:],

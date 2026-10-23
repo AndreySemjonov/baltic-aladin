@@ -16,6 +16,9 @@ can't run without (skipped while missing). `live_needs`: variables it runs witho
 (the blend leaves HARM-NL out without KNMI_API_KEY): while missing it runs in shadow only and stays off the
 heartbeat's live list, so GitHub keeps publishing it. The same cadences as the GitHub workflows (21.10.2026).
 
+`mem_mb`: the least memory (MB) it is planned at, its limit 1.3 times that at least, while its own runs' peaks say less
+(a change of shape its old peaks don't know: ECMWF on several processes, 23.10.2026).
+
 `priority` (the owner, 21.10.2026: in the 00Z/12Z peaks the models riders look at first go first): 1 what a
 rider opens first (the spots' forecasts and their inputs, the Mix, the Baltic's fine models, the rain now),
 2 the other maps, 3 what can wait an hour (the far world, the seas, the ensembles, the air). Due jobs start
@@ -38,6 +41,7 @@ class Job:
     min_gap: int = 0
     timeout: int = 150
     priority: int = 2
+    mem_mb: int = 0
 
 
 COPERNICUS = ["COPERNICUSMARINE_SERVICE_USERNAME", "COPERNICUSMARINE_SERVICE_PASSWORD"]
@@ -61,7 +65,9 @@ REGIONAL_MODELS = [("icon-d2", "dwd_icon_d2"), ("dini", "dmi_harmonie_arome_euro
 JOBS = [
     # The world's models (world.yml).
     Job("world-gfs", ["world_tiles.py", "gfs"], watch=[("ncep_gfs025", 6)]),
-    Job("world-ecmwf", ["world_tiles.py", "ecmwf"], watch=[("ecmwf_ifs", 6)], heavy=True),
+    # Three processes (the owner, 23.10.2026: "ECMWF on more workers"; 77 min at home against GitHub's ~40): 9 hours in
+    # 143 s against 305 with the sampler's copy gone, 7.9 GB for the container (measured at home).
+    Job("world-ecmwf", ["world_tiles.py", "ecmwf", "--workers", "3"], watch=[("ecmwf_ifs", 6)], heavy=True, mem_mb=9000),
     Job("world-icon", ["world_tiles.py", "icon"], watch=[("dwd_icon", 6)], priority=3),
     Job("world-gdps", ["world_tiles.py", "gdps"], watch=[("cmc_gem_gdps_15km", 12)], priority=3),
     Job("icon-eu", ["iconeu_tiles.py"], watch=[("dwd_icon_eu", 3)], heavy=True, priority=1),

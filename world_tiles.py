@@ -16,6 +16,7 @@ service (station-history /tiles/upload, the INGEST_TOKEN secret), the index last
     python world_tiles.py gfs|ecmwf|icon|gdps              build and upload the newest run, if new
     python world_tiles.py gfs|ecmwf|icon|gdps --force      even if it's the published one
     python world_tiles.py gfs|ecmwf|icon|gdps --local DIR  write to DIR, no upload (a test; --steps 0,24)
+    python world_tiles.py ecmwf --workers 3                ECMWF 9 km's hours on 3 processes (the same packs)
 """
 import bz2
 import io
@@ -193,14 +194,15 @@ def with_tail(frames, previous):
     return frames + [f for f in sorted(previous["frames"], key=lambda f: f["time"]) if f["time"] > last]
 
 
-def ecmwf9_steps(run, steps):
-    """ECMWF's fields at each hour of the run, its O1280 grid put on ECMWF9_GRID (the four nearest
-    points, by distance); the rain the step's, as a rate an hour."""
-    import tempfile
-    import omfiles
+def ecmwf9_grid(run):
+    """The run's files by step and its O1280 grid's way onto ECMWF9_GRID: (regular(values), the native
+    points, {step: file}). Made once; worker processes (--workers) share it."""
     from scipy.spatial import cKDTree
-    # O1280: 2560 Gaussian latitudes, north first; row i has 20 + 4i points to the equator, then back.
-    x, _ = np.polynomial.legendre.leggauss(2560)
+    # O1280: 2560 Gaussian latitudes, north first; row i has 20 + 4i points to the equator, then back. SciPy's roots
+    # (23.10.2026: NumPy's leggauss, an eigenvalue problem, took 58 s of the Tower's run, 0.5 s on a quiet PC; the
+    # same latitudes to 1e-12 degrees).
+    from scipy.special import roots_legendre
+    x, _ = roots_legendre(2560)
     lats = np.degrees(np.arcsin(x))[::-1]
     counts = np.array([20 + 4 * i for i in range(1280)] + [20 + 4 * (2559 - i) for i in range(1280, 2560)])
     la = np.radians(np.repeat(lats, counts))
@@ -229,7 +231,21 @@ def ecmwf9_steps(run, steps):
         if name.endswith(".om"):
             valid = datetime.strptime(name[:-3], "%Y-%m-%dT%H%M").replace(tzinfo=timezone.utc)
             files[int((valid - run).total_seconds() // 3600)] = key
+    return regular, native_points, files
+
+
+def ecmwf9_steps(run, steps, grid=None, part=None):
+    """ECMWF's fields at each hour of the run, its O1280 grid put on ECMWF9_GRID (the four nearest
+    points, by distance); the rain the step's, as a rate an hour. `grid`: ecmwf9_grid's, else made
+    here; `part` (k, n): every n-th hour from the k-th, for one of n worker processes."""
+    import tempfile
+    import omfiles
+    regular, native_points, files = grid or ecmwf9_grid(run)
     wanted = [s for s in steps if s in files] if steps is not None else sorted(files)
+    # Each hour's rain is over the step from the hour before it in the whole run (a worker's own hours skip some).
+    before_of = {s: (wanted[i - 1] if i else 0) for i, s in enumerate(wanted)}
+    if part:
+        wanted = wanted[part[0]::part[1]]
 
     def fetch(step):
         # At home only the variables used, read in part (omremote.py; the owner, 21.10.2026: Oregon ~17 MB/s from home).
@@ -252,7 +268,6 @@ def ecmwf9_steps(run, steps):
                     raise
                 time.sleep(10 * (attempt + 1))
 
-    before = 0
     # The land (sky_pack's flag: a place's weather from its nearest land cell, as Open-Meteo's): where
     # the sea ice has no value (28.5% of the world, 18.10.2026), from the run's first file.
     land = None
@@ -281,13 +296,13 @@ def ecmwf9_steps(run, steps):
             reader.close()
             omremote.done(path)
             # The rain over the step (an hour, then 3 and 6), as mm an hour.
+            before = before_of[step]
             if "rain" in fields:
                 fields["rain_step"] = fields.pop("rain")
                 fields["rate"] = np.maximum(fields["rain_step"], 0) / max(step - before, 1)
             if "rain" in native:
                 native["rate"] = np.maximum(native.pop("rain"), 0) / max(step - before, 1)
             fields["_native"] = dict(native_points, values=native)
-            before = step
             yield step, fields, ECMWF9_GRID
 
 
@@ -555,11 +570,27 @@ class Sampler:
                     lat, lon = tile_coordinates(z, x, y, self.sizes)
                     fi = np.mod(lon - lon0, 360) / dlon
                     fj = (lat - lat0) / dlat
-                    self.tiles[(z, x, y)] = maplib.Bilinear(fi, fj, self.columns + 1, self.rows)
+                    self.tiles[(z, x, y)] = WrappedBilinear(fi, fj, self.columns, self.rows)
 
     def __call__(self, key, values):
-        wrapped = np.concatenate([values, values[:, :1]], axis=1)
-        return self.tiles[key](wrapped)
+        return self.tiles[key](values)
+
+
+class WrappedBilinear(maplib.Bilinear):
+    """maplib's Bilinear on a grid whose column after the last is its first again (the date line), read in place:
+    the same values as on the grid with that column added (23.10.2026: that copy, the whole world grid for each
+    tile of each layer, was most of ECMWF 9 km's 92 CPU seconds an hour on the Tower)."""
+
+    def __init__(self, fi, fj, columns, rows):
+        super().__init__(fi, fj, columns + 1, rows)
+        self.i1 = (self.i0 + 1) % columns
+
+    def __call__(self, values):
+        a, b = values[self.j0, self.i0], values[self.j0, self.i1]
+        c, d = values[self.j0 + 1, self.i0], values[self.j0 + 1, self.i1]
+        top = a + (b - a) * self.ti
+        bottom = c + (d - c) * self.ti
+        return top + (bottom - top) * self.tj
 
 
 def encode(tiles, sizes=None):
@@ -712,6 +743,63 @@ def published(model):
         return None
 
 
+def in_workers(make_part, workers, model, cells):
+    """make_part(k) in `workers` forked processes, k = 0..workers-1, each returning (frames, size, cells, land): the frames
+    together in time order, the sizes summed, the spots' rows merged into `cells` (None if one lost them).
+    A process that fails or dies (out of memory) stops the run, as one process's failure does."""
+    import multiprocessing
+    import queue
+    fork = multiprocessing.get_context("fork")
+    results = fork.Queue()
+
+    def part(k):
+        try:
+            got, sent, mine, made_land = make_part(k)
+            rows = None if mine is None or mine.failed else (mine.wind, mine.air)
+            results.put((k, got, sent, rows, made_land, None))
+        except BaseException as error:
+            results.put((k, None, 0, None, False, f"{type(error).__name__}: {error}"))
+        finally:
+            sys.stdout.flush()
+            results.close()
+            results.join_thread()
+            os._exit(0)
+
+    procs = [fork.Process(target=part, args=(k,)) for k in range(workers)]
+    for proc in procs:
+        proc.start()
+    parts = {}
+    while len(parts) < workers:
+        try:
+            k, *rest = results.get(timeout=30)
+            parts[k] = rest
+        except queue.Empty:
+            dead = [k for k, proc in enumerate(procs) if proc.exitcode is not None and k not in parts]
+            if dead:
+                for proc in procs:
+                    proc.kill()
+                raise SystemExit(f"{model}: worker {dead[0]} ended without its hours (exit {procs[dead[0]].exitcode})")
+    for proc in procs:
+        proc.join()
+    frames, size, land = [], 0, False
+    for k in range(workers):
+        got, sent, rows, made_land, error = parts[k]
+        land = land or made_land
+        if error:
+            raise SystemExit(f"{model}: worker {k}: {error}")
+        frames += got
+        size += sent
+        if cells is not None:
+            if rows is None:
+                print(f"{model}: worker {k} lost the spots' cells: left out", flush=True)
+                cells = None
+            else:
+                cells.wind.update(rows[0])
+                cells.air.update(rows[1])
+    frames.sort(key=lambda frame: frame["time"])
+    return frames, size, cells, land
+
+
 def main():
     args = sys.argv[1:]
     if not args or args[0] not in MODELS:
@@ -775,10 +863,6 @@ def main():
     else:
         source = (ecmwf9_steps if nine else (lambda r, s: ecmwf_steps(r, s, "0p1")) if own9
                   else {"gfs": gfs_steps, "ecmwf": ecmwf_steps, "icon": icon_steps, "gdps": gdps_steps}[model])(run, steps)
-    sample, land, frames, size, started = None, False, [], 0, time.time()
-    # The step and precipitation before (ECMWF's is the total since the run's start).
-    previous = [0, None]
-
     def put(name, data):
         if local:
             (local / name).parent.mkdir(parents=True, exist_ok=True)
@@ -800,85 +884,104 @@ def main():
         print(f"{model}: the spots' cells left out ({error})", flush=True)
         cells = None
 
-    # Each hour's layers made side by side and sent while the next hour is made (the owner, 21.10.2026:
-    # ECMWF 9 km's run took 100 minutes, its five layers one after another, about 50 s an hour; the
-    # images' compression and NumPy let go of Python's lock, so threads use the runner's cores). At most
-    # 12 uploads waiting (about 80 MB an hour in memory). A layer other than the wind that can't be made
-    # or sent is left out of its hour, as before; the wind's stops the run.
-    makers = ThreadPoolExecutor(max_workers=5)
-    senders = ThreadPoolExecutor(max_workers=6)
-    sending = []
+    def make(source, cells):
+        """The packs of each hour `source` gives, made and sent: (frames, bytes sent, the spots' cells or None, land.pack made)."""
+        sample, land, frames, size = None, False, [], 0
+        # The step and precipitation before (ECMWF's is the total since the run's start).
+        previous = [0, None]
 
-    def settle(limit):
-        nonlocal size
-        while len(sending) > limit:
-            future, frame, key, name, length = sending.pop(0)
-            try:
-                future.result()
-                if key != "file":
-                    frame[key] = name
-                size += length
-            except (urllib.error.URLError, OSError) as error:
-                if key == "file":
-                    raise
-                print(f"{model} {name}: not uploaded ({error})", flush=True)
+        # Each hour's layers made side by side and sent while the next hour is made (the owner, 21.10.2026:
+        # ECMWF 9 km's run took 100 minutes, its five layers one after another, about 50 s an hour; the
+        # images' compression and NumPy let go of Python's lock, so threads use the runner's cores). At most
+        # 12 uploads waiting (about 80 MB an hour in memory). A layer other than the wind that can't be made
+        # or sent is left out of its hour, as before; the wind's stops the run.
+        makers = ThreadPoolExecutor(max_workers=5)
+        senders = ThreadPoolExecutor(max_workers=6)
+        sending = []
 
-    suffixes = {"file": "", "temp": "-temp", "rain": "-rain", "cloud": "-cloud", "sky": "-sky"}
-    for step, fields, grid in source:
-        if "10u" not in fields or "10v" not in fields:
-            print(f"{model} step {step}: no wind, skipped")
-            continue
-        if sample is None:
-            sample = Sampler(grid, sizes)
-        if not land and "lsm" in fields:
-            put(f"{run_name}/land.pack", land_pack(sample, fields["lsm"]))
-            land = True
-        t = int((run + timedelta(hours=step)).timestamp())
-        # ECMWF: the world's temperature and rain too (the precipitation since the run's start,
-        # so each step's rain is its difference from the step before, per hour).
-        rate = None
-        if "tp" in fields:
-            hours = step - previous[0] if previous[1] is not None else 0
-            rate = (fields["tp"] - previous[1]) * 1000 / hours if hours > 0 else np.zeros_like(fields["tp"])
-            previous[0], previous[1] = step, fields["tp"]
-        elif "rate" in fields:
-            rate = fields["rate"]
-        jobs = {"file": makers.submit(pack, sample, fields)}
-        if "2t" in fields:
-            jobs["temp"] = makers.submit(temp_pack, sample, fields)
-        if rate is not None:
-            jobs["rain"] = makers.submit(rain_pack, sample, fields, rate)
-        # The clouds' layers (ECMWF 9 km's), as the regional sets' cloud packs.
-        if "low" in fields:
-            jobs["cloud"] = makers.submit(cloud_pack, sample, fields)
-        # The rest of a place's weather (ECMWF 9 km's: humidity, visibility, thunder, snow, showers).
-        if "vis" in fields and "2d" in fields:
-            jobs["sky"] = makers.submit(sky_pack, sample, fields)
-        if cells is not None:
-            try:
-                if "_native" in fields:
-                    cells.add_native(t, fields["_native"])
-                else:
-                    cells.add_regular(t, grid, fields, rate)
-            except Exception as error:
-                print(f"{model} step {step}: the spots' cells left out ({error})", flush=True)
-                cells = None
-        frame = {"time": t, "file": f"{run_name}/{t}.pack"}
-        for key, job in jobs.items():
-            name = f"{run_name}/{t}{suffixes[key]}.pack"
-            try:
-                data = job.result()
-            except Exception as error:
-                if key == "file":
-                    raise
-                print(f"{model} step {step}: {key} not made ({error})", flush=True)
+        def settle(limit):
+            nonlocal size
+            while len(sending) > limit:
+                future, frame, key, name, length = sending.pop(0)
+                try:
+                    future.result()
+                    if key != "file":
+                        frame[key] = name
+                    size += length
+                except (urllib.error.URLError, OSError) as error:
+                    if key == "file":
+                        raise
+                    print(f"{model} {name}: not uploaded ({error})", flush=True)
+
+        suffixes = {"file": "", "temp": "-temp", "rain": "-rain", "cloud": "-cloud", "sky": "-sky"}
+        for step, fields, grid in source:
+            if "10u" not in fields or "10v" not in fields:
+                print(f"{model} step {step}: no wind, skipped")
                 continue
-            sending.append((senders.submit(put, name, data), frame, key, name, len(data)))
-        frames.append(frame)
-        settle(12)
-    settle(0)
-    makers.shutdown()
-    senders.shutdown()
+            if sample is None:
+                sample = Sampler(grid, sizes)
+            if not land and "lsm" in fields:
+                put(f"{run_name}/land.pack", land_pack(sample, fields["lsm"]))
+                land = True
+            t = int((run + timedelta(hours=step)).timestamp())
+            # ECMWF: the world's temperature and rain too (the precipitation since the run's start,
+            # so each step's rain is its difference from the step before, per hour).
+            rate = None
+            if "tp" in fields:
+                hours = step - previous[0] if previous[1] is not None else 0
+                rate = (fields["tp"] - previous[1]) * 1000 / hours if hours > 0 else np.zeros_like(fields["tp"])
+                previous[0], previous[1] = step, fields["tp"]
+            elif "rate" in fields:
+                rate = fields["rate"]
+            jobs = {"file": makers.submit(pack, sample, fields)}
+            if "2t" in fields:
+                jobs["temp"] = makers.submit(temp_pack, sample, fields)
+            if rate is not None:
+                jobs["rain"] = makers.submit(rain_pack, sample, fields, rate)
+            # The clouds' layers (ECMWF 9 km's), as the regional sets' cloud packs.
+            if "low" in fields:
+                jobs["cloud"] = makers.submit(cloud_pack, sample, fields)
+            # The rest of a place's weather (ECMWF 9 km's: humidity, visibility, thunder, snow, showers).
+            if "vis" in fields and "2d" in fields:
+                jobs["sky"] = makers.submit(sky_pack, sample, fields)
+            if cells is not None:
+                try:
+                    if "_native" in fields:
+                        cells.add_native(t, fields["_native"])
+                    else:
+                        cells.add_regular(t, grid, fields, rate)
+                except Exception as error:
+                    print(f"{model} step {step}: the spots' cells left out ({error})", flush=True)
+                    cells = None
+            frame = {"time": t, "file": f"{run_name}/{t}.pack"}
+            for key, job in jobs.items():
+                name = f"{run_name}/{t}{suffixes[key]}.pack"
+                try:
+                    data = job.result()
+                except Exception as error:
+                    if key == "file":
+                        raise
+                    print(f"{model} step {step}: {key} not made ({error})", flush=True)
+                    continue
+                sending.append((senders.submit(put, name, data), frame, key, name, len(data)))
+            frames.append(frame)
+            settle(12)
+        settle(0)
+        makers.shutdown()
+        senders.shutdown()
+        return frames, size, cells, land
+
+    # ECMWF 9 km's hours on several processes (the owner, 23.10.2026: "ECMWF on more workers": the Tower took 77 min
+    # against GitHub's ~40, one core busy: the tiles' sampling is Python, one thread at a time under its lock). The grid
+    # is made once and shared (fork); each process makes and sends every n-th hour, its spots' rows and frames come back.
+    workers = int(args[args.index("--workers") + 1]) if "--workers" in args else 1
+    started = time.time()
+    if nine and workers > 1:
+        grid9 = ecmwf9_grid(run)
+        frames, size, cells, land = in_workers(lambda k: make(ecmwf9_steps(run, steps, grid9, (k, workers)), cells),
+                                         workers, model, cells)
+    else:
+        frames, size, cells, land = make(source, cells)
     if not frames:
         raise SystemExit(f"{model}: no frames")
     if short:
