@@ -359,11 +359,16 @@ def keep_ops():
             log("ops tunnel: started" if started.returncode == 0 else f"ops tunnel: not started ({started.stderr.strip()[:200]})")
 
 
-def due(job, state, cache, now):
+def due(job, state, cache, now, live=False):
     """The run (or moment) a job is due for, None when it isn't."""
     mine = state.get(job.name, {})
     since = now - mine.get("started", 0)
     retry = 0 < mine.get("fails", 0) <= RETRIES and since >= RETRY_S
+    # Live now, its last run in shadow (published nothing): due at once, its newest run (the owner, 23.10.2026: "Europe's
+    # seas show late. why": the seas' last run was shadow at 05:52 UTC, live from 07:00, GitHub's 09:20 run stood aside,
+    # and the 12 h timer from the shadow run left the map at 00:31 UTC until 17:52). A run published already (GitHub's)
+    # is skipped by the job itself in a minute.
+    switched = live and mine.get("started") and mine.get("live") is False
     if job.watch:
         best = None
         sources = mine.get("sources") or {}
@@ -379,10 +384,12 @@ def due(job, state, cache, now):
             seen = sources.get(model)
             if seen is None:
                 seen = mine.get("source", 0) if len(job.watch) == 1 else (run if done and done <= mine.get("started", 0) else 0)
+            if switched:
+                seen = 0
             if (run > seen or (retry and run >= seen)) and (best is None or run > best):
                 best = run
         return best
-    if retry:
+    if retry or switched:
         return now
     # One of its inputs published since it last started (D), its min_gap after that start at the earliest.
     if job.inputs and mine.get("inputs") and since >= job.min_gap * 60:
@@ -738,7 +745,7 @@ def write_live(state, running, others, live, names, cache, now, wrf, budget, res
         if any(n not in names for n in job.needs):
             out_next.append({"job": job.name, "priority": job.priority, "at": None, "why": "needs " + ", ".join(job.needs)})
             continue
-        wanted = due(job, state, cache, now)
+        wanted = due(job, state, cache, now, job.name in live)
         if wanted is not None:
             why = waiting_why.get(job.name) or (
                 "priority 3 waits for a free slot" if job.priority >= 3 else
@@ -767,6 +774,17 @@ def main():
     for folder in (HOME, STATS, LOGS, WORK):
         os.makedirs(folder, exist_ok=True)
     state = load(STATE, {})
+    # Whether each job's last run was live, for the states from before it was kept (23.10.2026): from the runs' record.
+    try:
+        with open(f"{STATS}/_runs.jsonl") as f:
+            for record in map(json.loads, f.readlines()[-3000:]):
+                if record.get("job") in state and "live" not in state[record["job"]]:
+                    state[record["job"]]["_was_live"] = bool(record.get("live"))
+        for mine in state.values():
+            if "_was_live" in mine:
+                mine["live"] = mine.pop("_was_live")
+    except (OSError, ValueError):
+        pass
     try:
         with open(f"{STATS}/_arrivals.jsonl") as f:
             _arrived.update((a["model"], a["run"]) for a in map(json.loads, f.readlines()[-2000:]))
@@ -908,7 +926,7 @@ def main():
                 continue
             if any(n not in names for n in job.needs):
                 continue
-            wanted = due(job, state, cache, now)
+            wanted = due(job, state, cache, now, job.name in live)
             if wanted is None:
                 continue
             # Big jobs at their limit (it showed as "starting" for minutes, 22.10.2026).
@@ -966,6 +984,7 @@ def main():
             running[job.name] = Running(job, is_live, wanted if job.watch else None, _due_since.pop(job.name, now),
                                         LOW_SHARES if wrf else 1024, limit)
             mine["started"] = now
+            mine["live"] = is_live
             if job.inputs:
                 # Its inputs' publishes as it starts: a newer one makes it due again (D).
                 mine["inputs"] = {s: input_stamp(s) for s in job.inputs}
