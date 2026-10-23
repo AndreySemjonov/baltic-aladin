@@ -56,7 +56,9 @@ STATS, LOGS, STATE, LIVE = f"{HOME}/stats", f"{HOME}/logs", f"{HOME}/state.json"
 ENV_FILE = os.environ.get("MG_ENV", "/root/.meteogust.env")
 LIVE_FILE = os.environ.get("MG_LIVE", "/root/.meteogust-live")
 IMAGE = os.environ.get("MG_IMAGE", "meteogust-helper")
-MAX_TOTAL, MAX_HEAVY = int(os.environ.get("MG_MAX", "4")), int(os.environ.get("MG_MAX_HEAVY", "2"))
+# Big jobs at once: 3 outside WRF (23.10.2026: 2 held the seas back for hours with the machine half idle; memory is the
+# real-memory check's since 22.10), 1 beside it (MAX_HEAVY // 2).
+MAX_TOTAL, MAX_HEAVY = int(os.environ.get("MG_MAX", "4")), int(os.environ.get("MG_MAX_HEAVY", "3"))
 # Outside WRF the slots follow the machine (the owner, 22.10.2026, from the Pipeline's machine band: with WRF off jobs
 # waited 314 of 342 minutes while CPU was under 50% and over 6 GB free): beyond MAX_TOTAL, up to MAX_FLEX at once
 # while the machine's CPU over the last minute is under FLEX_CPU %, one more a minute (a new job's load shows the
@@ -742,8 +744,12 @@ def main():
         waiting_why = {}
         drain = None  # the job the machine is being drained for
         def prio(job):
-            """Its priority, a 3 due over AGE_AFTER counting as a 2."""
-            return 2 if job.priority >= 3 and now - _due_since.get(job.name, now) > AGE_AFTER else job.priority
+            """Its priority, a 3 due over AGE_AFTER counting as a 2, any job due over 3 x AGE_AFTER as a 1 (23.10.2026: the
+            seas, waiting since 02:27 UTC for a big job's place, lost each one to the hourly 1s: the Mix, the blend)."""
+            waited = now - _due_since.get(job.name, now)
+            if waited > 3 * AGE_AFTER:
+                return 1
+            return 2 if job.priority >= 3 and waited > AGE_AFTER else job.priority
 
         # The riders' first models first (the owner, 21.10.2026: the 00Z/12Z peaks); within a priority the
         # order of jobs.py.
