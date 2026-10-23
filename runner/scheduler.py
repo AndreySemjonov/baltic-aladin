@@ -86,6 +86,10 @@ WRF_MB = int(os.environ.get("MG_WRF_MB", "9000"))
 # the last RAMP_S still have to take), and the plans may add up to OVERCOMMIT x the budget outside WRF (1x beside
 # it). A job's container may use its record peak x 1.3 at most (mem_limit; with an oom-score that makes the kernel pick
 # a job before WRF), so a rare double peak stops that one job.
+# Outside WRF a spiky job plans below its peak (the owner, 23.10.2026: "swap should be best for memory peaks"; mem_shapes):
+# the waves hold 8.6 GB for 3 of their 33 minutes, so the plan is the level a job stays above for a fifth of its run at
+# most and the short peak may borrow swap. Flat jobs (the mixes, world ECMWF) plan as before; beside WRF every job plans
+# its whole peak (WRF must never swap).
 # A failed run tried again after RETRY_S, up to RETRIES in a row (the same model run for a watching job), then its
 # usual rhythm (22.10.2026: the waves' first run, killed out of memory at 02:35 UTC, would have waited 12 h; a
 # watching job marked its failed run seen and never made it).
@@ -425,9 +429,78 @@ def mem_peaks(job, _cache={}):
     return value
 
 
+# The share of its peak a job plans for outside WRF: the level its run's minute samples stay above SHAPE_TOP of the time
+# at most, as a share of that run's peak; the median of its last 10 finished runs (at least SHAPE_RUNS), never under
+# SHAPE_MIN. From the last SHAPE_DAYS of STATS/_samples.jsonl (it keeps about 8), read every 10 minutes. Two runs are
+# enough: the jobs this is for (waves, seas) run twice a day. The minute samples miss the sharpest peaks (the waves:
+# 15.9 GB in measure.py's record, 8.6 in the samples), so the share is applied to the record's usual peak (mem_peaks).
+SHAPE_TOP, SHAPE_RUNS, SHAPE_MIN, SHAPE_DAYS = 0.2, 2, 0.3, 8
+_shape = {"t": 0, "share": {}, "wrf": False}  # "wrf": the main loop's, for mem_need
+_DOCKER_UNITS = {"B": 2**-20, "KiB": 2**-10, "kB": 2**-10, "MiB": 1, "MB": 1, "GiB": 1024, "GB": 1024}
+
+
+def docker_mb(text):
+    """docker stats' "4.633GiB / 6.516GiB" -> 4744 (MB used), None when it can't be read."""
+    try:
+        used = (text or "").split("/")[0].strip()
+        number = used.rstrip("BKMGiTkb")
+        return float(number) * _DOCKER_UNITS[used[len(number):]]
+    except (ValueError, KeyError):
+        return None
+
+
+def mem_shapes():
+    """{job: share of its peak it plans for outside WRF} for the jobs with enough measured runs (mem_need)."""
+    now = time.time()
+    if now - _shape["t"] < 600:
+        return _shape["share"]
+    runs, last_seen = {}, {}  # job -> [[minute samples (MB)], ...]; job -> the time of its last sample
+    try:
+        with open(f"{STATS}/_samples.jsonl") as f:
+            for line in f:
+                try:
+                    sample = json.loads(line)
+                except ValueError:
+                    continue
+                t = sample.get("t")
+                if not isinstance(t, (int, float)) or now - t > SHAPE_DAYS * 86400:
+                    continue
+                for c in sample.get("containers", []):
+                    name, mb = c.get("name") or "", docker_mb(c.get("mem"))
+                    if not name.startswith("mg-") or mb is None:
+                        continue
+                    job = name[3:]
+                    # Over 3 minutes without a sample: a new run.
+                    if t - last_seen.get(job, 0) > 180:
+                        runs.setdefault(job, []).append([])
+                    runs[job][-1].append(mb)
+                    last_seen[job] = t
+    except OSError:
+        pass
+    share = {}
+    for job, job_runs in runs.items():
+        # Not the run still going (its peak may be ahead).
+        finished = job_runs[:-1] if now - last_seen[job] < 180 else job_runs
+        shares = []
+        for run in finished[-10:]:
+            if len(run) >= 5 and max(run) > 0:
+                shares.append(sorted(run)[int(len(run) * (1 - SHAPE_TOP))] / max(run))
+        if len(shares) >= SHAPE_RUNS:
+            share[job] = round(max(sorted(shares)[len(shares) // 2], SHAPE_MIN), 2)
+    changed = {j: s for j, s in share.items() if abs(s - _shape["share"].get(j, 1)) >= 0.1}
+    if changed:
+        log("memory shapes (share of the peak planned outside WRF): "
+            + ", ".join(f"{j} {s:.2f}" for j, s in sorted(changed.items(), key=lambda item: item[1])))
+    _shape.update(t=now, share=share)
+    return share
+
+
 def mem_need(job):
-    """A job's planned memory (MB): its usual peak (mem_peaks)."""
-    return mem_peaks(job)[0]
+    """A job's planned memory (MB): its usual peak (mem_peaks), outside WRF times its shape (mem_shapes)."""
+    usual = mem_peaks(job)[0]
+    if _shape["wrf"]:
+        return usual
+    return int(usual * mem_shapes().get(job.name, 1))
 
 
 def mem_limit(job):
@@ -750,6 +823,7 @@ def main():
             log(f"{name}: done in {(time.time() - run.started) / 60:.1f} min, exit {code}")
         # WRF started or ended: the running jobs' CPU share follows.
         wrf = wrf_running()
+        _shape["wrf"] = wrf
         there = containers()
         if wrf != wrf_was:
             set_shares(there, LOW_SHARES if wrf else 1024)
