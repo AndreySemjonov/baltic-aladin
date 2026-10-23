@@ -2,7 +2,7 @@
 Mac mini from the end of the week; GitHub only for the code, tests and deploys). Every minute: each job in
 runner/jobs.py that's due (its source has a newer complete run, or its interval passed) starts in its own
 container (runner/Dockerfile; measured by runner/measure.py), at most MAX_TOTAL at once and MAX_HEAVY big
-ones (one while WRF runs on this machine), in the jobs' priority order (jobs.py; a priority 3 only while
+ones (one while WRF runs on this machine), live jobs before shadow ones, in the jobs' priority order (jobs.py; a priority 3 only while
 a slot stays free), and only while the memory they'll need fits (each job's peak from its own last runs; the
 owner's Tower, 21.10.2026: the regional wind (8.4 GB) and the Mix (8.5 GB) side by side in 15.5 GB, one killed;
 the Mac mini has 16). A job a bigger one is waiting for memory doesn't jump ahead of it from a lower priority.
@@ -254,7 +254,7 @@ def why_kind(why):
         return "heavy"
     if why.startswith("waits for memory"):
         return "memory"
-    if why.startswith("a job of higher priority"):
+    if why.startswith("a job of higher priority") or why.startswith("a live job waits"):
         return "behind"
     if why.startswith("priority 3"):
         return "priority3"
@@ -884,12 +884,15 @@ def main():
                 return 1
             return 2 if job.priority >= 3 and waited > AGE_AFTER else job.priority
 
-        # The riders' first models first (the owner, 21.10.2026: the 00Z/12Z peaks); within a priority the
-        # order of jobs.py.
-        # Within a priority the job waiting longest first (the owner, 22.10.2026: the seas, aged to a 2 since 09:46 UTC,
-        # still hadn't run at 13:26: with 10-20 jobs waiting all day and one start a minute beyond MAX_TOTAL, the order
-        # of jobs.py always gave it to the same jobs; the end of the list never had a turn). Each skipped one with why.
-        for job in sorted(JOBS, key=lambda j: (prio(j), _due_since.get(j.name, now))):
+        # Live jobs before shadow ones (the owner, 23.10.2026: "build live-first in the scheduler": with WRF on, the one
+        # big job's place went to the shadow weather-mix-world while World GFS 06Z, World ECMWF 06Z and ICON-EU 09Z, live,
+        # waited from ~09:40 to past 13:00 UTC, riders a run behind). Then the riders' first models first (the owner,
+        # 21.10.2026: the 00Z/12Z peaks); within a priority the job waiting longest first (the owner, 22.10.2026: the
+        # seas, aged to a 2 since 09:46 UTC, still hadn't run at 13:26: with 10-20 jobs waiting all day and one start a
+        # minute beyond MAX_TOTAL, the order of jobs.py always gave it to the same jobs; the end of the list never had a
+        # turn). Each skipped one with why.
+        live_waiting = None  # a live job left waiting for memory: shadow jobs don't take that memory meanwhile
+        for job in sorted(JOBS, key=lambda j: (j.name not in live, prio(j), _due_since.get(j.name, now))):
             busy = len(running) + len(others)
             if job.name in running or job.name in others:
                 continue
@@ -925,6 +928,9 @@ def main():
             if waiting is not None and prio(job) > waiting and (need > SMALL_MB or short):
                 waiting_why[job.name] = "a job of higher priority waits for memory"
                 continue
+            if live_waiting and job.name not in live and (need > SMALL_MB or short):
+                waiting_why[job.name] = f"a live job waits for memory: {live_waiting} first"
+                continue
             # Too big to fit beside WRF at all (the regional wind's 9.7 GB in 5 GB, 21.10.2026): waits for WRF to end,
             # never starts beside it, and holds nobody back meanwhile.
             if wrf and need > budget:
@@ -936,7 +942,10 @@ def main():
                 if waiting is None:
                     log(f"{job.name}: due, waiting for memory ({need} MB + {MEM_MARGIN}; {available} MB really free)")
                 waiting = prio(job) if waiting is None else min(waiting, prio(job))
-                if now - _due_since.get(job.name, now) > DRAIN_AFTER and drain is None:
+                if job.name in live and live_waiting is None:
+                    live_waiting = job.name
+                # Only a live job drains the machine (23.10.2026: a shadow job's drain held the live ones back).
+                if job.name in live and now - _due_since.get(job.name, now) > DRAIN_AFTER and drain is None:
                     drain = job.name
                     waiting_why[job.name] += f"; nothing new starts until it fits"
                 continue
