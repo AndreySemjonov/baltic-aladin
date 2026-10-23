@@ -1098,7 +1098,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # here, not passed on empty.
                 length = int(self.headers.get("Content-Length") or 0)
                 if length > adminproxy.MAX_BODY:
-                    self.reply(413, "application/json", json.dumps({"error": f"Too big for the panel ({length // 1_000_000} MB, at most 41)"}).encode())
+                    # Read and dropped first: answered with the body unread, the request hung in Cloudflare's tunnel
+                    # (a 43 MB test, 23.10.2026) instead of showing this.
+                    left = length
+                    while left > 0:
+                        chunk = self.rfile.read(min(left, 1 << 20))
+                        if not chunk:
+                            break
+                        left -= len(chunk)
+                    self.close_connection = True
+                    self.reply(413, "application/json", json.dumps({"error": f"Too big for the panel ({length // 1_000_000} MB, at most 41)"}).encode(),
+                               {"Connection": "close"})
                     return
                 body = self.rfile.read(length) if length > 0 else b""
                 self.reply(*adminproxy.pass_post(url.path[len("/admin/api/"):], url.query, body, self.headers.get("Content-Type")))
