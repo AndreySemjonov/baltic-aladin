@@ -1082,6 +1082,8 @@ function laneData(maps, fr, f, now, s) {
     const wrf = set === "wrf-tarifa";
     const runs = (byMap[m.name] || []).sort((a, b) => a.run - b.run);
     const jobs = SET_JOBS[set] || [];
+    // Made at home only (every job behind it live): GitHub shows only where it really stood in (the owner, 24.10.2026).
+    const homeOnly = !wrf && jobs.length > 0 && jobs.every((j) => live.has(j));
     const towerRuns = ((s && s.home) || []).filter((r) => jobs.includes(r.job));
     const ghRuns = wf ? pipe.gh.filter((g) => g[0] === wf && (!word || g[1] === word || g[1] === "(all)")) : [];
     const avails = (om && arrBy[om]) || {};
@@ -1126,7 +1128,8 @@ function laneData(maps, fr, f, now, s) {
         if (t) { matched.add(t); e.tower = { start: t.start, end: t.end, due: t.due, ok: t.exit === 0, live: t.live, job: t.job, cpu: t.cpu, peak: t.peak, net: t.net,
                                              dl_s: t.dl_s, dl_mb: t.dl_mb, dl_files: t.dl_files, dl_first: t.dl_first }; }
       }
-      e.ghTime = !wrf && e.avail != null && e.pub ? e.pub - e.avail : null;
+      if (homeOnly && e.gh && e.tower && e.tower.live && e.tower.ok && e.pub && Math.abs(e.pub - e.tower.end) < 600) delete e.gh;
+      e.ghTime = !wrf && e.avail != null && e.pub && (e.gh || !homeOnly) ? e.pub - e.avail : null;
       e.towerTime = e.avail == null ? null : wrf ? (e.pub ? e.pub - e.avail : null) : e.tower && e.tower.ok ? e.tower.end - e.avail : null;
       e.skipped = !wrf && e.avail != null && !e.pub && !e.gh && !(e.tower && e.tower.live && e.tower.ok)
         && (now - e.avail > 3 * 3600 || newestPub > e.run);
@@ -1180,7 +1183,7 @@ function laneData(maps, fr, f, now, s) {
     // Without an "available" moment (our own products, sources Open-Meteo doesn't have): the jobs' own minutes.
     const procOnly = !wrf && !runTimes.length && !inputs;
     return { ...m, set, om, wf, wrf, group: groupOf(set), entries, jobs, towerRuns, fresh, status, cad, next, procOnly,
-      loose: inputs ? towerLoose : procOnly ? towerRuns : [], home: running, homeAvail, isLive: wrf || jobs.some((j) => live.has(j)),
+      loose: inputs ? towerLoose : procOnly ? towerRuns : [], home: running, homeAvail, isLive: wrf || jobs.some((j) => live.has(j)), homeOnly,
       towerT: inputs ? med(towerLoose.filter((t) => t.avail && t.exit === 0 && t.end >= day).map((t) => t.end - t.avail))
         : procOnly ? med(towerRuns.filter((t) => t.exit === 0 && t.end >= day).map((t) => t.end - t.start)) : med(recent.filter((e) => !(e.tower && e.tower.host === "mac")).map((e) => e.towerTime).filter((v) => v != null)),
       macT: med(recent.filter((e) => e.tower && e.tower.host === "mac").map((e) => e.towerTime).filter((v) => v != null)),
@@ -1666,7 +1669,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
       const a = e.avail;
       const end = Math.max(e.pub || 0, e.tower ? e.tower.end : 0, e.gh ? e.gh.end || now : 0, a || 0);
       if (end < t0 || (a || e.pub || e.run) > t1 || e.skipped) continue;
-      if (!l.wrf) {
+      if (!l.wrf && (!l.homeOnly || e.gh)) {
         const gs = e.gh ? e.gh.start : null, ge = e.pub || (e.gh && e.gh.end == null ? now : null);
         const to = ge || (a != null && now - a < 3 * 3600 ? now : null);
         if (to) gb.push({ key: e, from: a != null ? a : gs != null ? gs : to, to });
@@ -1688,7 +1691,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
       }
       return [Math.max(1, ends.length), at];
     };
-    const [kg, gAt] = pack(gb), [kt, tAt] = pack(tb);
+    const [kg0, gAt] = pack(gb), [kt, tAt] = pack(tb), kg = gb.length || !l.homeOnly ? kg0 : 0;
     return { kg, kt, g: (key) => PITCH * (gAt.get(key) || 0), t: (key) => PITCH * (kg - 1 + (tAt.get(key) || 0)), h: lh + PITCH * (kg + kt - 2),
       hasG: (key) => gAt.has(key), hasT: (key) => tAt.has(key) };
   };
@@ -1735,8 +1738,9 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
       out.push(html`<text x=${x(a) + 3} y=${y + 20} class="skip">×<title>${runTip(l, e)}: not taken (no publish on GitHub or at home)</title></text>`);
       return out;
     }
-    // GitHub, the upper bar: waiting (amber) from available to its job's start, then the job (grey) to the publish.
-    if (!l.wrf) {
+    // GitHub, the upper bar: waiting (amber) from available to its job's start, then the job (grey) to the publish; in a
+    // lane made at home only, just where GitHub stood in.
+    if (!l.wrf && (!l.homeOnly || e.gh)) {
       const gs = e.gh ? e.gh.start : null, ge = e.pub || (e.gh && e.gh.end == null ? now : null);
       const from = a != null ? a : gs;
       if (from != null && ge) {
@@ -1820,7 +1824,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
       <text class="lname cap" x="14" y=${y0 + 13}>${((n) => l.label.length > n ? l.label.slice(0, n - 1) + "…" : l.label)(
         Math.max(8, Math.floor((W - 26 - (mins(l.towerT) + " · " + mins(l.ghT) + (l.skipped ? ` · ${l.skipped}/${l.offered}` : "")).length * 7.3) / 6.6)))}</text>
       <text class="ours cap" x=${W - 2} y=${y0 + 13} text-anchor="end"><tspan style=${"fill:var(--home)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.towerT)}</tspan><tspan style="fill:var(--faint)"> · </tspan>${l.macT != null ? html`<tspan style="fill:var(--mac)">${mins(l.macT)}</tspan><tspan style="fill:var(--faint)"> · </tspan>` : null}<tspan style=${"fill:var(--muted)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.ghT)}</tspan>${l.skipped ? html`<tspan style="fill:var(--bad)"> · ${l.skipped}/${l.offered}</tspan>` : null}</text>`
-      : html`${l.wrf ? null : html`<text class="src" x=${X0 - 6} y=${y + 14} text-anchor="end">GitHub${lay.kg > 1 ? " ×" + lay.kg : ""}</text>`}
+      : html`${l.wrf || !lay.kg ? null : html`<text class="src" x=${X0 - 6} y=${y + 14} text-anchor="end">GitHub${lay.kg > 1 ? " ×" + lay.kg : ""}</text>`}
       <text class="src" x=${X0 - 6} y=${y + lay.t(null) + 23} text-anchor="end" style="fill:var(--home)">${l.wrf ? html`<tspan style="fill:var(--mac)">Mac</tspan><tspan style="fill:var(--faint)"> · </tspan>Tower` : "Tower"}${lay.kt > 1 ? " ×" + lay.kt : ""}</text>
       <circle cx="8" cy=${y + 15} r="4" fill=${dot}/>
       <text class="lname" x="18" y=${y + 19}>${l.label.length > 28 ? l.label.slice(0, 27) + "…" : l.label}</text>`}
@@ -1952,7 +1956,7 @@ function Pipeline({ maps, fr, f, now, s, cap }) {
         <div class="filters">${RANGES.map(([b]) => html`<span class=${"chip" + (range === b ? " on" : "")} onClick=${() => setRange(b)}>${b} h</span>`)}<span style="width:10px"></span>
           ${chips.map(([k, label]) => html`<span class=${"chip" + (filter === k ? " on" : "")} onClick=${() => setFilter(k)}>${label}</span>`)}</div>`} />
       <div class="legend"><span style="--c:var(--wrf)">CPU: WRF</span><span style="--c:var(--home)">CPU: jobs · jobs running</span><span style="--c:var(--mac)">Mac mini: its other work</span><span style="--c:var(--wait)">jobs waiting · waiting to start</span><span style="--c:var(--accent)">memory used (dashed: the jobs' budget) · a run's downloading</span><span style="--c:var(--net)">network in (dashed: out)</span><span style="--c:var(--room)">waiting with room (CPU &lt; 50%, &gt; 6 GB free)</span></div>
-      <div class="legend"><span class="t">▼ run available to us (Open-Meteo's record; a mix: a new input published; a line down: its bars in a lane with more rows)</span><span style="--c:var(--gh)">GitHub (upper bar)</span><span style="--c:var(--home)">Tower (lower bar; faint: shadow, not published)</span><span style="--c:var(--mac)">Mac mini (lower bar)</span>
+      <div class="legend"><span class="t">▼ run available to us (Open-Meteo's record; a mix: a new input published; a line down: its bars in a lane with more rows)</span><span style="--c:var(--gh)">GitHub (upper bar; for maps made at home only where it stood in)</span><span style="--c:var(--home)">Tower (lower bar; faint: shadow, not published)</span><span style="--c:var(--mac)">Mac mini (lower bar)</span>
         <span style="--c:var(--wait)">waiting to start</span><span style="--c:var(--ok)">published</span><span class="t" style="color:var(--bad)">× a source run nobody took</span><span class="t">◇ next run expected</span><span class="t">right: our time, median of 24 h (italic: the job's own time, no "available" moment)</span></div>
       <p class="note" style="margin:8px 0 0">Each bar starts when the run was complete on Open-Meteo's open data, where our jobs read it, and ends when riders could see it. The maker's own time before that is left out. Sooner is better. "Available" is recorded for every model from 21.10.2026 evening; older runs start at GitHub's job.</p>`}
     </section>
