@@ -304,6 +304,13 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 .bpop .pchart { margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--line) }
 .bpop .pchart svg { display: block; overflow: visible } .bpop .pnote { color: var(--muted); font-size: 12px }
 .bpop .pchart .cap { paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round }
+/* A pinned card (a click, 25.10.2026) takes the pointer: its graph tip, its ✕; a hover's lets it through. */
+.lanes .bpop.pinned { pointer-events: auto } .lanes .bpop.pinned .ph { padding-right: 34px }
+.lanes .bpop.pinned .px { display: block; position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border: 0; border-radius: 50%;
+  background: var(--line); color: var(--muted); font: 600 14px/28px var(--body); padding: 0; cursor: pointer }
+.bpop .pchart { position: relative } .bpop .ttip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; padding: 5px 8px; font: 11.5px/1.5 var(--mono); white-space: nowrap; box-shadow: 0 4px 14px var(--sh-tip); z-index: 6 }
+.bpop .ttip .k { color: var(--muted) }
 .bpop .pfoot { display: flex; flex-wrap: wrap; gap: 2px 14px; font: 12px var(--mono); color: var(--muted); border-top: 1px solid var(--line);
   padding-top: 6px; margin-top: 2px } .bpop .pfoot b { color: var(--ink); font-weight: 500 }
 .bpop .pchart text.ink, .bpop .pchart tspan.ink { fill: var(--ink) }
@@ -1347,32 +1354,41 @@ function homeSpan(d, now) {
   return [Math.min(from, start), start, running ? now : r.end];
 }
 
-// The run card as one timeline (the owner, 23.10.2026: "lets make better card style. We can make it as timeline and
-// all data show as graph"; then "Build variant A: the job on its own scale plus the machine row"; the app repo's
-// docs/mockups/ops-card-timeline-2026-10-23): one time axis from available (or due) to done, a running job's to its
-// expected end (striped); the steps as marks on it; "our run": not seen yet (hatched: before the scheduler saw the run
-// due), waited (amber, the scheduler's reason from STATS/_queue.jsonl), running (blue) with the moments it really
-// downloaded (teal, from its own samples); GitHub's run to its publish; then the job's CPU, memory and network on its
-// own scale (measure.py's samples, every 5 s; the plan and the upload dashed) and one row of the whole machine (the
-// band's rows: CPU grey, memory dashed), over the whole axis. Fetched as the popup opens, every 15 s while it runs.
+// The short names of the scheduler's reasons, for the timeline's amber part when the long one doesn't fit.
+const WHY_SHORT = { slots: "slots full", priority3: "priority 3", memory: "memory", behind: "behind one", drain: "held",
+  wrf: "beside WRF", planned: "plans full", heavy: "big jobs", starting: "starting", "?": "?" };
+
+// One run on a timeline (RunTimeline): the card's body for every home run (the owner, 23.10.2026: "lets make better card style. We
+// can make it as timeline and all data show as graph"; "Build variant A: the job on its own scale plus the machine
+// row"; 25.10.2026: "card same as for other tasks same for tasks on mac mini", "on hover we show additional info same
+// as on machine header. So we can see details on graph"; mockup docs/mockups/ops-card-timeline-2026-10-23 in the app's
+// repo). One time axis from spec.t0 to spec.tEnd (a running one striped to its expected end); the steps as marks; a
+// strip of the run's parts (spec.segs(u): [from, to, fill, [texts, the first that fits], what it was]), the moments it
+// downloaded in teal; GitHub's run to its publish; then the run's own CPU, memory and network on its own scale (u from
+// /api/usage?<q>: measure.py's 5 s samples, or WRF's from the Mac's beats / the Tower's minute samples; a gap where
+// there's no sample) and one row of the whole machine that ran it (spec.machine: [t, CPU %, memory GB] rows), with one
+// line of totals (spec.foot(u)). Pinned (a click), a crosshair over it says what was at that moment, like the band's
+// tip. Fetched as the card opens, again every 15 s while the run goes.
 const usageCache = new Map();
-function RunTimeline({ r, running, start, due, from, fromWhat, end, je, e, now, band, compact, dl }) {
-  const key = `${r.job}|${Math.round(start || 0)}`;
-  const [u, setU] = useState(() => usageCache.get(key));
+function RunTimeline({ q, id, running, now, spec, compact, pinned }) {
+  const [u, setU] = useState(() => usageCache.get(id));
+  const [hv, setHv] = useState(null);
+  const svgRef = useRef(null);
   useEffect(() => {
-    if (!r.job || !start) return;
+    if (!q) return;
     let gone = false;
-    const q = `job=${encodeURIComponent(r.job)}&start=${Math.round(start)}${due ? `&due=${Math.round(due)}` : ""}`;
     const get = () => fetch(`/api/usage?${q}`, { cache: "no-store" }).then((x) => x.json())
-      .then((v) => { if (gone) return; v = v || {}; if (!running) usageCache.set(key, v); setU(v); }).catch(() => {});
-    if (usageCache.has(key)) setU(usageCache.get(key)); else get();
+      .then((v) => { if (gone) return; v = v || {}; if (!running) usageCache.set(id, v); setU(v); }).catch(() => {});
+    if (usageCache.has(id)) setU(usageCache.get(id)); else get();
     const timer = running ? setInterval(get, 15000) : null;
     return () => { gone = true; if (timer) clearInterval(timer); };
-  }, [key, running]);
-  const has = u && u.cpu && u.cpu.length >= 2;
-  const pub = e.pub, ghStart = e.gh && e.gh.start;
-  const t0 = Math.min(from, start);
-  const tEnd = running ? Math.max(now, je && !je.late ? je.end : now) : end;
+  }, [id, running]);
+  useEffect(() => { if (!pinned) setHv(null); }, [pinned]);
+  const vals = (v) => (v || []).filter((a1) => a1 != null);
+  const pk = (v) => vals(v).length ? Math.max(...vals(v)) : 0;
+  const avg = (v) => vals(v).length ? vals(v).reduce((s1, a1) => s1 + a1, 0) / vals(v).length : 0;
+  const t0 = spec.t0, gh = spec.gh || {}, pub = gh.pub;
+  const tEnd = Math.max(spec.tEnd, spec.rest ? spec.rest[1] : 0);
   // GitHub's publish on the axis when it isn't far past ours (else its time at the right edge).
   const ghIn = pub && pub <= tEnd + Math.max(tEnd - t0, 600) * 0.3;
   const t1 = Math.max(tEnd, ghIn ? pub : 0, t0 + 60);
@@ -1384,109 +1400,135 @@ function RunTimeline({ r, running, start, due, from, fromWhat, end, je, e, now, 
   for (let t = Math.ceil(t0 / tick) * tick; t <= t1; t += tick) ticks.push(t);
   const parts = [];
   let y = 18;
-  // The steps as marks: from, started, done / now and the expected end; a label that would overlap is left out.
-  const marks = [[t0, `${fromWhat} ${clock(t0)}`, "var(--accent)"], [start, `started ${clock(start)}`, "var(--home)"],
-    running ? [now, `now ${clock(now)}`, "var(--warn)"] : [end, `${r.exit === 0 || r.ok ? "done" : "failed"} ${clock(end)}`, r.exit === 0 || r.ok ? "var(--ink)" : "var(--bad)"]];
-  if (running && je && !je.late) marks.push([je.end, `expected ${clock(je.end)}`, "var(--muted)"]);
-  if (start - t0 < 30) marks.splice(1, 1);
+  // The steps as marks; the last label always shows, one that would run into the one before it or into the last is
+  // left out (its mark stays).
+  const marks = spec.marks.filter((m) => m && m[0]);
   let right = -1e9;
-  const lastLeft = x(marks[marks.length - 1][0]) + 3 - tw(marks[marks.length - 1][1]);
+  const lastLeft = marks.length ? x(marks[marks.length - 1][0]) + 3 - tw(marks[marks.length - 1][1]) : 0;
   const shown = marks.map(([t, text, c], i) => {
     const last = i === marks.length - 1, first = i === 0;
     const anchor = first ? "start" : last ? "end" : "middle";
     const l = anchor === "start" ? x(t) - 3 : anchor === "end" ? x(t) + 3 - tw(text) : x(t) - tw(text) / 2;
-    // The last label always shows; one that would run into the one before it or into the last is left out (its mark stays).
-    if (!last && (l < right + 8 || l + tw(text) > lastLeft - 8)) return html`<path d=${`M${x(t)} ${y + 13} l-4 -6 h8 z`} fill=${c}/>`;
+    const tri = html`<path d=${`M${x(t)} ${y + 13} l-4 -6 h8 z`} fill=${c}/>`;
+    if (!last && (l < right + 8 || l + tw(text) > lastLeft - 8)) return tri;
     right = l + tw(text);
-    return html`<path d=${`M${x(t)} ${y + 13} l-4 -6 h8 z`} fill=${c}/><text x=${anchor === "start" ? x(t) - 3 : anchor === "end" ? x(t) + 3 : x(t)} y=${y + 3} text-anchor=${anchor} style=${`fill:${c}`}>${text}</text>`;
+    return html`${tri}<text x=${anchor === "start" ? x(t) - 3 : anchor === "end" ? x(t) + 3 : x(t)} y=${y + 3} text-anchor=${anchor} style=${`fill:${c}`}>${text}</text>`;
   });
   y += 18;
-  // "Our run": not seen yet, waited, running (downloads in teal), the expected rest.
-  const SH = 14, seg = (a1, b1, fill, text, cls) => b1 - a1 > 1 ? html`<rect x=${x(a1)} y=${y} width=${Math.max(x(b1) - x(a1), 1.5)} height=${SH} fill=${fill} class=${cls || ""}/>
-    ${text && x(b1) - x(a1) > tw(text) + 10 ? html`<text class="cap ink" x=${(x(a1) + x(b1)) / 2} y=${y + 11} text-anchor="middle">${text}</text>` : null}` : null;
-  const seenAt = due && due > t0 + 30 ? Math.min(due, start) : t0;
-  const wait = u && u.wait ? Object.entries(u.wait).sort((p, q) => q[1] - p[1])[0] : null;
-  const ranText = `${running ? "running" : "ran"} ${mins(Math.max(0, end - start))}`;
-  const dlMarks = has ? u.net.map((v, i) => v > 1 ? [u.start + i * u.step, u.start + (i + 1) * u.step] : null).filter(Boolean)
-    : dl && dl.busy_s > 5 ? [[Math.max(dl.first || start, start), Math.min(Math.max(dl.first || start, start) + dl.busy_s, end)]] : [];
-  parts.push(html`${seg(t0, seenAt, "url(#tl-hatch)", `not seen yet · ${mins(seenAt - t0)}`)}
-    ${seg(seenAt, start, "var(--wait)", `waited ${mins(start - seenAt)}${wait ? ` · ${WHY[wait[0]] || wait[0]}` : ""}`)}
-    ${seg(start, end, "var(--home)", null)}
-    ${dlMarks.map(([a1, b1]) => html`<rect x=${x(a1)} y=${y} width=${Math.max(x(b1) - x(a1), 2)} height=${SH} fill="var(--accent)"/>`)}
-    ${x(end) - x(start) > tw(ranText) + 10 ? html`<text class="cap ink" x=${(x(start) + x(end)) / 2} y=${y + 11} text-anchor="middle">${ranText}</text>` : null}
-    ${running && je && !je.late ? seg(now, je.end, "url(#tl-rest)", null) : null}
-    ${compact ? null : html`<text x="0" y=${y + 11}>our run</text>`}`);
+  // The run's parts, each text the first of its alternatives that fits; then the moments it downloaded, the rest.
+  const SH = 14, stripY = y;
+  const segs = spec.segs(u).filter((g) => g && g[1] - g[0] > 1);
+  parts.push(html`${segs.map(([a1, b1, fill]) => html`<rect x=${x(a1)} y=${y} width=${Math.max(x(b1) - x(a1), 1.5)} height=${SH} fill=${fill}/>`)}
+    ${(spec.dl ? spec.dl(u) : []).map(([a1, b1]) => html`<rect x=${x(a1)} y=${y} width=${Math.max(x(b1) - x(a1), 2)} height=${SH} fill="var(--accent)"/>`)}
+    ${spec.rest ? html`<rect x=${x(spec.rest[0])} y=${y} width=${Math.max(x(spec.rest[1]) - x(spec.rest[0]), 1.5)} height=${SH} fill="url(#tl-rest)"/>` : null}
+    ${segs.map(([a1, b1, , texts]) => { const text = (texts || []).find((t) => t && x(b1) - x(a1) > tw(t) + 10);
+      return text ? html`<text class="cap ink" x=${(x(a1) + x(b1)) / 2} y=${y + 11} text-anchor="middle">${text}</text>` : null; })}
+    ${compact ? null : html`<text x="0" y=${y + 11}>${spec.stripLabel || "our run"}</text>`}`);
   y += SH + 8;
-  // GitHub's run: from its start (or our axis' start) to its publish; past the axis, its time at the right edge.
-  if (pub || ghStart) {
-    const ga = Math.max(ghStart || t0, t0), gb = pub ? Math.min(pub, t1) : now;
-    const label = pub ? `GitHub ${clock(pub)}` : "GitHub running";
+  // GitHub's run: from its start (or the axis' start) to its publish; past the axis, its time at the right edge.
+  if (pub || gh.start) {
+    const ga = Math.max(gh.start || t0, t0), gb = pub ? Math.min(pub, t1) : now;
     parts.push(html`<rect x=${x(ga)} y=${y + 2} width=${Math.max(x(gb) - x(ga), 2)} height="6" rx="3" fill="var(--gh)" opacity=".55"/>
       ${pub && ghIn ? html`<path d=${`M${x(pub)} ${y + 1} l4 4 -4 4 -4 -4z`} fill="var(--gh)"/>` : pub ? html`<text x=${X1} y=${y + 9} text-anchor="end" class="cap">→ ${clock(pub)}</text>` : null}
-      <text x=${compact ? X0 + 2 : 0} y=${y + 9} class=${compact ? "cap" : ""}>${label}</text>`);
+      <text x=${compact ? X0 + 2 : 0} y=${y + 9} class=${compact ? "cap" : ""}>${pub ? `GitHub ${clock(pub)}` : "GitHub running"}</text>`);
     y += 18;
   }
-  y += 4;
-  // The rows: title, unit, the job's numbers at the left (a phone: in the row), the scale at the right end.
-  const RH = 32;
+  y += 14;
+  // The rows: title, unit, the run's numbers at the left (a phone: in the row); the scale above the row's right end,
+  // clear of its lines (a plan's dashed line ran through it at the top).
+  const RH = 32, rows = [];
   const row = (title, sub, stat, top, draw) => {
+    rows.push([y, y + RH]);
     parts.push(html`${draw(y, y + RH)}<line x1=${X0} x2=${X1} y1=${y + RH} y2=${y + RH} stroke="var(--line)"/>
       ${compact ? html`<text class="cap" x=${X0 + 2} y=${y + 10}><tspan class="grp">${title + " "}</tspan><tspan class="ink">${stat}</tspan></text>`
         : html`<text class="grp" x="0" y=${y + 9}>${title}</text><text x="0" y=${y + 21}>${sub}</text><text class="ink" x="0" y=${y + 33}>${stat}</text>`}
-      <text class="cap" x=${X1 - 2} y=${y + 10} text-anchor="end">${top}</text>`);
-    y += RH + 12;
+      <text class="cap" x=${X1 - 2} y=${y - 3} text-anchor="end">${top}</text>`);
+    y += RH + 16;
   };
-  const nice = (v, steps) => steps.find((s) => s >= v) || Math.ceil(v);
-  const pk = (v) => v.length ? Math.max(...v) : 0, avg = (v) => v.length ? v.reduce((s1, a1) => s1 + a1, 0) / v.length : 0;
-  if (has) {
-    const ti = (i) => u.start + (i + 0.5) * u.step;
-    const line = (v, f) => v.map((a1, i) => `${i ? "L" : "M"}${x(ti(i)).toFixed(1)},${f(a1).toFixed(1)}`).join("");
-    const area = (v, f, base) => `${line(v, f)}L${x(ti(v.length - 1)).toFixed(1)},${base}L${x(ti(0)).toFixed(1)},${base}Z`;
-    const cpu = u.cpu.map((c) => c / 100), mem = u.mem.map((m) => m / 1000), net = u.net, out = u.out || [];
-    const plan = u.plan_mb ? u.plan_mb / 1000 : null;
-    const cTop = Math.max(1, Math.ceil(pk(cpu))), mTop = nice(Math.max(pk(mem), plan || 0) * 1.05, [0.5, 1, 1.5, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 25]);
-    const nTop = nice(Math.max(pk(net), pk(out)) * 1.05, [1, 2, 5, 10, 20, 50, 100, 200, 500]);
+  const nice = (v, steps) => steps.find((s1) => s1 >= v) || Math.ceil(v);
+  const ti = (i) => u.start + (i + 0.5) * u.step;
+  // A series in pieces between its gaps (None: no sample in that step).
+  const pieces = (v) => { const out = []; let cur = null;
+    v.forEach((a1, i) => { if (a1 == null) { cur = null; return; } if (!cur) out.push(cur = []); cur.push([i, a1]); }); return out; };
+  const path = (pc, f) => pc.map(([i, a1], k) => `${k ? "L" : "M"}${x(ti(i)).toFixed(1)},${f(a1).toFixed(1)}`).join("");
+  const line = (v, f) => pieces(v).map((pc) => path(pc, f)).join("");
+  const area = (v, f, base) => pieces(v).map((pc) => `${path(pc, f)}L${x(ti(pc[pc.length - 1][0])).toFixed(1)},${base}L${x(ti(pc[0][0])).toFixed(1)},${base}Z`).join("");
+  const has = (k) => u && vals(u[k]).length >= 2;
+  const cpu = has("cpu") ? u.cpu.map((c) => c == null ? null : c / 100) : null;
+  const mem = has("mem") ? u.mem.map((m) => m == null ? null : m / 1000) : null;
+  const net = has("net") ? u.net : null, out = net && has("out") ? u.out : null;
+  const plan = u && u.plan_mb ? u.plan_mb / 1000 : null;
+  if (cpu) {
+    const cTop = Math.max(1, Math.ceil(pk(cpu)));
     row("CPU", "threads", `avg ${avg(cpu).toFixed(1)} · peak ${pk(cpu).toFixed(1)}`, `${cTop} thr`, (a1, b1) => {
       const f = (v) => b1 - Math.min(v, cTop) / cTop * (b1 - a1);
       return html`<path d=${area(cpu, f, b1)} fill="var(--home-soft)"/><path d=${line(cpu, f)} fill="none" stroke="var(--home)" stroke-width="1.4" stroke-linejoin="round"/>`; });
+  }
+  if (mem) {
+    const mTop = nice(Math.max(pk(mem), plan || 0) * 1.05, [0.5, 1, 1.5, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 25, 32, 48, 64]);
     row("MEMORY", plan ? "GB · plan dashed" : "GB", plan ? `peak ${pk(mem).toFixed(1)} of ${plan.toFixed(1)}` : `peak ${pk(mem).toFixed(1)} GB`, `${mTop} GB`, (a1, b1) => {
       const f = (v) => b1 - Math.min(v, mTop) / mTop * (b1 - a1);
       return html`<path d=${area(mem, f, b1)} fill="var(--accent-soft)"/><path d=${line(mem, f)} fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round"/>
-        ${plan ? html`<line x1=${x(start)} x2=${x(end)} y1=${f(plan)} y2=${f(plan)} stroke="var(--accent)" stroke-dasharray="4 3"/>` : null}`; });
-    row("NETWORK", out.length ? "MB/s · out dashed" : "MB/s in", `avg ${MBs(avg(net))} · peak ${MBs(pk(net))}`, `${nTop} MB/s`, (a1, b1) => {
+        ${plan ? html`<line x1=${x(u.start)} x2=${x(u.start + u.mem.length * u.step)} y1=${f(plan)} y2=${f(plan)} stroke="var(--accent)" stroke-dasharray="4 3"/>` : null}`; });
+  }
+  if (net) {
+    const nTop = nice(Math.max(pk(net), out ? pk(out) : 0) * 1.05, [1, 2, 5, 10, 20, 50, 100, 200, 500]);
+    row("NETWORK", out ? "MB/s · out dashed" : "MB/s in", `avg ${MBs(avg(net))} · peak ${MBs(pk(net))}`, `${nTop} MB/s`, (a1, b1) => {
       const f = (v) => b1 - Math.min(v, nTop) / nTop * (b1 - a1);
       return html`<path d=${area(net, f, b1)} fill="var(--net-soft)"/><path d=${line(net, f)} fill="none" stroke="var(--net)" stroke-width="1.3" stroke-linejoin="round"/>
-        ${out.length ? html`<path d=${line(out, f)} fill="none" stroke="var(--net)" stroke-width="1" stroke-dasharray="3 3"/>` : null}`; });
+        ${out ? html`<path d=${line(out, f)} fill="none" stroke="var(--net)" stroke-width="1" stroke-dasharray="3 3"/>` : null}`; });
   }
-  // The whole machine over the whole axis (the band's 2-minute rows): CPU in grey, memory dashed.
-  const step = (band && band.step) || 120, total = (band && band.total_gb) || 25;
-  const mrows = ((band && band.rows) || []).filter((m) => m[0] + step > t0 && m[0] < t1);
+  // The whole machine that ran it, over the whole axis: CPU in grey, memory dashed.
+  const mc = spec.machine || {}, mstep = mc.step || 120, total = mc.total || 25;
+  const mrows = (mc.rows || []).filter((m) => m[0] + mstep > t0 && m[0] < t1);
   if (mrows.length) {
-    row("MACHINE", "CPU · memory dashed", `${Math.round(avg(mrows.map((m) => m[1] + m[2])))}% · ${pk(mrows.map((m) => m[3])).toFixed(0)} GB`, `100% · ${Math.round(total)} GB`, (a1, b1) => {
+    row(mc.title || "MACHINE", "CPU · memory dashed", `${Math.round(avg(mrows.map((m) => m[1])))}% · ${pk(mrows.map((m) => m[2])).toFixed(0)} GB`, `100% · ${Math.round(total)} GB`, (a1, b1) => {
       const f = (v) => b1 - Math.min(v, 100) / 100 * (b1 - a1), g = (v) => b1 - Math.min(v, total) / total * (b1 - a1);
-      const grey = "M" + mrows.map((m) => { const p1 = x(m[0]), p2 = x(m[0] + step), h = f(m[1] + m[2]).toFixed(1);
+      const grey = "M" + mrows.map((m) => { const p1 = x(m[0]), p2 = x(m[0] + mstep), h = f(m[1]).toFixed(1);
         return `${p1.toFixed(1)},${b1}L${p1.toFixed(1)},${h}L${p2.toFixed(1)},${h}L${p2.toFixed(1)},${b1}`; }).join("L") + "Z";
-      const mem = "M" + mrows.map((m) => `${x(m[0] + step / 2).toFixed(1)},${g(m[3]).toFixed(1)}`).join("L");
-      return html`<path d=${grey} fill="var(--machine)"/><path d=${mem} fill="none" stroke="var(--muted)" stroke-dasharray="3 3"/>`; });
+      const m2 = "M" + mrows.map((m) => `${x(m[0] + mstep / 2).toFixed(1)},${g(m[2]).toFixed(1)}`).join("L");
+      return html`<path d=${grey} fill="var(--machine)"/><path d=${m2} fill="none" stroke="var(--muted)" stroke-dasharray="3 3"/>`; });
   }
-  const H = y - 8;
-  const note = !has ? (u === undefined ? "the run's samples …" : running ? "the run's samples in a minute" : "no samples for this run (recorded from 23.10)") : null;
-  return html`<div class="pchart"><svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="The run on a timeline: its steps, its CPU, memory and network, and the whole machine">
+  const H = y - 12;
+  // The crosshair on a pinned card: the moment under the pointer, what the run and the machine were doing.
+  const tAt = (ev) => { const b1 = svgRef.current.getBoundingClientRect(), px = (ev.clientX - b1.left) * W / b1.width;
+    return px < X0 || px > X1 ? null : { t: t0 + (px - X0) / (X1 - X0) * (t1 - t0), px, left: ev.clientX - b1.left, top: ev.clientY - b1.top, w: b1.width }; };
+  let tip = null;
+  if (hv) {
+    const t = hv.t, i = u && u.step ? Math.floor((t - u.start) / u.step) : -1;
+    const at = (v) => v && i >= 0 && i < v.length ? v[i] : null;
+    const seg = segs.find((g) => g[0] <= t && t < g[1]);
+    const dlNow = (spec.dl ? spec.dl(u) : []).some(([a1, b1]) => a1 <= t && t < b1 + (u ? u.step : 0));
+    const m = mrows.find((r) => r[0] <= t && t < r[0] + mstep);
+    const lines = [html`<b>${clock(t, true)}</b>${seg ? ` · ${seg[4] || (seg[3] || [])[0] || ""}` : spec.rest && t >= spec.rest[0] ? " · expected, not yet" : ""}${dlNow ? " · downloading" : ""}`];
+    if (at(cpu) != null) lines.push(html`<span class="k">CPU</span> ${at(cpu).toFixed(1)} threads`);
+    if (at(mem) != null) lines.push(html`<span class="k">memory</span> ${at(mem).toFixed(2)} GB${plan ? ` of ${plan.toFixed(1)} planned` : ""}`);
+    if (at(net) != null) lines.push(html`<span class="k">network</span> ${MBs(at(net))} MB/s in${at(out) != null ? `, ${MBs(at(out))} out` : ""}`);
+    if (m) lines.push(html`<span class="k">${(mc.title || "machine").toLowerCase()}</span> CPU ${Math.round(m[1])}% · ${m[2].toFixed(1)} of ${Math.round(total)} GB`);
+    if (pub && Math.abs(pub - t) < (t1 - t0) / 60) lines.push(html`<span class="k">GitHub</span> published ${clock(pub)}`);
+    tip = { lines, left: hv.left, top: hv.top, flip: hv.left > hv.w * 0.55 };
+  }
+  const note = !cpu ? (u === undefined ? "the run's samples …" : running ? "the run's samples in a minute" : spec.noSamples || "no samples for this run (recorded from 23.10)") : null;
+  const foot = spec.foot ? spec.foot(u, { cpu, mem }) : [];
+  return html`<div class="pchart"><svg ref=${svgRef} viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="The run on a timeline: its steps, its CPU, memory and network, and the machine"
+      onPointerMove=${pinned ? (ev) => setHv(tAt(ev)) : null} onPointerLeave=${pinned ? () => setHv(null) : null}>
     <defs><pattern id="tl-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="var(--panel)"/><rect width="2.5" height="6" fill="var(--faint)" opacity=".55"/></pattern>
       <pattern id="tl-rest" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="var(--panel)"/><rect width="4" height="8" fill="var(--line)"/></pattern></defs>
     ${ticks.map((t) => html`<line x1=${x(t)} x2=${x(t)} y1="14" y2=${H} stroke="var(--line)"/><text x=${x(t)} y="9" text-anchor="middle">${clock(t)}</text>`)}
     ${shown}${parts}
-  </svg>${note ? html`<div class="pnote">${note}</div>` : null}</div>`;
+    ${hv ? html`<line x1=${hv.px} x2=${hv.px} y1=${stripY - 2} y2=${H} stroke="var(--ink)" opacity=".45"/>` : null}
+  </svg>${tip ? html`<div class="ttip" style=${`${tip.flip ? `right:${tip.w - tip.left + 12}px` : `left:${tip.left + 12}px`};top:${Math.max(0, tip.top - 10)}px`}>${tip.lines.map((l1, k) => html`${k ? html`<br/>` : null}${l1}`)}</div>` : null}
+  ${note ? html`<div class="pnote">${note}</div>` : null}
+  ${foot.length ? html`<div class="pfoot">${foot.filter(Boolean).map(([v, k]) => html`<span><b>${v}</b> ${k}</span>`)}</div>` : null}</div>`;
 }
 
 // What a bar is (the owner, 22.10.2026: "on hover on each line a popup ... if active, how much it uses, status ...
 // combining what we see in Machine; if finished, the same as on click at the bottom"; then "show also available time,
-// waited time, download time and when started"): its steps as a short timeline over a segmented bar.
-function BarPop({ d, now, left, top, onClose, band, compact }) {
+// waited time, download time and when started"): a home run's or WRF's as a timeline (RunTimeline), GitHub's as its steps.
+function BarPop({ d, now, left, top, onClose, band, compact, pinned }) {
   const { kind, l } = d;
   const e = d.e || {}, a = e.avail;
   const size = (mb) => mb >= 1000 ? `${(mb / 1000).toFixed(1)} GB` : `${Math.round(mb)} MB`;
-  const secs = (v) => v != null && v < 120 ? `${Math.max(0, Math.round(v))} s` : mins(v);
   const kv = (rows) => html`<div class="pkv">${rows.filter(Boolean).map(([k, v]) => html`<span>${k}</span><span>${v}</span>`)}</div>`;
   // The steps: [time or null, what, detail].
   const steps = (rows) => html`<div class="psteps">${rows.filter(Boolean).map(([t, what, detail]) => html`<span class="st">${t ? clock(t) : ""}</span><span class="sw">${what}</span><span class="sd">${detail || ""}</span>`)}</div>`;
@@ -1497,9 +1539,14 @@ function BarPop({ d, now, left, top, onClose, band, compact }) {
     return html`<div class="pbar">${list.map(([v, c]) => v > 0 ? html`<i style=${`width:${(v / total * 100).toFixed(2)}%;background:${c}`}></i>` : null)}${rest > 0 ? html`<i class="rest" style=${`width:${(rest / total * 100).toFixed(2)}%`}></i>` : null}</div>`;
   };
   const source = (e.availFrom ? `a new input: ${e.availFrom}` : l.wrf ? "GFS at NOAA" : "Open-Meteo's record");
-  let body;
+  const gb = (mb) => mb != null ? (mb / 1000).toFixed(1) : "–";
+  // The machine rows for a timeline: the Tower's band ([t, CPU of the jobs and WRF %, memory GB]) or the Mac's.
+  const towerRows = band ? { rows: (band.rows || []).map((m) => [m[0], m[1] + m[2], m[3]]), step: band.step, total: band.total_gb, title: "TOWER" } : null;
+  const macRows = band && band.mac ? { rows: band.mac.rows.map((m) => [m[0], m[1] + m[2], m[3]]), step: band.step, total: band.mac.total_gb, title: "MAC MINI" } : null;
+  let body, timeline = false;
   if (kind === "running" || kind === "tower") {
-    // A home run: its timeline (RunTimeline) between the header and one line of totals (a running one: its now).
+    // A home run: available (or due), not seen or not due yet, waited, running, done; the job's own use; the Tower.
+    timeline = true;
     const running = kind === "running";
     const r = running ? d.j : d.t;
     const due = r.due && r.due > 1e9 ? r.due : null;
@@ -1510,54 +1557,80 @@ function BarPop({ d, now, left, top, onClose, band, compact }) {
     const okTag = running ? (je && je.late ? html`<span class="ptag late">running long</span>` : html`<span class="ptag">running · ${r.live ? "live" : "shadow"}</span>`)
       : html`<span class=${"ptag " + (r.exit === 0 || r.ok ? "done" : "bad")}>${r.exit === 0 || r.ok ? "finished · Tower" : "failed · Tower"}</span>`;
     const fromWhat = a != null && from === a ? "available" : r.avail && from === r.avail ? "available" : "due";
-    const gb = (mb) => mb != null ? (mb / 1000).toFixed(1) : "–";
-    const foot = running
-      ? [[mins(ran), je ? `running, its usual ${Math.round(je.typ / 60)} min` : "running"], [r.cpu != null ? `${r.cpu}%` : "–", "CPU now"],
-        [`${r.mem != null ? GB(r.mem) : "–"}${r.need ? ` of ${(r.need / 1000).toFixed(1)}` : ""} GB`, "memory now"], dl ? [size(dl.mb), `down · ${dl.files} files`] : null]
-      : [[mins(end - from), `from ${fromWhat}`], e.pub ? [mins(e.pub - from), "GitHub"] : null, r.cpu != null ? [Math.round(r.cpu), "CPU min"] : null,
-        r.peak ? [`${gb(r.peak)} GB`, "peak"] : null, r.net != null ? [`${gb(r.net)} GB`, `down${dl && dl.files ? ` · ${dl.files} files` : ""}`] : null];
+    // Before it was due: a job that watches a model hadn't seen its run; one made from our own sets (a new input) or on
+    // a timer wasn't due yet (its inputs, its gap after its last run, its hour).
+    const ownInputs = !!(e.availFrom || r.availFrom);
+    const seenAt = due && due > from + 30 ? Math.min(due, start) : from;
+    const spec = { t0: from, tEnd: end, gh: { pub: e.pub, start: e.gh && e.gh.start },
+      rest: running && je && !je.late ? [now, je.end] : null, machine: towerRows,
+      marks: [[from, `${fromWhat} ${clock(from)}`, "var(--accent)"], start - from >= 30 ? [start, `started ${clock(start)}`, "var(--home)"] : null,
+        running ? [now, `now ${clock(now)}`, "var(--warn)"] : [end, `${r.exit === 0 || r.ok ? "done" : "failed"} ${clock(end)}`, r.exit === 0 || r.ok ? "var(--ink)" : "var(--bad)"],
+        running && je && !je.late ? [je.end, `expected ${clock(je.end)}`, "var(--muted)"] : null],
+      segs: (u) => {
+        const wait = u && u.wait ? Object.entries(u.wait).sort((p, q) => q[1] - p[1]) : [];
+        const w0 = wait[0], wm = mins(start - seenAt), nm = mins(seenAt - from);
+        const label = ownInputs ? "not due yet" : "not seen yet";
+        return [[from, seenAt, "url(#tl-hatch)", [`${label} · ${nm}`, nm],
+            ownInputs ? "not due yet: it waits for its inputs, its gap after its last run, or its hour" : "not seen yet: the run was out, the scheduler hadn't seen it"],
+          [seenAt, start, "var(--wait)", [w0 ? `waited ${wm} · ${WHY[w0[0]] || w0[0]}` : null, w0 ? `waited ${wm} · ${WHY_SHORT[w0[0]] || w0[0]}` : null, `waited ${wm}`, wm],
+            `waited: the scheduler held it${wait.length ? ` (${wait.map(([k, n]) => `${WHY[k] || k} ${n} min`).join(", ")})` : ""}`],
+          [start, end, "var(--home)", [`${running ? "running" : "ran"} ${mins(ran)}`, mins(ran)], running ? "running" : "running"]];
+      },
+      dl: (u) => u && u.net && u.net.length ? u.net.map((v, i) => v > 1 ? [u.start + i * u.step, u.start + (i + 1) * u.step] : null).filter(Boolean)
+        : dl && dl.busy_s > 5 ? [[Math.max(dl.first || start, start), Math.min(Math.max(dl.first || start, start) + dl.busy_s, end)]] : [],
+      foot: () => running
+        ? [[mins(ran), je ? `running, its usual ${Math.round(je.typ / 60)} min` : "running"], [r.cpu != null ? `${r.cpu}%` : "–", "CPU now"],
+          [`${r.mem != null ? GB(r.mem) : "–"}${r.need ? ` of ${(r.need / 1000).toFixed(1)}` : ""} GB`, "memory now"], dl ? [size(dl.mb), `down · ${dl.files} files`] : null]
+        : [[mins(end - from), `from ${fromWhat}`], e.pub ? [mins(e.pub - from), "GitHub"] : null, r.cpu != null ? [Math.round(r.cpu), "CPU min"] : null,
+          r.peak ? [`${gb(r.peak)} GB`, "peak"] : null, r.net != null ? [`${gb(r.net)} GB`, `down${dl && dl.files ? ` · ${dl.files} files` : ""}`] : null] };
     body = html`<div class="ph"><b>${l.label}${d.e && e.run ? ` · ${runZ(e.run)}` : ""}</b>${okTag}</div>
-      <div class="psub">${r.job}${r.priority ? ` · priority ${r.priority}` : ""} · ${r.live ? "live (published)" : "shadow (not published)"}${fromWhat !== "available" ? "" : e.availFrom || r.availFrom ? ` · a new input: ${e.availFrom || r.availFrom}` : l.wrf ? " · GFS at NOAA" : " · available per Open-Meteo's record"}</div>
-      <${RunTimeline} r=${r} running=${running} start=${start} due=${due} from=${from} fromWhat=${fromWhat} end=${end} je=${je} e=${e} now=${now} band=${band} compact=${compact} dl=${dl} />
-      <div class="pfoot">${foot.filter(Boolean).map(([v, k]) => html`<span><b>${v}</b> ${k}</span>`)}</div>
+      <div class="psub">${r.job}${r.priority ? ` · priority ${r.priority}` : ""} · ${r.live ? "live (published)" : "shadow (not published)"}${fromWhat !== "available" ? "" : ownInputs ? ` · a new input: ${e.availFrom || r.availFrom}` : l.wrf ? " · GFS at NOAA" : " · available per Open-Meteo's record"}</div>
+      <${RunTimeline} q=${`job=${encodeURIComponent(r.job)}&start=${Math.round(start)}${due ? `&due=${Math.round(due)}` : ""}`} id=${`${r.job}|${Math.round(start)}`}
+        running=${running} now=${now} spec=${spec} compact=${compact} pinned=${pinned} />
       ${running ? html`<div class="pspark"><span>↓ ${r.download ? r.download.host : "no download now"}</span><${Spark} values=${r.speeds} w=${150} h=${22} /><b>${MBs(r.net_in || 0)} MB/s</b></div>
         ${r.download ? html`<div class="plog">${base(r.download.url)}${r.download.done ? " · done" : ""}</div>` : null}` : null}`;
-  } else if (kind === "wrfwait") {
-    // WRF started by its task, still waiting for NOAA's GFS (the owner, 22.10.2026: "make that it shows a popup window
-    // too on WRF yellow"); tower.sh waits up to GFS_WAIT 100 min, then WRF takes the newest cycle it has.
-    const w = d.w || {};
-    const start = w.started || (d.t && d.t.start);
-    body = html`<div class="ph"><b>${l.label}${e.run ? ` · ${runZ(e.run)}` : ""}</b><span class="ptag">waiting for GFS · at home</span></div>
-      <div class="psub">GFS ${runZ(e.run)} run · our own model, 1 km</div>
-      ${parts([[now - start, "var(--wait)"]], 0)}
-      ${steps([[start, "started", "its task's time (waits there for GFS)"],
-        [null, "GFS out at NOAA", `not yet · waiting ${mins(now - start)}`],
-        [start + 100 * 60, "the wait ends", "at the latest: then WRF takes the newest cycle it has"]])}
-      ${w.last_line ? html`<div class="plog">${w.last_line}</div>` : null}`;
-  } else if (kind === "wrf" || (kind === "wrfdone")) {
-    // WRF: started, waiting for GFS at NOAA, its download, WPS, the model, its end or the expected end.
-    const running = kind === "wrf";
+  } else if (kind === "wrf" || kind === "wrfdone" || kind === "wrfwait") {
+    // WRF, on the Mac mini or the Tower (the owner, 25.10.2026: "card same as for other tasks same for tasks on mac
+    // mini"): waiting for GFS at NOAA, its download, WPS, the model computing, the tiles; its own CPU, memory and
+    // network (the Mac's beats; the Tower's minute samples, no network of its own) over the machine that ran it.
+    timeline = true;
+    const running = kind !== "wrfdone", waiting = kind === "wrfwait";
     const w = running ? (d.w || {}) : {};
-    const t = d.t || {};
-    const ph = (running ? w.phases : t.phases) || {};
-    const start = running ? w.started : t.start;
-    const out = ph.gfs_out, done = ph.gfs_done, model = ph.model || ph.wps || (running ? w.computing_from : null);
-    const end = running ? now : (ph.end || t.end);
-    const x = running ? wrfEnd(w, now) : null;
-    const rest = x ? x.end - now : 0;
-    const waitTo = out || done || model || start;
-    body = html`<div class="ph"><b>${l.label}${e.run ? ` · ${runZ(e.run)}` : ""}</b><span class=${"ptag " + (running ? "wrf" : t.ok ? "done" : "bad")}>${running ? "running · at home" : t.ok ? "finished · at home" : "failed"}</span></div>
-      <div class="psub">GFS ${runZ(e.run)} run · our own model, 1 km</div>
-      ${parts([[waitTo - start, "var(--wait)"], [out && done ? done - out : 0, "var(--accent)"], [model && (done || out) ? model - (done || out) : 0, "var(--gh)"], [model ? end - model : 0, "var(--wrf)"]], rest)}
-      ${steps([[start, "started", "its time (waits there for GFS)"],
-        out ? [out, "GFS out at NOAA", `waited ${mins(out - start)}`] : null,
-        done ? [done, "GFS in hand", ph.gfs_mb ? `${ph.gfs_mb} MB in ${secs(ph.gfs_s)}` : out ? `downloaded in ${secs(done - out)}` : ""] : null,
-        !out && !done && model ? [model, "GFS in hand", `waited and downloaded ${mins(model - start)} (no times in this run's log)`] : null,
-        model ? [model, "computing", ph.wps && ph.model ? `WPS ${secs(ph.model - ph.wps)}, then the model` : ""] : null,
-        running ? (x ? [x.end, "expected end", `${Math.round(x.pct * 100)}% · model time ${w.model_time || "–"}`] : [null, "computing", "the first hours"])
-          : [end, t.ok ? "done" : "failed", `${mins(end - (model || start))} computing`],
-        !running && e.pub ? [e.pub, "published", a ? `${mins(e.pub - a)} from GFS out` : `${mins(e.pub - start)} from its start`] : null])}
-      ${running ? kv([["CPU now", w.cpu != null ? `${w.cpu}%` : "–"], ["Memory", w.mem != null ? `${GB(w.mem)} GB` : "–"], w.box ? ["Box", `${w.box[0]} → ${w.box[1]} UTC`] : null]) : null}
+    const t = d.t || e.tower || {};
+    const host = t.host || "tower", onMac = host === "mac";
+    const at = w.at || {};
+    const ph = (running ? (w.phases || { gfs_done: at.wps, wps: at.wps, model: at.wrf, end: at.tiles }) : t.phases) || {};
+    const start = (running ? w.started : t.start) || t.start;
+    const out = ph.gfs_out, ready = ph.gfs_done || ph.wps, model = ph.model || (running ? w.computing_from : null), tiles = ph.end;
+    const end = running ? now : t.end;
+    const ok = running || t.ok;
+    const x1 = running && !waiting ? wrfEnd(w, now) : null;
+    const machineName = onMac ? "Mac mini" : "Tower";
+    const comp = onMac ? "var(--mac)" : "var(--wrf)";
+    const firstStep = out || ready || model || tiles || end;
+    const spec = { t0: start, tEnd: end, rest: x1 && x1.end > now ? [now, x1.end] : null, machine: onMac ? macRows : towerRows, stripLabel: "WRF",
+      noSamples: onMac ? "no samples of the Mac for this run" : "no samples for this run",
+      marks: [[start, `started ${clock(start)}`, "var(--accent)"], model ? [model, `computing ${clock(model)}`, comp] : null,
+        running ? [now, `now ${clock(now)}`, "var(--warn)"] : [end, `${ok ? "done" : "failed"} ${clock(end)}`, ok ? "var(--ink)" : "var(--bad)"],
+        x1 && x1.end > now ? [x1.end, `expected ${clock(x1.end)}`, "var(--muted)"] : null],
+      segs: () => [[start, waiting ? now : firstStep, "url(#tl-hatch)", [`waiting for GFS · ${mins((waiting ? now : firstStep) - start)}`, `GFS · ${mins((waiting ? now : firstStep) - start)}`, mins((waiting ? now : firstStep) - start)],
+          "waiting for GFS at NOAA: WRF starts at its time and waits there for the run"],
+        out && ready ? [out, ready, "var(--accent)", ["GFS"], `downloading GFS${ph.gfs_mb ? ` (${ph.gfs_mb} MB)` : ""}`] : null,
+        ready && model ? [ready, model, "var(--gh)", ["WPS"], "WPS: the model's input from GFS"] : null,
+        model ? [model, tiles || end, comp, [`computing ${mins((tiles || end) - model)}`, mins((tiles || end) - model)], "the model computing"] : null,
+        tiles ? [tiles, end, "var(--home)", ["tiles"], "the tiles made and published"] : null],
+      foot: (u, s1) => {
+        const cpuMin = u && u.cpu ? Math.round(u.cpu.reduce((s2, v) => s2 + (v || 0), 0) / 100 * u.step / 60) : null;
+        return running
+          ? [waiting ? [mins(now - start), "waiting for GFS"] : [mins(now - start), "running"], x1 ? [`${Math.round(x1.pct * 100)}%`, `model time ${w.model_time || "–"}`] : null,
+            w.cpu != null ? [`${w.cpu}%`, "CPU now"] : null, w.mem != null ? [`${GB(w.mem)} GB`, "memory now"] : null]
+          : [[mins(end - start), "from its start"], model ? [mins((tiles || end) - model), "computing"] : null, e.pub ? [clock(e.pub), `published${a ? ` · ${mins(e.pub - a)} from GFS out` : ""}`] : null,
+            cpuMin ? [cpuMin, "CPU min"] : null, s1.mem ? [`${Math.max(...s1.mem.filter((v) => v != null)).toFixed(1)} GB`, "peak"] : null];
+      } };
+    body = html`<div class="ph"><b>${l.label}${e.run ? ` · ${runZ(e.run)}` : ""}</b><span class=${"ptag " + (running ? "wrf" : ok ? "done" : "bad")}>${waiting ? "waiting for GFS" : running ? "running" : ok ? "finished" : "failed"} · ${machineName}</span></div>
+      <div class="psub">GFS ${runZ(e.run)} run · our own model, 1 km${onMac ? " · on the Mac mini" : ""}</div>
+      <${RunTimeline} q=${`job=wrf&host=${host}&start=${Math.round(start)}${running ? "" : `&end=${Math.round(end)}`}`} id=${`wrf|${host}|${Math.round(start)}`}
+        running=${running} now=${now} spec=${spec} compact=${compact} pinned=${pinned} />
       ${running && w.last_line ? html`<div class="plog">${w.last_line}</div>` : null}`;
   } else {
     const gs = e.gh ? e.gh.start : null, waited = gs != null && a != null ? Math.max(0, gs - a) : 0, run = e.pub && gs != null ? e.pub - Math.max(gs, a ?? gs) : 0;
@@ -1569,7 +1642,7 @@ function BarPop({ d, now, left, top, onClose, band, compact }) {
         e.pub ? [e.pub, "published", a != null ? `${mins(e.pub - a)} from available` : ""] : null])}
       ${kv([["Use", "GitHub doesn't report it per run"]])}`;
   }
-  return html`<div class=${"bpop" + ((kind === "running" || kind === "tower") && !compact ? " wide" : "")} style=${`left:${left}px;top:${top}px`}>
+  return html`<div class=${"bpop" + (timeline && !compact ? " wide" : "") + (pinned ? " pinned" : "")} style=${`left:${left}px;top:${top}px`}>
     <button class="px" aria-label="Close" onClick=${(ev) => { ev.stopPropagation(); onClose && onClose(); }}>✕</button>${body}</div>`;
 }
 
@@ -1619,33 +1692,36 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
   const [tip, setTip] = useState(null);
   const [pop, setPop] = useState(null);
   // A bar's popup on hover or tap (data-bar: the band's handler leaves it).
-  const showPop = (ev, d) => {
+  const showPop = (ev, d, pinned) => {
     if (!box.current) return;
     const b = box.current.getBoundingClientRect();
     // Above the pointer near the chart's foot (below it hung past the edge: an inner scrollbar, the popup hidden).
     const y = ev.clientY - b.top;
-    // A home run's popup has its usage chart (23.10.2026): taller, and wider off a phone.
-    const home = d.kind === "running" || d.kind === "tower", ph = home ? 470 : 290, pw = home && !compact ? 570 : 390;
-    setPop({ d, left: Math.max(box.current.scrollLeft + 4, Math.min(ev.clientX - b.left + box.current.scrollLeft + 14, box.current.scrollLeft + b.width - pw)),
+    // A home run's or WRF's popup has its timeline (23.10.2026): taller, and wider off a phone.
+    const home = ["running", "tower", "wrf", "wrfdone", "wrfwait"].includes(d.kind), ph = home ? 520 : 290, pw = home && !compact ? 570 : 390;
+    setPop({ d, pinned: !!pinned, left: Math.max(box.current.scrollLeft + 4, Math.min(ev.clientX - b.left + box.current.scrollLeft + 14, box.current.scrollLeft + b.width - pw)),
       top: y + ph > b.height ? Math.max(4, y - ph) : y + 14 });
   };
-  // A mouse (or pen) shows a bar's popup on hover; a finger with a tap (the owner, 22.10.2026: "on phone I want to have
-  // possibility to click on bars and open window"), and it stays until a tap elsewhere: a finger's pointerleave comes as
-  // it lifts (the popup closed at once), and the tap no longer selects the lane (that scrolled the page to its details).
-  const touched = useRef(false);
-  const hov = (d) => ({ "data-bar": 1, onPointerEnter: (ev) => { if (ev.pointerType !== "touch") showPop(ev, d); },
-    onPointerDown: (ev) => { touched.current = ev.pointerType === "touch"; },
-    onPointerLeave: (ev) => { if (ev.pointerType !== "touch") setPop(null); },
-    onClick: (ev) => { if (touched.current) { ev.stopPropagation(); showPop(ev, d); } } });
-  // A tap off the bars and off the popup closes it; off the band and its tip, the tip. On a click, not a touch's start:
-  // a scroll (on the popup, to read its foot, or anywhere) leaves them open (the owner, 22.10.2026: "if I scroll on
-  // popup window it's not closes. If I hit out of window it's closes").
+  // A mouse (or pen) shows a bar's popup on hover; a click or a tap pins it where it is (the owner, 25.10.2026: "on
+  // click card stay on place (now on click we go on bottom for additional info - dont need it)"; on a phone a tap did
+  // already, 22.10.2026). While one is pinned, hovering other bars leaves it; a click on another bar pins that one.
+  // A finger's pointerleave comes as it lifts, so a tap's popup isn't closed by it.
+  const touched = useRef(false);  // the band's tip: a tap or a mouse
+  const hov = (d) => ({ "data-bar": 1, onPointerEnter: (ev) => { if (ev.pointerType !== "touch" && !(pop && pop.pinned)) showPop(ev, d); },
+    onPointerLeave: (ev) => { if (ev.pointerType !== "touch" && !(pop && pop.pinned)) setPop(null); },
+    onClick: (ev) => { ev.stopPropagation(); showPop(ev, d, true); } });
+  // A click off the bars and off the popup closes it, so does Esc or its ✕; off the band and its tip, the tip. On a
+  // click, not a touch's start: a scroll (on the popup, to read its foot, or anywhere) leaves them open (the owner,
+  // 22.10.2026: "if I scroll on popup window it's not closes. If I hit out of window it's closes"; 25.10.2026: "close
+  // button. Or, if we click on outside of card we close card").
   useEffect(() => {
     const off = (ev) => { const t = ev.target && ev.target.closest ? ev.target : null;
       if (!(t && (t.closest("[data-bar]") || t.closest(".bpop")))) setPop(null);
       if (!(t && (t.closest(".bandbox") || t.closest(".btip")))) setTip(null); };
+    const esc = (ev) => { if (ev.key === "Escape") { setPop(null); setTip(null); } };
     document.addEventListener("click", off);
-    return () => document.removeEventListener("click", off);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("click", off); document.removeEventListener("keydown", esc); };
   }, []);
   // A running bar's rest, dashed to its expected end, labelled.
   const expect = (y, end, color, label, late) => html`<line x1=${x(now)} x2=${x(Math.max(end, now))} y1=${y + 20} y2=${y + 20} stroke=${late ? "var(--wait)" : color} stroke-width="3" stroke-dasharray="5 4"/>
@@ -1818,7 +1894,11 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
       ${compact ? html`<text class="grp" x=${W} y=${y0 + 16} text-anchor="end"><tspan style="fill:var(--home)">TOWER</tspan> · <tspan style="fill:var(--mac)">MAC</tspan> · GITHUB · <tspan style="fill:var(--bad)">SKIPPED</tspan></text>` : null}`;
       // On a phone the lane's name line, then its bars from y (below it).
       const y = y0 + NAME_H, dot = l.status === "bad" ? "var(--bad)" : l.status === "proc" ? "var(--accent)" : l.status === "wait" ? "var(--warn)" : "var(--ok)";
-      return html`<g class=${"row" + (sel === l.name ? " sel" : "")} onClick=${() => setSel(l.name)} style="cursor:pointer">
+      // The lane's details below open from its name only (the left column; a phone: its name line), not its bars or
+      // the empty time (the owner, 25.10.2026: a click pins a bar's card instead of jumping to them).
+      const onName = (ev) => { const b = ev.currentTarget.ownerSVGElement.getBoundingClientRect();
+        return compact ? TOP + (ev.clientY - b.top) * ((H - TOP) / b.height) < y0 + NAME_H + 2 : (ev.clientX - b.left) * (W / b.width) < X0; };
+      return html`<g class=${"row" + (sel === l.name ? " sel" : "")} onClick=${(ev) => { if (onName(ev)) setSel(l.name); }}>
       <rect class="hit" x="0" y=${y0} width=${W} height=${lay.h + NAME_H} fill="transparent" rx="4"/>
       ${compact ? html`<circle cx="5" cy=${y0 + 9} r="4" fill=${dot}/>
       <text class="lname cap" x="14" y=${y0 + 13}>${((n) => l.label.length > n ? l.label.slice(0, n - 1) + "…" : l.label)(
@@ -1852,7 +1932,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
     <line x1=${x(now)} x2=${x(now)} y1=${TOP} y2=${H - 18} stroke="var(--warn)" stroke-width="2"/><text x=${x(now) + 5} y=${H - 6} style="fill:var(--warn)">now ${clock(now)}</text>
   </svg>
     ${pop ? html`<${BarPop} d=${{ ...pop.d, w: wrf, j: (pop.d.kind === "running" && (lanes.find((o) => o.name === pop.d.l.name) || {}).home) || pop.d.j }}
-      now=${now} left=${pop.left} top=${pop.top} band=${band} compact=${compact} onClose=${() => setPop(null)} />` : null}</div>`;
+      now=${now} left=${pop.left} top=${pop.top} band=${band} compact=${compact} pinned=${pop.pinned} onClose=${() => setPop(null)} />` : null}</div>`;
 }
 
 function RunBars({ l }) {
@@ -1951,7 +2031,7 @@ function Pipeline({ maps, fr, f, now, s, cap }) {
     <div class="pipe" style="margin-top:16px">
     <section class="panel" aria-label="Pipeline">
       ${!maps ? html`<h2>Every map: from available to published · last ${back} h and next ${ahead} · ${zoneName()} time</h2><p class="empty">Reading admin's map history…</p>` : html`
-      <${Lanes} lanes=${lanes} now=${now} sel=${sel} setSel=${choose} back=${back} ahead=${ahead} band=${band} slots=${f && f.slots} wrf=${f && f.mac && f.mac.wrf && f.mac.wrf.running ? { ...(f.wrf || {}), ...f.mac.wrf } : f && f.wrf}
+      <${Lanes} lanes=${lanes} now=${now} sel=${sel} setSel=${choose} back=${back} ahead=${ahead} band=${band} slots=${f && f.slots} wrf=${f && f.mac && f.mac.wrf && (f.mac.wrf.running || f.mac.wrf.waiting) ? { ...(f.wrf || {}), ...f.mac.wrf } : f && f.wrf}
         head=${html`<h2>Every map: from available to published · last ${back} h and next ${ahead} · ${zoneName()} time</h2>
         <div class="filters">${RANGES.map(([b]) => html`<span class=${"chip" + (range === b ? " on" : "")} onClick=${() => setRange(b)}>${b} h</span>`)}<span style="width:10px"></span>
           ${chips.map(([k, label]) => html`<span class=${"chip" + (filter === k ? " on" : "")} onClick=${() => setFilter(k)}>${label}</span>`)}</div>`} />

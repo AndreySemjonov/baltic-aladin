@@ -5,6 +5,10 @@ INGEST_TOKEN from ~/.meteogust.env. The Tower's panel server reads it every minu
 Mac's band. Apart from runner/wrf-<region>.json on purpose: the beat's fresh time would read as the Mac answering for
 a run there (tower.sh's fallback check). Standard library and macOS's own tools only.
 
+Also (the owner, 25.10.2026: WRF's run card like the other jobs', "with the Mac beat extended for WRF memory and
+network"): WRF's own memory (its programs' resident memory, "mem_wrf" MB) and the Mac's network in and out ("net_in",
+"net_out" MB/s over its Ethernet and Wi-Fi since the last beat, the counters kept in ~/.meteogust-beat-net.json).
+
     python3 wrf_poc/mac_beat.py [region]        (tarifa)
 """
 import json
@@ -38,22 +42,58 @@ def token():
 
 
 def cpu(cores):
-    """(WRF's, the rest's) CPU in % of the whole machine (ps: each process's recent share of one core)."""
-    out = subprocess.run(["ps", "-A", "-o", "%cpu=,comm="], capture_output=True, text=True).stdout
+    """(WRF's, the rest's) CPU in % of the whole machine (ps: each process's recent share of one core), and WRF's
+    programs' resident memory (MB)."""
+    out = subprocess.run(["ps", "-A", "-o", "%cpu=,rss=,comm="], capture_output=True, text=True).stdout
     wrf = other = 0.0
+    wrf_kb = 0
     for line in out.splitlines():
-        parts = line.strip().split(None, 1)
-        if len(parts) != 2:
+        parts = line.strip().split(None, 2)
+        if len(parts) != 3:
             continue
         try:
-            pct = float(parts[0])
+            pct, rss = float(parts[0]), int(parts[1])
         except ValueError:
             continue
-        if WRF_PROGRAMS.search(parts[1]):
+        if WRF_PROGRAMS.search(parts[2]):
             wrf += pct
-        elif not parts[1].endswith("/ps"):
+            wrf_kb += rss
+        elif not parts[2].endswith("/ps"):
             other += pct
-    return round(min(wrf / cores, 100), 1), round(min(other / cores, 100), 1)
+    return round(min(wrf / cores, 100), 1), round(min(other / cores, 100), 1), round(wrf_kb / 1024)
+
+
+NET_STATE = os.path.expanduser("~/.meteogust-beat-net.json")
+
+
+def network():
+    """(in, out) MB/s over the Mac's Ethernet and Wi-Fi (netstat -ib's byte counters, the en* interfaces' link rows)
+    since the last beat; (None, None) on the first beat or when the counters went back (a restart)."""
+    rx = tx = 0
+    text = subprocess.run(["netstat", "-ib"], capture_output=True, text=True).stdout
+    for line in text.splitlines()[1:]:
+        fields = line.split()
+        # A link row's columns from the right: ... Ibytes Opkts Oerrs Obytes Coll (an empty Address shifts the left).
+        if len(fields) >= 7 and fields[0].startswith("en") and "<Link#" in line:
+            try:
+                rx, tx = rx + int(fields[-5]), tx + int(fields[-2])
+            except ValueError:
+                pass
+    now = time.time()
+    try:
+        with open(NET_STATE) as f:
+            last = json.load(f)
+    except (OSError, ValueError):
+        last = None
+    try:
+        with open(NET_STATE, "w") as f:
+            json.dump({"t": now, "rx": rx, "tx": tx}, f)
+    except OSError:
+        pass
+    if not last or now <= last["t"] or rx < last["rx"] or tx < last["tx"]:
+        return None, None
+    dt = now - last["t"]
+    return round((rx - last["rx"]) / dt / 1e6, 2), round((tx - last["tx"]) / dt / 1e6, 2)
 
 
 def memory():
@@ -101,10 +141,12 @@ def wrf_now(region):
 
 def main(region):
     cores = os.cpu_count() or 10
-    cpu_wrf, cpu_other = cpu(cores)
+    cpu_wrf, cpu_other, mem_wrf = cpu(cores)
     used, total = memory()
+    net_in, net_out = network()
     body = {"t": round(time.time()), "host": os.uname().nodename, "cores": cores, "mem_total": total, "mem_used": used,
-            "cpu_wrf": cpu_wrf, "cpu_other": cpu_other, "wrf": wrf_now(region), "runs": wrf_state.history(region)}
+            "cpu_wrf": cpu_wrf, "cpu_other": cpu_other, "mem_wrf": mem_wrf, "net_in": net_in, "net_out": net_out,
+            "wrf": wrf_now(region), "runs": wrf_state.history(region)}
     key = token()
     if not key:
         sys.exit("no INGEST_TOKEN (~/.meteogust.env)")

@@ -782,10 +782,12 @@ def mac_state():
         if data.get("t") and data.get("t") != (_mac["data"] or {}).get("t"):
             try:
                 with open(MAC_SAMPLES, "a") as f:
+                    # WRF's own memory and the Mac's network from 25.10.2026 (WRF's run card).
                     f.write(json.dumps({"t": data["t"], "wrf": data.get("cpu_wrf"), "other": data.get("cpu_other"),
-                                        "mem": data.get("mem_used")}) + "\n")
-                # About 8 days at one a beat, as the scheduler keeps its own samples.
-                if os.path.getsize(MAC_SAMPLES) > 600_000:
+                                        "mem": data.get("mem_used"), "mem_wrf": data.get("mem_wrf"),
+                                        "net_in": data.get("net_in"), "net_out": data.get("net_out")}) + "\n")
+                # About 8 days at one a beat, as the scheduler keeps its own samples (a line ~130 bytes).
+                if os.path.getsize(MAC_SAMPLES) > 900_000:
                     keep = (read(MAC_SAMPLES, "") or "").splitlines()[-6000:]
                     with open(MAC_SAMPLES, "w") as f:
                         f.write("\n".join(keep) + "\n")
@@ -954,6 +956,66 @@ def usage(job, start, due=None):
     return out
 
 
+_DOCKER_UNITS = {"B": 2**-20, "KiB": 2**-10, "kB": 2**-10, "MiB": 1, "MB": 1, "GiB": 1024, "GB": 1024}
+
+
+def docker_mb(text):
+    """docker stats' "4.633GiB / 6.516GiB" -> 4744 (MB used), None when it can't be read (as the scheduler's)."""
+    try:
+        used = (text or "").split("/")[0].strip()
+        number = used.rstrip("BKMGiTkb")
+        return float(number) * _DOCKER_UNITS[used[len(number):]]
+    except (ValueError, KeyError):
+        return None
+
+
+def wrf_usage(host, start, end=None):
+    """WRF's use over its run for its card (the owner, 25.10.2026: "can we show card same as for other tasks same for
+    tasks on mac mini"), in measure.py's form ({start, end, step, cpu: % of one thread, mem: MB, net, out: MB/s}, None
+    in a step without a sample, a whole series None when there's none): on the Mac its beats every 2 minutes (WRF's
+    CPU, its own memory and the Mac's network: those two from 25.10.2026); on the Tower its containers in the
+    scheduler's minute samples (the band's rule: not a job's, not the tunnel; no network of their own)."""
+    end = end or time.time()
+    if host == "mac":
+        cores = (mac_state() or {}).get("cores") or 10
+        rows = [(x["t"], (x.get("wrf") or 0) * cores, x.get("mem_wrf"), x.get("net_in"), x.get("net_out"))
+                for x in jsonl(MAC_SAMPLES, 3000) if start - 60 <= x.get("t", 0) <= end + 60]
+        step = 120
+    else:
+        rows, step = [], 60
+        for x in jsonl(f"{STATS}/_samples.jsonl", 3000):
+            if not start - 30 <= x.get("t", 0) <= end + 30:
+                continue
+            cpu = mem = 0.0
+            seen = False
+            for c in x.get("containers") or []:
+                name = c.get("name") or ""
+                if name.startswith("mg-") or name == "meteogust-tunnel":
+                    continue
+                seen = True
+                try:
+                    cpu += float(str(c.get("cpu") or "0").rstrip("%"))
+                except ValueError:
+                    pass
+                mem += docker_mb(c.get("mem")) or 0
+            rows.append((x["t"], cpu if seen else None, mem if seen else None, None, None))
+    n = max(1, int((end - start) // step) + 1)
+    bins = [[] for _ in range(n)]
+    for row in rows:
+        i = int((row[0] - start) // step)
+        if 0 <= i < n:
+            bins[i].append(row)
+
+    def series(k, digits, top=False):
+        out = []
+        for b in bins:
+            v = [r[k] for r in b if r[k] is not None]
+            out.append(round(max(v) if top else sum(v) / len(v), digits) if v else None)
+        return out if any(v is not None for v in out) else None
+    return {"job": "wrf", "host": host, "start": round(start), "end": round(end), "step": step,
+            "cpu": series(1, 0), "mem": series(2, 0, True), "net": series(3, 2), "out": series(4, 2)}
+
+
 def live_state():
     try:
         return json.loads(read(LIVE, "{}") or "{}")
@@ -1072,8 +1134,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             elif url.path == "/api/usage":
                 q = urllib.parse.parse_qs(url.query)
                 try:
-                    due = q.get("due", [""])[0]
-                    body = usage(q.get("job", [""])[0], float(q.get("start", ["0"])[0]), float(due) if due else None)
+                    due, end = q.get("due", [""])[0], q.get("end", [""])[0]
+                    if q.get("job", [""])[0] == "wrf":
+                        body = wrf_usage(q.get("host", ["tower"])[0], float(q.get("start", ["0"])[0]), float(end) if end else None)
+                    else:
+                        body = usage(q.get("job", [""])[0], float(q.get("start", ["0"])[0]), float(due) if due else None)
                 except ValueError:
                     body = None
                 self.reply(200, "application/json", json.dumps(body, separators=(",", ":")).encode())
