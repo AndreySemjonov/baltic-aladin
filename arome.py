@@ -162,14 +162,16 @@ class Model:
         return get(url, 0, end - 1)
 
     @staticmethod
-    def _split(data):
+    def _split(data, names=None):
+        """A file's fields by short name (the first of each); `names`: only those decoded (24.10.2026: SP2 holds many
+        more than the six the weather uses, and decoding them all was most of the weather blend's peak)."""
         fields, at = {}, 0
         while at + 16 <= len(data) and data[at:at + 4] == b"GRIB":
             length = struct.unpack(">Q", data[at + 8:at + 16])[0]
             handle = eccodes.codes_new_from_message(data[at:at + length])
             try:
                 name = eccodes.codes_get(handle, "shortName")
-                if name not in fields:
+                if name not in fields and (names is None or name in names):
                     fields[name] = _values(handle)
             finally:
                 eccodes.codes_release(handle)
@@ -194,27 +196,40 @@ class Model:
                 print(f"AROME {package} {hour}: {error}", flush=True)
                 return job, None
 
-        jobs = [("SP1", h, 4) for h in hours] + [("SP2", h, None) for h in sp2_hours]
+        # Hour by hour (24.10.2026: the weather blend's peak was here, every hour's files and all their fields at once:
+        # 6.3 GB more to keep 2.8): the files still four at a time, each decoded as it comes (only the fields used) and
+        # an hour made as soon as its two are in; each SP2 hour before the hours that need it as "before".
+        hour_set = set(hours)
+        jobs = []
+        for h in sp2_hours:
+            if h in hour_set:
+                jobs.append(("SP1", h, 4))
+            jobs.append(("SP2", h, None))
+        rain_names, cloud_names = ("tirf", "tsnowp", "tgrp"), ("lcc", "mcc", "hcc")
+        sp1, totals, out = {}, {}, {}
         with ThreadPoolExecutor(4) as pool:
-            raw = dict(pool.map(one, jobs))
-        sp1 = {h: self._split(raw[("SP1", h, 4)]) for h in hours if raw.get(("SP1", h, 4))}
-        sp2 = {h: self._split(raw[("SP2", h, None)]) for h in sp2_hours if raw.get(("SP2", h, None))}
-
-        def total(fields):
-            return sum(fields[name] for name in ("tirf", "tsnowp", "tgrp") if name in fields)
-
-        out = {}
-        for h in hours:
-            a, now, before = sp1.get(h, {}), sp2.get(h, {}), sp2.get(previous[h], {})
-            if not {"2t", "2r", "10u", "10v"} <= a.keys() or "tirf" not in now or "tirf" not in before:
-                continue
-            clouds = [now[name] for name in ("lcc", "mcc", "hcc") if name in now]
-            cloud = np.maximum.reduce(clouds) if clouds else np.zeros_like(a["2t"])
-            cloud = cloud / 100 if np.nanmax(cloud) > 1.5 else cloud
-            span = max(h - previous[h], 1)
-            out[start + h * 3600] = {"air": a["2t"] - 273.15, "rh": np.clip(a["2r"] / 100, 0, 1),
-                                     "wind": np.hypot(a["10u"], a["10v"]),
-                                     "rain": np.maximum(total(now) - total(before), 0) / span, "cloud": np.clip(cloud, 0, 1)}
+            for (package, h, _), data in pool.map(one, jobs):
+                if not data:
+                    continue
+                if package == "SP1":
+                    sp1[h] = self._split(data, ("2t", "2r", "10u", "10v"))
+                    continue
+                now = self._split(data, rain_names + cloud_names)
+                del data
+                if "tirf" in now:
+                    totals[h] = sum(now[name] for name in rain_names if name in now)
+                a = sp1.pop(h, {})
+                if h not in hour_set or not {"2t", "2r", "10u", "10v"} <= a.keys() or h not in totals or previous[h] not in totals:
+                    continue
+                clouds = [now[name] for name in cloud_names if name in now]
+                cloud = np.maximum.reduce(clouds) if clouds else np.zeros_like(a["2t"])
+                cloud = cloud / 100 if np.nanmax(cloud) > 1.5 else cloud
+                span = max(h - previous[h], 1)
+                out[start + h * 3600] = {"air": a["2t"] - 273.15, "rh": np.clip(a["2r"] / 100, 0, 1),
+                                         "wind": np.hypot(a["10u"], a["10v"]),
+                                         "rain": np.maximum(totals[h] - totals[previous[h]], 0) / span, "cloud": np.clip(cloud, 0, 1)}
+                # The hour before is nobody else's "before" (each hour has its own).
+                totals.pop(previous[h], None)
         return out
 
     def place(self, lon, lat):

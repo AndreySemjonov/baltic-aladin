@@ -341,6 +341,10 @@ def main():
     # cut to MET Nordic's hours, ICON-2I lost 18 of its 72, HARM-NL 5 of 60); the blend uses MET
     # Nordic's hours only, each model's own set and spots all of its own.
     model_times = wanted_times + ([wanted_times[-1] + k * 3600 for k in range(1, 31)] if wanted_times and not limit else [])
+    # The blend alone (the home runner's regional-wind / regional-weather) makes no model's own set, so it reads the others
+    # at the blend's hours only (24.10.2026: the 30 hours past them were about half of the weather blend's 16.7 GB).
+    if blend_only:
+        model_times = wanted_times
     wind_set = which == "wind"
 
     report = quality.Report(model)
@@ -389,6 +393,7 @@ def main():
             others[name] = (place, data, sample)
             models.append({"name": name, "run": f"{run_time:%Y-%m-%dT%H:%MZ}", "hours": len(data)})
             print(f"{name} {run_time:%Y%m%dT%HZ}: {len(data)} hours", flush=True)
+            memory_report(f"after {name}", **{name: data})
         except Unchanged as unchanged:
             run_time = unchanged.args[0]
             models.append({"name": name, "run": f"{run_time:%Y-%m-%dT%H:%MZ}", "unchanged": True})
@@ -447,10 +452,15 @@ def main():
         print(f"MET Nordic blend: {len(blend_steps) - len(made_steps)} far hours kept from the published run", flush=True)
     fields = {key: fetch_hours(name, made_steps, rows, cols) for key, name in names} if mn_new else {}
     print(f"read in {time.time() - started:.0f} s", flush=True)
+    memory_report("all read", **{"MET Nordic": fields, "the others": {n: m[1] for n, m in others.items()}})
     weights = {key: placer.weight(*value) for key, value in placer.tiles.items()}
     # The other models on each tile: where they lie and how much they count there.
     parts = {name: {key: model[0](lon, lat) for key, (col, row, inside, lon, lat) in placer.tiles.items()}
              for name, model in others.items()}
+    # The blend alone: a model's place only on the tiles where it counts (24.10.2026: three full-tile arrays per tile and
+    # model were 2.5 GB of the weather blend's peak, mostly zeros; a model with no weight on a tile adds nothing there).
+    if blend_only:
+        parts = {name: {key: p for key, p in tiles.items() if np.any(p[2] > 0)} for name, tiles in parts.items()}
     frames, total = [], 0
     def put(name, data):
         if local:
@@ -475,8 +485,22 @@ def main():
             tiles[key] = world_tiles.png(np.concatenate([rgb, alpha], axis=-1).astype(np.uint8), "RGBA")
         return world_tiles.encode(tiles, {z: SIZE for z in ZOOMS})
 
-    for s in blend_steps:
+    def done_with(s, t):
+        """The blend alone: an hour's data dropped once its packs are made (no later hour reads it; 24.10.2026)."""
+        if blend_only:
+            for grids in fields.values():
+                grids.pop(s, None)
+            for _, data, _ in others.values():
+                data.pop(t, None)
+    previous = None
+    for k, s in enumerate(blend_steps):
+        # The hour before freed here, whichever way it left the loop (a far hour, a failed check, its packs made).
+        if previous is not None:
+            done_with(*previous)
+        if k and k % 10 == 0:
+            memory_report(f"{k} hours made", **{"MET Nordic": fields, "the others": {n: m[1] for n, m in others.items()}})
         t = int(times[s])
+        previous = (s, t)
         if t in far:
             frames.append(far[t])
             continue
@@ -502,6 +526,9 @@ def main():
                 for key in placer.tiles:
                     rgb_sum, w_sum, miss = 0, 0, 1
                     for name, (e, n, g) in present:
+                        # No place kept: the model has no weight on this tile (the blend's parts).
+                        if key not in parts[name]:
+                            continue
                         c, r, w = parts[name][key]
                         sample = others[name][2]
                         u, v, gg = sample(e, c, r), sample(n, c, r), sample(g, c, r)
@@ -550,6 +577,8 @@ def main():
             for key in placer.tiles:
                 sums_t, sums_r, w_sum, miss = 0, 0, 0, 1
                 for name, data in present:
+                    if key not in parts[name]:
+                        continue
                     c, r, w = parts[name][key]
                     sample = others[name][2]
                     air = sample(data["air"], c, r)
@@ -576,7 +605,10 @@ def main():
         frames.append({"time": t, "file": f"{run_name}/{t}-temp.pack", "temp": f"{run_name}/{t}-temp.pack",
                        "rain": f"{run_name}/{t}-rain.pack", "made": round(time.time())})
         total += len(temp) + len(rain)
+    if previous is not None:
+        done_with(*previous)
     if mn_new:
+        memory_report("blend made", **{"MET Nordic": fields, "the others": {n: m[1] for n, m in others.items()}})
         index = {"model": "MET Nordic 1 km" if which == "wind" else "MET Nordic 1 km (air and rain)", "credit": "MET Norway, MET Nordic (CC BY 4.0)",
                  "run": datetime.fromtimestamp(run, timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "runName": run_name,
                  "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "zooms": [ZOOMS.start, ZOOMS.stop - 1],
@@ -618,6 +650,26 @@ def main():
         except Exception as error:
             print(f"{name} alone left out: {error}", flush=True)
     finished()
+
+
+def memory_report(label, **holders):
+    """The process's memory and what each holder keeps (the owner, 24.10.2026: "cut regional weather's memory... as the
+    Mix was, and measure it"; it planned 16.7 GB and waited for memory most on the Tower): measured, as the Mix was."""
+    def size(x):
+        if isinstance(x, np.ndarray):
+            return x.nbytes
+        if isinstance(x, dict):
+            return sum(size(v) for v in x.values())
+        if isinstance(x, (list, tuple)):
+            return sum(size(v) for v in x)
+        return 0
+    try:
+        with open("/proc/self/status") as f:
+            rss = next((int(line.split()[1]) // 1024 for line in f if line.startswith("VmRSS")), 0)
+    except OSError:
+        import resource
+        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 2**20  # macOS: the peak, in bytes
+    print(f"  memory {label}: process {rss} MB; " + ", ".join(f"{k} {size(v) / 1e6:.0f} MB" for k, v in holders.items()), flush=True)
 
 
 def finished():
