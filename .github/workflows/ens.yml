@@ -5,8 +5,8 @@ run-name: Ensemble at the spots (ECMWF ENS)
 # banner, the Wind list's week of kite chances, the chart's range): ECMWF's 50 members from its open
 # data, each 00 and 12 UTC run once all its steps are out (checked every hour).
 on:
-  schedule:
-    - cron: "40 * * * *"
+  # Started by helper-trigger (tools/helper-trigger in the app's repo), which leaves it out while the home runner
+  # makes it live (24.10.2026, group 3 to the Tower: GitHub's own cron here published beside the Tower's).
   workflow_dispatch:
     inputs:
       force:

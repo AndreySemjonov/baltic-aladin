@@ -6,8 +6,8 @@ run-name: Europe's waves (Copernicus seas, EWAM)
 # Iberia-Biscay-Ireland, Black Sea, Mediterranean) and EWAM under them, blended into tiles/waves.
 # Twice a day, after the Copernicus models' morning and evening runs are out.
 on:
-  schedule:
-    - cron: "35 8,20 * * *"
+  # Started by helper-trigger (tools/helper-trigger in the app's repo), which leaves it out while the home runner
+  # makes it live (24.10.2026, group 3 to the Tower: GitHub's own cron here published beside the Tower's).
   workflow_dispatch:
     inputs:
       hours:

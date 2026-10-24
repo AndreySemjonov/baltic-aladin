@@ -5,8 +5,8 @@ run-name: Air quality (CAMS Europe and global)
 # API): CAMS from Open-Meteo's open data on AWS, each new run's files; a region already published for
 # its newest run is skipped in a second.
 on:
-  schedule:
-    - cron: "50 */3 * * *"
+  # Started by helper-trigger (tools/helper-trigger in the app's repo), which leaves it out while the home runner
+  # makes it live (24.10.2026, group 3 to the Tower: GitHub's own cron here published beside the Tower's).
   workflow_dispatch:
     inputs:
       force:

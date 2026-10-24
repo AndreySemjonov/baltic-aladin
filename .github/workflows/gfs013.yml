@@ -4,8 +4,8 @@ run-name: GFS at the spots (0.13°)
 # GFS at the spots from its 0.13° grid, as Open-Meteo's gfs_global (gfs013_points.py; the owner,
 # 18.10.2026): every hour, the newest complete run once.
 on:
-  schedule:
-    - cron: "52 * * * *"
+  # Started by helper-trigger (tools/helper-trigger in the app's repo), which leaves it out while the home runner
+  # makes it live (24.10.2026, group 3 to the Tower: GitHub's own cron here published beside the Tower's).
   workflow_dispatch:
     inputs:
       force:
