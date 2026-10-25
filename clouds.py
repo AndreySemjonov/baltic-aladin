@@ -264,17 +264,24 @@ def sat_pack(when):
         return None
     mask = with_low_cloud(mask, got.get("fog"))
     # The morning: as the sun comes up the fog picture loses the low deck (its 3.9 um channel sees sunlight; Riga
-    # 25.10.2026, OVC004: seen until 05:20 UTC, lost from 05:50) and the mask is still blind to it. Where the sun is
-    # rising and under 12 deg, what the fog picture saw 30 or 60 minutes before counts too (four days' morning METARs:
-    # 25 of the 43 overcast reports still missed caught, 1 clear report of 69 called cloud).
+    # 25.10.2026, OVC004 all morning: seen until 05:20 UTC, lost from 05:50) and the mask is still blind to it. Where
+    # the sun is rising and under 12 deg, the fog pictures of the last two hours count too, each where the sun was
+    # still below the horizon when it was taken (four days' morning METARs: 40 of the 47 overcast reports still missed
+    # caught, 5 clear reports of 72 called cloud, decks that broke up after sunrise; looking back one hour: 25 and 1).
+    def grid(a):
+        return np.asarray(Image.fromarray(a.astype(np.uint8) * 255).resize((mask.shape[1], mask.shape[0]), Image.NEAREST)) > 127
+
     sun_now = sun_height(lats[:, None], lons[None, :], when)
     rising = (sun_now >= -6) & (sun_now < 12) & (sun_now > sun_height(lats[:, None], lons[None, :], when - timedelta(minutes=30)))
     if rising.any():
-        rising = np.asarray(Image.fromarray(rising.astype(np.uint8) * 255).resize((mask.shape[1], mask.shape[0]), Image.NEAREST)) > 127
-        for minutes in (30, 60):
-            earlier = picture(FOG, ten - timedelta(minutes=minutes), box, (width // 4, height // 4))
+        for minutes in (30, 60, 90, 120):
+            then = ten - timedelta(minutes=minutes)
+            dark = rising & (sun_height(lats[:, None], lons[None, :], then) < 0)
+            if not dark.any():
+                continue
+            earlier = picture(FOG, then, box, (width // 4, height // 4))
             if earlier is not None and earlier.shape == mask.shape:
-                mask[low_water(earlier) & rising] = 255
+                mask[low_water(earlier) & grid(dark)] = 255
     mask = np.asarray(Image.fromarray(mask.astype(np.uint8)).resize((width, height), Image.NEAREST), dtype=np.float32)
     try:
         heights = None if cth is None else cloud_heights(cth)
