@@ -5,10 +5,13 @@ station owner's uploader has it; its Windguru upload is not used here). The newe
 home-stations/kolka.json, which its 5-minute collect adds as the station lv-kolka (homeStationRows):
 
     {"t": the wind picture's time (unix), "wind": average m/s, "gust": recent gust m/s, "direction": degrees,
-     "temperature": °C or null}
+     "temperature": °C or null, "videji": the station's own average m/s}
 
-The real average and gust, not the Windguru upload's mapping (the average as its minimum, the midpoint as its
-average). A picture over 20 minutes old or a digit kolka.py isn't sure of is no reading: the job fails, nothing goes up.
+The average is the midpoint of Vidēji and the recent gust, as the NAS sends Windguru (the station owner's mapping; the
+owner, 25.10.2026: "Keep B"): Vidēji alone read 0.0-2.1 m/s beside 4.1-5.4 m/s gusts that morning (04:01 UTC: 0.0,
+gust 4.1, Beaufort "0: Bezvējš"), a gust factor of 2.5 and more where the coast's run 1.3-1.6 (Daugavgrīva 3.7 gusting
+5.2 then): most likely a much shorter window than the gust's. Vidēji kept beside it in the file ("videji") to compare.
+A picture over 20 minutes old or a digit kolka.py isn't sure of is no reading: the job fails, nothing goes up.
 Run by the home runner (runner/jobs.py "kolka").
 
     python stations/kolka_home.py [--local DIR]     DIR/home-stations/kolka.json instead of the upload (shadow, a test)
@@ -55,8 +58,10 @@ def reading():
     except Exception as error:
         print(f"temperature left out: {error}", file=sys.stderr)
         temperature = None
-    return {"t": round(t), "wind": wind["average_ms"], "gust": wind["recent_gust_ms"],
-            "direction": wind["direction_degrees"], "temperature": temperature, "source": "meteo.kolka.lv"}
+    average = (wind["average_ms"] + wind["recent_gust_ms"]) / 2
+    return {"t": round(t), "wind": round(average, 2), "gust": wind["recent_gust_ms"],
+            "direction": wind["direction_degrees"], "temperature": temperature, "videji": wind["average_ms"],
+            "source": "meteo.kolka.lv"}
 
 
 def main(args):
