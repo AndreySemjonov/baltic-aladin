@@ -208,14 +208,18 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
   .clock { white-space: normal; display: flex; flex-wrap: wrap; align-items: center; gap: 6px } .theme { margin-left: 0 } }
 /* Zoomed in, the tabs keep their width and the clock moves to a line of its own; only a phone scrolls them. */
 @media (min-width: 640px) { .top nav.tabs { flex: 1 0 auto } }
-.warnings { display: flex; gap: 8px; flex-wrap: wrap; padding-block: 6px 8px }
+/* One row (the owner, 25.10.2026: "make all fit in 1 row"): a chip too long for it ends in "…" (its whole text on
+   hover), the green summary first, the warnings only when it's all but gone; a phone's width wraps as before. */
+.warnings { display: flex; gap: 8px; flex-wrap: nowrap; padding-block: 6px 8px }
+.warnings .w { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.warnings .w.sum { flex-shrink: 1000; min-width: 3em }
+@media (max-width: 700px) { .warnings { flex-wrap: wrap } .warnings .w { white-space: normal } }
 .w { font: 500 13px/1.2 var(--body); padding: 6px 10px; border-radius: 6px; text-decoration: none; color: inherit }
 .w.bad { background: var(--bad-soft); color: var(--bad) } .w.warn { background: var(--warn-soft); color: var(--warn) } .w.ok { background: var(--ok-soft); color: var(--ok) }
 .w b { font-weight: 600 }
-/* The chips' numbers at one width, the ticking ages in a box of their own (the owner, 25.10.2026: the green chip, at the
-   line's end, jumped to a line of its own and back each second as "2:04" and "2:13" took different widths). */
+/* The chips' numbers at one width (the owner, 25.10.2026: the green chip, at the line's end, jumped to a line of its
+   own and back each second as "2:04" and "2:13" took different widths). */
 .w { font-variant-numeric: tabular-nums }
-.w .tick { display: inline-block; min-width: 4.2ch }
 :root { --home: #2b6fd6; --home-soft: #dde8fb }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --home: #6ea2f5; --home-soft: #1b2c4a } }
 :root[data-theme="dark"] { --home: #6ea2f5; --home-soft: #1b2c4a }
@@ -994,9 +998,10 @@ function Warnings(props) {
   const { f, ad, now } = props;
   const list = warningsList(props);
   const fine = ((ad && ad.feeds) || []).filter((x) => !x.late).length;
+  const summary = `${fine} feeds fine · ${(f.live || []).length} live at home · ${f.mac && f.mac.wrf ? (f.mac.wrf.running ? "WRF on the Mac" + (f.mac.wrf.progress != null ? " " + Math.round(f.mac.wrf.progress * 100) + "%" : "") : "WRF on the Mac: " + (f.mac.wrf.stage === "waiting" ? "waiting for GFS" : f.mac.wrf.stage)) : f.wrf && f.wrf.running ? "WRF running" : f.wrf && f.wrf.waiting ? "WRF waiting for GFS" : (f.mac ? "WRF on the Mac next " : "WRF next ") + clock((f.wrf && f.wrf.next || [])[0])} · heartbeat ${f.beat ? dur(now - f.beat) : "–"}${f.mac ? ` · Mac heartbeat ${dur(now - f.mac.beat)}` : ""}`;
   return html`<div class="warnings">
-    ${list.map(([k, a, b, href]) => html`<a class=${"w " + k} href=${href}><b>${a}</b> ${b}</a>`)}
-    <a class="w ok" href="#machine">${fine} feeds fine · ${(f.live || []).length} live at home · ${f.mac && f.mac.wrf ? (f.mac.wrf.running ? "WRF on the Mac" + (f.mac.wrf.progress != null ? " " + Math.round(f.mac.wrf.progress * 100) + "%" : "") : "WRF on the Mac: " + (f.mac.wrf.stage === "waiting" ? "waiting for GFS" : f.mac.wrf.stage)) : f.wrf && f.wrf.running ? "WRF running" : f.wrf && f.wrf.waiting ? "WRF waiting for GFS" : (f.mac ? "WRF on the Mac next " : "WRF next ") + clock((f.wrf && f.wrf.next || [])[0])} · heartbeat <span class="tick">${f.beat ? dur(now - f.beat) : "–"}</span>${f.mac ? html` · Mac heartbeat <span class="tick">${dur(now - f.mac.beat)}</span>` : ""}</a>
+    ${list.map(([k, a, b, href]) => html`<a class=${"w " + k} href=${href} title=${a + " " + b}><b>${a}</b> ${b}</a>`)}
+    <a class="w ok sum" href="#machine" title=${summary}>${summary}</a>
   </div>`;
 }
 
