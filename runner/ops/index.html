@@ -998,10 +998,12 @@ function Warnings(props) {
   const { f, ad, now } = props;
   const list = warningsList(props);
   const fine = ((ad && ad.feeds) || []).filter((x) => !x.late).length;
-  const summary = `${fine} feeds fine · ${(f.live || []).length} live at home · ${f.mac && f.mac.wrf ? (f.mac.wrf.running ? "WRF on the Mac" + (f.mac.wrf.progress != null ? " " + Math.round(f.mac.wrf.progress * 100) + "%" : "") : "WRF on the Mac: " + (f.mac.wrf.stage === "waiting" ? "waiting for GFS" : f.mac.wrf.stage)) : f.wrf && f.wrf.running ? "WRF running" : f.wrf && f.wrf.waiting ? "WRF waiting for GFS" : (f.mac ? "WRF on the Mac next " : "WRF next ") + clock((f.wrf && f.wrf.next || [])[0])} · heartbeat ${f.beat ? dur(now - f.beat) : "–"}${f.mac ? ` · Mac heartbeat ${dur(now - f.mac.beat)}` : ""}`;
+  const summaryFull = `${fine} feeds fine · ${(f.live || []).length} live at home · ${f.mac && f.mac.wrf ? (f.mac.wrf.running ? "WRF on the Mac" + (f.mac.wrf.progress != null ? " " + Math.round(f.mac.wrf.progress * 100) + "%" : "") : "WRF on the Mac: " + (f.mac.wrf.stage === "waiting" ? "waiting for GFS" : f.mac.wrf.stage)) : f.wrf && f.wrf.running ? "WRF running" : f.wrf && f.wrf.waiting ? "WRF waiting for GFS" : (f.mac ? "WRF on the Mac next " : "WRF next ") + clock((f.wrf && f.wrf.next || [])[0])} · heartbeat ${f.beat ? dur(now - f.beat) : "–"}${f.mac ? ` · Mac heartbeat ${dur(now - f.mac.beat)}` : ""}`;
+  // The chip's own words short enough for one row at ~1670 px (the owner, 25.10.2026); the whole sentence on hover.
+  const summary = `${fine} feeds fine · ${(f.live || []).length} live · ${f.mac && f.mac.wrf ? (f.mac.wrf.running ? "WRF on the Mac" + (f.mac.wrf.progress != null ? " " + Math.round(f.mac.wrf.progress * 100) + "%" : "") : "WRF on the Mac: " + (f.mac.wrf.stage === "waiting" ? "waiting for GFS" : f.mac.wrf.stage)) : f.wrf && f.wrf.running ? "WRF running" : f.wrf && f.wrf.waiting ? "WRF waiting for GFS" : (f.mac ? "WRF on the Mac next " : "WRF next ") + clock((f.wrf && f.wrf.next || [])[0])} · heartbeats ${f.beat ? dur(now - f.beat) : "–"}${f.mac ? `, Mac ${dur(now - f.mac.beat)}` : ""}`;
   return html`<div class="warnings">
     ${list.map(([k, a, b, href]) => html`<a class=${"w " + k} href=${href} title=${a + " " + b}><b>${a}</b> ${b}</a>`)}
-    <a class="w ok sum" href="#machine" title=${summary}>${summary}</a>
+    <a class="w ok sum" href="#machine" title=${summaryFull}>${summary}</a>
   </div>`;
 }
 
