@@ -458,7 +458,7 @@ def mem_peaks(job, _cache={}):
         pass
     peaks = sorted(p for p in peaks if p > 0)
     if not peaks:
-        value = (MEM_DEFAULT[job.heavy], MEM_DEFAULT[job.heavy] * 2)
+        value = (job.mem_mb, 1500) if job.tiny and job.mem_mb else (MEM_DEFAULT[job.heavy], MEM_DEFAULT[job.heavy] * 2)
     else:
         most = peaks[-1] * 1.15
         usual = min(peaks[len(peaks) * 3 // 4] * 1.2, most) if len(peaks) >= 3 else most
@@ -853,6 +853,9 @@ def main():
             # The minute records about 8 days (the panel reads a day: its machine band, Capacity).
             for name in ("_samples.jsonl", "_queue.jsonl"):
                 trim(f"{STATS}/{name}", 12000)
+            for job in JOBS:
+                if job.tiny:
+                    trim(f"{STATS}/{job.name}.jsonl", 2000)
             # Each run's usage samples (measure.py, the run's popup in the panel) 4 days: a few KB a run.
             usage_dir = f"{STATS}/_usage"
             for name in os.listdir(usage_dir) if os.path.isdir(usage_dir) else []:
@@ -882,6 +885,10 @@ def main():
             # 137: killed (its memory limit, or the timeout); its next run goes without a limit (mem_limit).
             mine["exit"] = code
             save(STATE, state)
+            if run.job.tiny:
+                if code:
+                    log(f"{name}: failed, exit {code} ({mine['fails']} in a row)")
+                continue
             append(f"{STATS}/_runs.jsonl", {"job": name, "due": round(run.wanted), "start": round(run.started),
                                             "source": round(run.source) if run.source else None,
                                             **({"sources": {m: round(r) for m, r in run.sources.items()}} if run.sources else {}),
@@ -949,11 +956,14 @@ def main():
         # minute beyond MAX_TOTAL, the order of jobs.py always gave it to the same jobs; the end of the list never had a
         # turn). Each skipped one with why.
         live_waiting = None  # a live job left waiting for memory: shadow jobs don't take that memory meanwhile
+        tiny_names = {j.name for j in JOBS if j.tiny}
         for job in sorted(JOBS, key=lambda j: (j.name not in live, prio(j), _due_since.get(j.name, now))):
-            busy = len(running) + len(others)
+            busy = sum(1 for n in [*running, *others] if n not in tiny_names)
             if job.name in running or job.name in others:
                 continue
-            if busy >= total_max:
+            if job.tiny:
+                pass
+            elif busy >= total_max:
                 waiting_why[job.name] = f"all {total_max} slots busy"
                 continue
             if busy >= MAX_TOTAL and flex_left <= 0:
@@ -999,21 +1009,21 @@ def main():
                 if waiting is None:
                     log(f"{job.name}: due, waiting for memory ({need} MB + {MEM_MARGIN}; {available} MB really free)")
                 waiting = prio(job) if waiting is None else min(waiting, prio(job))
-                if job.name in live and live_waiting is None:
+                if job.name in live and live_waiting is None and not job.tiny:
                     live_waiting = job.name
                 # Only a live job drains the machine (23.10.2026: a shadow job's drain held the live ones back).
-                if job.name in live and now - _due_since.get(job.name, now) > DRAIN_AFTER and drain is None:
+                if job.name in live and now - _due_since.get(job.name, now) > DRAIN_AFTER and drain is None and not job.tiny:
                     drain = job.name
                     waiting_why[job.name] += f"; nothing new starts until it fits"
                 continue
-            if busy and reserved + need > plan_cap:
+            if busy and reserved + need > plan_cap and not job.tiny:
                 waiting_why[job.name] = (f"waits for planned memory: needs {need / 1000:.1f} GB, "
                                          f"{max(plan_cap - reserved, 0) / 1000:.1f} of the plan left")
                 continue
             reserved += need
             if available is not None:
                 available -= need
-            if busy >= MAX_TOTAL:
+            if busy >= MAX_TOTAL and not job.tiny:
                 flex_left -= 1
             is_live = job.name in live
             mine = state.setdefault(job.name, {})
@@ -1034,7 +1044,8 @@ def main():
                 running[job.name].sources = mine["sources"]
             save(STATE, state)
             heavy_now += job.heavy
-            log(f"{job.name}: started ({'live' if is_live else 'shadow'})"
+            if not job.tiny:
+                log(f"{job.name}: started ({'live' if is_live else 'shadow'})"
                 + (f", source run {datetime.fromtimestamp(wanted, timezone.utc):%d %H}Z" if job.watch else ""))
         try:
             write_live(state, running, others, live, names, cache, now, wrf, budget, reserved, total_max, waiting_why, last_beat)

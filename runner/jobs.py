@@ -23,6 +23,11 @@ heartbeat's live list, so GitHub keeps publishing it. The same cadences as the G
 rider opens first (the spots' forecasts and their inputs, the Mix, the Baltic's fine models, the rain now),
 2 the other maps, 3 what can wait an hour (the far world, the seas, the ensembles, the air). Due jobs start
 in that order; a 3 starts only while a slot stays free for a 1 or 2.
+
+`tiny` (the owner, 25.10.2026: Kolka's station read every 2 minutes): a job of seconds and a few MB, a station read. It
+takes no slot and waits for nothing but real memory (in the 00Z/12Z peaks every slot is busy for an hour: a station
+would stop), planned at `mem_mb`. Its runs stay out of the runs' record (_runs.jsonl: the panel reads its last lines,
+hundreds of station reads a day would push the models' runs out) and the runner's log says only its failures.
 """
 from dataclasses import dataclass, field
 
@@ -42,6 +47,7 @@ class Job:
     timeout: int = 150
     priority: int = 2
     mem_mb: int = 0
+    tiny: bool = False
 
 
 COPERNICUS = ["COPERNICUSMARINE_SERVICE_USERNAME", "COPERNICUSMARINE_SERVICE_PASSWORD"]
@@ -128,4 +134,8 @@ JOBS = [
     # One worker at home (22.10.2026: three peaked at 10.5 GB, killed out of memory; then it waited for 14 GB free).
     Job("waves", ["waves_composite.py", "--workers", "1"], every=720, heavy=True, needs=COPERNICUS, priority=3),
     Job("sea-world", ["sea_world.py"], every=1440, heavy=True, needs=COPERNICUS, timeout=240, priority=3),
+    # Stations read at home (station-history's homeStationRows): Kolka from meteo.kolka.lv's two pictures with the NAS's
+    # kolka.py (the owner, 25.10.2026: "Go with plan A", "Make station live already"). Its pictures change every minute
+    # or two; the collect takes the newest each 5 minutes.
+    Job("kolka", ["stations/kolka_home.py"], every=2, timeout=3, priority=1, mem_mb=200, tiny=True),
 ]
