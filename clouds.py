@@ -21,6 +21,10 @@ little see-through; the texture inside comes by day from the visible channel (MT
 500 m: the low deck's rolls and cells), at night from the infrared, blended by the sun's height.
 Without the height or the visible, the infrared alone as before (style B).
 
+Low water cloud the Cloud Mask misses (the owner, 25.10.2026: "Outside is cloudy but in our app it's sunny"; Riga under
+OVC004, 120 m, the mask clear: a deck as warm as the ground, the sun low) is added from EUMETSAT's Fog / Low Clouds RGB
+(MTG): green well above red is low water cloud or fog (with_low_cloud).
+
 Needs INGEST_TOKEN (the helper's report token) in the environment; without it nothing is sent.
 EUMETSAT's open data (EUMETView WMS); credit: "Meteosat, EUMETSAT".
 """
@@ -45,6 +49,7 @@ INFRARED = "mtg_fd:ir105_hrfi"
 MASK = "msg_fes:clm"
 VISIBLE = "mtg_fd:vis06_hrfi"
 HEIGHT = "msg_fes:cth"
+FOG = "mtg_fd:rgb_fog"
 LEGEND = "https://view.eumetsat.int/geoserver/wms?service=WMS&version=1.3.0&request=GetLegendGraphic&layer=msg_fes:cth&format=image/png"
 # The grey by the cloud top's height (km): low darker, high brighter.
 HEIGHT_KM = [0, 2, 6, 10, 12]
@@ -90,6 +95,25 @@ def picture(layer, when, box, size):
         except (urllib.error.URLError, OSError):
             time.sleep(3 * (attempt + 1))
     return None
+
+
+def with_low_cloud(mask, fog):
+    """The Cloud Mask (RGB, cloud white) with the low water cloud it misses: where the Fog / Low Clouds RGB's green is
+    well above its red (low water cloud and fog; clear ground and higher, colder cloud are red to blue there), cloudy.
+    Checked on four days of the airports' METARs round the Baltic (21-25.10.2026, 1,420 reports, BKN/OVC as cloudy):
+    overcast caught at night 74 -> 92 %, at dawn and dusk 69 -> 80 %; of 318 clear night reports 3 called cloud, of
+    the dawn and day ones none. By day it adds nothing (the 3.9 um channel's sunlight), and the mask catches 89 %
+    there. Without the fog picture (it comes a little later than the infrared) the mask alone."""
+    if fog is None or fog.shape != mask.shape:
+        return mask
+    out = mask.copy()
+    out[low_water(fog)] = 255
+    return out
+
+
+def low_water(fog):
+    """Where the Fog / Low Clouds RGB shows low water cloud or fog: its green well above its red."""
+    return (fog[..., 1] - fog[..., 0] > 40) & (fog[..., 1] > 100)
 
 
 def local_ground(grey, mask, ground, block=64):
@@ -230,7 +254,7 @@ def sat_pack(when):
     daylight = np.clip((sun_height(lats[:, None], lons[None, :], when) - 3) / 10, 0, 1).astype(np.float32)
     ten = when - timedelta(minutes=when.minute % 10)
     jobs = {"infrared": (INFRARED, ten, (width, height)), "mask": (MASK, when, (width // 4, height // 4)),
-            "height": (HEIGHT, when, (width // 4, height // 4))}
+            "height": (HEIGHT, when, (width // 4, height // 4)), "fog": (FOG, ten, (width // 4, height // 4))}
     if daylight.max() > 0:
         jobs["visible"] = (VISIBLE, ten, (width, height))
     with ThreadPoolExecutor(len(jobs)) as pool:
@@ -238,6 +262,19 @@ def sat_pack(when):
     infrared, mask, cth, visible = got["infrared"], got["mask"], got["height"], got.get("visible")
     if infrared is None or mask is None:
         return None
+    mask = with_low_cloud(mask, got.get("fog"))
+    # The morning: as the sun comes up the fog picture loses the low deck (its 3.9 um channel sees sunlight; Riga
+    # 25.10.2026, OVC004: seen until 05:20 UTC, lost from 05:50) and the mask is still blind to it. Where the sun is
+    # rising and under 12 deg, what the fog picture saw 30 or 60 minutes before counts too (four days' morning METARs:
+    # 25 of the 43 overcast reports still missed caught, 1 clear report of 69 called cloud).
+    sun_now = sun_height(lats[:, None], lons[None, :], when)
+    rising = (sun_now >= -6) & (sun_now < 12) & (sun_now > sun_height(lats[:, None], lons[None, :], when - timedelta(minutes=30)))
+    if rising.any():
+        rising = np.asarray(Image.fromarray(rising.astype(np.uint8) * 255).resize((mask.shape[1], mask.shape[0]), Image.NEAREST)) > 127
+        for minutes in (30, 60):
+            earlier = picture(FOG, ten - timedelta(minutes=minutes), box, (width // 4, height // 4))
+            if earlier is not None and earlier.shape == mask.shape:
+                mask[low_water(earlier) & rising] = 255
     mask = np.asarray(Image.fromarray(mask.astype(np.uint8)).resize((width, height), Image.NEAREST), dtype=np.float32)
     try:
         heights = None if cth is None else cloud_heights(cth)
@@ -354,6 +391,7 @@ def make(one, wanted, token):
         if infrared is None or mask is None:
             print(f"  {when:%H:%M}: no picture ({'infrared' if infrared is None else 'mask'})")
             continue
+        mask = with_low_cloud(mask, picture(FOG, when - timedelta(minutes=when.minute % 10), one["box"], one["size"]))
         data, ground = render(infrared, mask, one["local"], one["quality"], one["alpha"])
         stamp = when.strftime("%Y%m%d%H%M")
         request = urllib.request.Request(UPLOAD + one["folder"] + stamp, data=data, method="PUT",
