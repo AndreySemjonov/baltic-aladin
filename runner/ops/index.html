@@ -212,6 +212,10 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 .w { font: 500 13px/1.2 var(--body); padding: 6px 10px; border-radius: 6px; text-decoration: none; color: inherit }
 .w.bad { background: var(--bad-soft); color: var(--bad) } .w.warn { background: var(--warn-soft); color: var(--warn) } .w.ok { background: var(--ok-soft); color: var(--ok) }
 .w b { font-weight: 600 }
+/* The chips' numbers at one width, the ticking ages in a box of their own (the owner, 25.10.2026: the green chip, at the
+   line's end, jumped to a line of its own and back each second as "2:04" and "2:13" took different widths). */
+.w { font-variant-numeric: tabular-nums }
+.w .tick { display: inline-block; min-width: 4.2ch }
 :root { --home: #2b6fd6; --home-soft: #dde8fb }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --home: #6ea2f5; --home-soft: #1b2c4a } }
 :root[data-theme="dark"] { --home: #6ea2f5; --home-soft: #1b2c4a }
@@ -992,7 +996,7 @@ function Warnings(props) {
   const fine = ((ad && ad.feeds) || []).filter((x) => !x.late).length;
   return html`<div class="warnings">
     ${list.map(([k, a, b, href]) => html`<a class=${"w " + k} href=${href}><b>${a}</b> ${b}</a>`)}
-    <a class="w ok" href="#machine">${fine} feeds fine · ${(f.live || []).length} live at home · ${f.mac && f.mac.wrf ? (f.mac.wrf.running ? "WRF on the Mac" + (f.mac.wrf.progress != null ? " " + Math.round(f.mac.wrf.progress * 100) + "%" : "") : "WRF on the Mac: " + (f.mac.wrf.stage === "waiting" ? "waiting for GFS" : f.mac.wrf.stage)) : f.wrf && f.wrf.running ? "WRF running" : f.wrf && f.wrf.waiting ? "WRF waiting for GFS" : (f.mac ? "WRF on the Mac next " : "WRF next ") + clock((f.wrf && f.wrf.next || [])[0])} · heartbeat ${f.beat ? dur(now - f.beat) : "–"}${f.mac ? ` · Mac heartbeat ${dur(now - f.mac.beat)}` : ""}</a>
+    <a class="w ok" href="#machine">${fine} feeds fine · ${(f.live || []).length} live at home · ${f.mac && f.mac.wrf ? (f.mac.wrf.running ? "WRF on the Mac" + (f.mac.wrf.progress != null ? " " + Math.round(f.mac.wrf.progress * 100) + "%" : "") : "WRF on the Mac: " + (f.mac.wrf.stage === "waiting" ? "waiting for GFS" : f.mac.wrf.stage)) : f.wrf && f.wrf.running ? "WRF running" : f.wrf && f.wrf.waiting ? "WRF waiting for GFS" : (f.mac ? "WRF on the Mac next " : "WRF next ") + clock((f.wrf && f.wrf.next || [])[0])} · heartbeat <span class="tick">${f.beat ? dur(now - f.beat) : "–"}</span>${f.mac ? html` · Mac heartbeat <span class="tick">${dur(now - f.mac.beat)}</span>` : ""}</a>
   </div>`;
 }
 
