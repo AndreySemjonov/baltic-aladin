@@ -154,6 +154,11 @@ PIPE_WORKFLOWS = ["regional.yml", "world.yml", "bucket.yml", "nordic.yml", "ukmo
                   "weather-mix.yml", "chance.yml", "sea.yml", "waves.yml", "water.yml"]
 
 
+# A run's states before completed: queued, in progress, and "pending"/"waiting"/"requested" (in a concurrency group
+# behind another run, or waiting for approval).
+WAITING_OR_GOING = ("queued", "in_progress", "pending", "waiting", "requested")
+
+
 class GithubRuns:
     """GitHub's runs of the last 40 hours from the public API (60 calls an hour without a token): each map workflow's
     last 100 once, then every 5 minutes the newest 100 of all (about 2 hours of runs: 1685 runs in 36 h on 21.10.2026).
@@ -208,9 +213,11 @@ class GithubRuns:
             # A run that fell off the newest page while in progress never got its end (the weather mix's 21:48 run
             # read "going" for 7 h in the Pipeline, 22.10.2026): asked for by itself, each at most every 30 minutes and
             # 3 a refresh (the public API's 60 calls an hour, shared with the newest page and the workflows' records).
+            # Any state but completed (25.10.2026: the weather mix's 16:46 UTC run, last seen "pending" behind the run
+            # before it in its concurrency group, stayed open and claimed each of the Tower's publishes for 12 h).
             if self.page:
                 now = time.time()
-                stale = [k for k, v in self.runs.items() if v[4] in ("in_progress", "queued") and k not in self.page
+                stale = [k for k, v in self.runs.items() if v[4] != "completed" and k not in self.page
                          and now - self.asked.get(k, 0) > 1800]
                 for k in stale[:3]:
                     self.asked[k] = now
@@ -230,14 +237,17 @@ class GithubRuns:
     def running(self):
         with self.lock:
             return [{"wf": v[0], "title": v[1], "started": v[2], "status": v[4]} for k, v in self.runs.items()
-                    if v[4] in ("in_progress", "queued") and k in self.page]
+                    if v[4] in WAITING_OR_GOING and k in self.page]
 
     def pipe(self):
         """[workflow, the title's last word (world.yml runs one model or "(all)"), start, end or None] of the map
-        workflows' runs that didn't fail."""
+        workflows' runs that didn't fail. One without an end over 6 hours old (GitHub's own job limit) is left out: its
+        end was missed, and as "going" it would claim every publish since."""
+        cut = time.time() - 6 * 3600
         with self.lock:
             return sorted([[v[0], v[1].split()[-1] if v[1] else "", v[2], v[3]] for v in self.runs.values()
-                           if v[0] in PIPE_WORKFLOWS and v[2] and v[5] in (None, "success")], key=lambda r: r[2])
+                           if v[0] in PIPE_WORKFLOWS and v[2] and v[5] in (None, "success") and (v[3] or v[2] >= cut)],
+                          key=lambda r: r[2])
 
 
 GH = GithubRuns()

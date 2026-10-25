@@ -1092,7 +1092,10 @@ function laneData(maps, fr, f, now, s) {
     // Made at home only (every job behind it live): GitHub shows only where it really stood in (the owner, 24.10.2026).
     const homeOnly = !wrf && jobs.length > 0 && jobs.every((j) => live.has(j));
     const towerRuns = ((s && s.home) || []).filter((r) => jobs.includes(r.job));
-    const ghRuns = wf ? pipe.gh.filter((g) => g[0] === wf && (!word || g[1] === word || g[1] === "(all)")) : [];
+    // Made at home only, GitHub's runs that stood aside (home_live.py: done in a minute, nothing published) claim no
+    // publish: one over a Tower publish read as GitHub's (25.10.2026). A run standing in for the Tower takes minutes.
+    const ghRuns = wf ? pipe.gh.filter((g) => g[0] === wf && (!word || g[1] === word || g[1] === "(all)")
+      && !(homeOnly && g[3] != null && g[3] - g[2] < 120)) : [];
     const avails = (om && arrBy[om]) || {};
     // Each model run: when it was available (Open-Meteo's record), GitHub's publish, the Tower's run.
     const byRun = {};
