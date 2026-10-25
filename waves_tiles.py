@@ -150,12 +150,22 @@ def run_ecmwf(args):
     local = args[args.index("--local") + 1] if "--local" in args else None
     limit = int(args[args.index("--hours") + 1]) if "--hours" in args else None
     run, res = ecmwf_newest_run()
+    # The 0.25° (28 km) files come about 1 h 15 after Open-Meteo's copy of the run, the 0.1° (9 km) about 2 h after
+    # those: a run published from the 0.25° is made again from the 0.1° when they come (the owner, 25.10.2026: "publish
+    # the 28 km waves as soon as they're out, then replace them with the 9 km ones"; the runner looks every 30 min).
+    upgrade = False
+    if res == "0p1" and not local and "--force" not in args:
+        import world_tiles
+        index = world_tiles.published_index("ecmwf-waves") or {}
+        upgrade = (index.get("runName") or "").split("-")[0] == f"{run:%Y%m%dT%HZ}" and "9 km" not in (index.get("model") or "")
+        if upgrade:
+            print(f"ECMWF waves {run:%Y%m%dT%HZ}: published from 0.25°, the 9 km files are out: made again")
     # 0.1°: zoom 4 too (4096 pixels round the world: about its own detail); 0.25°: zooms 0-3.
     zooms = range(0, 5) if res == "0p1" else range(0, 4)
     out = tiler.Run("ecmwf-waves", run, zooms, "ECMWF waves 9 km" if res == "0p1" else "ECMWF waves 0.25°",
-                    CREDIT_ECMWF, "--force" in args, local)
+                    CREDIT_ECMWF, "--force" in args or upgrade, local)
     if not out.wanted:
-        print(f"ECMWF waves {run:%Y%m%dT%HZ} already published")
+        print(f"ECMWF waves {run:%Y%m%dT%HZ} already published" + ("" if res == "0p1" else " (0.25°; the 9 km files not out yet)"))
         return
     steps = ECMWF_STEPS[:limit] if limit else ECMWF_STEPS
     started = time.time()

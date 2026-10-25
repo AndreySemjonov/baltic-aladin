@@ -79,7 +79,11 @@ JOBS = [
     Job("world-icon", ["world_tiles.py", "icon"], watch=[("dwd_icon", 6)], priority=3),
     Job("world-gdps", ["world_tiles.py", "gdps"], watch=[("cmc_gem_gdps_15km", 12)], every=60, priority=3),
     Job("icon-eu", ["iconeu_tiles.py"], watch=[("dwd_icon_eu", 3)], every=60, heavy=True, priority=1),
-    Job("ecmwf-waves", ["waves_tiles.py", "ecmwf"], watch=[("ecmwf_wam", 12)], delay=2.5, priority=3),
+    # ECMWF's own wave files: the 0.25° (28 km) about 1 h 15 after Open-Meteo's copy of the run, the 0.1° (9 km) about 2 h
+    # after those (24.10.2026 12Z: 18:19, 19:34, 21:34). At the 0.25°, then a look every 30 min: the script makes the run
+    # again from the 0.1° when they come, else ends in a minute (the owner, 25.10.2026: "publish the 28 km waves as soon
+    # as they're out, then replace them with the 9 km ones"; the 2.5 h before fitted neither, riders had 28 km only).
+    Job("ecmwf-waves", ["waves_tiles.py", "ecmwf"], watch=[("ecmwf_wam", 12)], delay=1.25, every=30, priority=3),
     Job("ewam", ["waves_tiles.py", "ewam"], watch=[("dwd_ewam", 12)], priority=3),
     # Europe's models from Open-Meteo's open data (bucket.yml, ukmo.yml).
     Job("bucket-icon-ch2", ["bucket_tiles.py", "icon-ch2"], watch=[("meteoswiss_icon_ch2", 6)]),
