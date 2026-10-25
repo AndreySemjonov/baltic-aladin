@@ -228,8 +228,17 @@ def style_height(infrared, mask_rgb, visible, heights, daylight):
     if visible is not None:
         v = visible.mean(axis=2) / 255
         texture = texture * (1 - daylight) + (v - blur(v, 10)) * 185 * daylight
-        # By day the visible's brightness says how thick: dim cloud a little see-through.
-        alpha = alpha * (1 - daylight + daylight * np.clip(0.55 + blur(v, 2) * 0.9, 0.55, 1))
+        # By day how thick follows how much brighter than the clear ground round it the visible is (the owner's photos,
+        # 25.10.2026: Roja blue sky under thin cirrus and Bērzciems' cumulus gaps drawn as one grey sheet). The mask
+        # (about 3 km) calls thin cirrus and a square with some cumulus cloudy alike; the visible (500 m) shows the
+        # ground through them (10:00 UTC: Roja 51-58 of 255 under cirrus, clear land 52; the decks round the gulf
+        # 97-115). Four days of daytime METARs, the mask cloudy: overcast +37 over the ground (median, a quarter under
+        # +21), the mask's cloud at clear reports +16 (a third under +5). +4 and less nearly see-through (0.15), +22
+        # and more solid.
+        ground_v = local_ground(v, (alpha > 0.5).astype(np.float32),
+                                float(np.percentile(v[alpha < 0.5], 50)) if (alpha < 0.5).sum() > v.size / 50 else float(np.percentile(v, 20)))
+        thick = np.clip((blur(v, 1) - ground_v - 4 / 255) / (18 / 255), 0, 1)
+        alpha = alpha * (1 - daylight + daylight * (0.15 + 0.85 * thick))
     shade = np.clip(base + np.clip(texture, -26, 26), 120, 240)
     # Thin high cloud (a high top, but the infrared hardly colder than the ground): see-through.
     ground = local_ground(ir, (alpha > 0.5).astype(np.float32), float(np.percentile(ir, 15)))
