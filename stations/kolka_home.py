@@ -29,12 +29,28 @@ UPLOAD = "https://data.meteogust.com/tiles/upload/home-stations/kolka.json"
 AGENT = "baltic-aladin (https://github.com/AndreySemjonov/baltic-aladin)"
 
 
+def picture(url):
+    """(the PNG, its time on our clock). The station's server clock runs ahead (2 minutes on 25.10.2026: Date 03:50:38
+    at 03:48:40 UTC), so its Last-Modified as such would put readings in the future and skew kolka.fetch_image's age
+    check: the picture's age on its own clock (Date - Last-Modified) instead, from our now."""
+    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": AGENT}), timeout=20) as response:
+        if "image/png" not in response.headers.get("Content-Type", "").lower():
+            raise RuntimeError(f"{url}: not a PNG")
+        data = response.read()
+        served, modified = response.headers.get("Date"), response.headers.get("Last-Modified")
+    age = 0.0
+    if served and modified:
+        age = max(parsedate_to_datetime(served).timestamp() - parsedate_to_datetime(modified).timestamp(), 0.0)
+    if age > 20 * 60:
+        raise RuntimeError(f"{url} is stale: {age / 60:.0f} minutes old")
+    return data, time.time() - age
+
+
 def reading():
-    png, modified = kolka.fetch_image(kolka.IMAGE_URL, "wind1.png", 20)
+    png, t = picture(kolka.IMAGE_URL)
     wind = kolka.extract_wind(png)
-    t = parsedate_to_datetime(modified).timestamp() if modified else time.time()
     try:
-        temperature_png, _ = kolka.fetch_image(kolka.TEMPERATURE_IMAGE_URL, "lcd_pagasts.png", 20)
+        temperature_png, _ = picture(kolka.TEMPERATURE_IMAGE_URL)
         temperature = kolka.extract_temperature(temperature_png)[0]
     except Exception as error:
         print(f"temperature left out: {error}", file=sys.stderr)
