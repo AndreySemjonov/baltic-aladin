@@ -154,7 +154,9 @@ class Run:
         self.run_time, self.zooms = run_time, list(zooms)
         self.folder = run_time.strftime("%Y%m%dT%HZ")
         published = None if self.local else world_tiles.published(name)
-        self.wanted = force or published != self.folder
+        # The run's own name, without the suffix of a run published again (25.10.2026: ECMWF waves' 00Z, made again
+        # from the 9 km files as "...T00Z-6addd4cf", never matched "...T00Z" and was made again at every look after).
+        self.wanted = force or (published or "").split("-")[0] != self.folder
         # The same run again: a folder of its own.
         if published and published.split("-")[0] == self.folder:
             self.folder += "-" + format(int(time.time()) % 36 ** 6, "x")
