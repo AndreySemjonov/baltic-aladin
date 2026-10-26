@@ -464,6 +464,50 @@ def send(url, data, content_type, token):
         reply.read()
 
 
+def listed_until(layer):
+    """The newest time EUMETSAT's map server lists for a layer (its GetCapabilities' time dimension, "start/end/step"
+    ranges or single times), or None."""
+    workspace, name = layer.split(":")
+    url = f"https://view.eumetsat.int/geoserver/{workspace}/{name}/ows?service=WMS&version=1.3.0&request=GetCapabilities"
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": AGENT}), timeout=30) as reply:
+            text = reply.read().decode("utf-8", "replace")
+        extent = text.split('<Dimension name="time"', 1)[1].split(">", 1)[1].split("<", 1)[0]
+        last = extent.strip().split(",")[-1].split("/")
+        return datetime.strptime((last[1] if len(last) > 1 else last[0])[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+    except (urllib.error.URLError, OSError, http.client.HTTPException, IndexError, ValueError):
+        return None
+
+
+def newest_ready(now):
+    """The newest quarter hour whose pictures are all listed: MSG's mask and cloud top height at it, MTG's infrared, fog
+    and visible at its 10-minute step (the owner, 26.10.2026: "make each cloud frame as soon as all its pictures are
+    listed"; frames came 31-35 min after their time, EUMETSAT lists them after about 22). Not merely a shorter wait:
+    asked for a time it hasn't got, the map server answers with the newest older picture (21:55's infrared came back as
+    21:40's), so a frame could mix a new infrared with an old mask. Unlisted (the server down): 30 minutes old, as before."""
+    until = {layer: listed_until(layer) for layer in (MASK, HEIGHT, INFRARED, FOG, VISIBLE)}
+    if all(until.values()):
+        quarter = min(until[MASK], until[HEIGHT]).replace(second=0, microsecond=0)
+        quarter -= timedelta(minutes=quarter.minute % 15)
+        _, _, _, lats, lons = sat_box()
+
+        def ready(q):
+            ten = q - timedelta(minutes=q.minute % 10)
+            # The visible only where sat_pack asks it: the sun over 3 degrees somewhere in the box (by night it's listed
+            # 10 minutes behind the others and not used).
+            day = bool((sun_height(lats[:, None], lons[None, :], q) > 3).any())
+            return ten <= min(until[INFRARED], until[FOG]) and (not day or ten <= until[VISIBLE])
+
+        while not ready(quarter):
+            quarter -= timedelta(minutes=15)
+        print(f"Listed: the mask to {until[MASK]:%H:%M}, the infrared to {until[INFRARED]:%H:%M}: frames to {quarter:%H:%M} "
+              f"({(now - quarter).total_seconds() / 60:.0f} min ago)")
+        return quarter
+    print("Not listed: frames at least 30 minutes old")
+    newest = (now - timedelta(minutes=30)).replace(second=0, microsecond=0)
+    return newest - timedelta(minutes=newest.minute % 15)
+
+
 def main():
     global LOCAL
     if "--local" in sys.argv:
@@ -473,9 +517,7 @@ def main():
         print("No INGEST_TOKEN: no clouds sent")
         return
     now = datetime.now(timezone.utc)
-    # Quarter hours of the last day, at least 30 minutes old (EUMETSAT's newest come late).
-    newest = (now - timedelta(minutes=30)).replace(second=0, microsecond=0)
-    newest -= timedelta(minutes=newest.minute % 15)
+    newest = newest_ready(now)
     wanted = [newest - timedelta(minutes=15 * k) for k in range(96)]
     if "--remake" in sys.argv:
         # A one-off: the tile packs from FROM to TO (YYYYMMDDHHMM, UTC) made again with all their pictures, the
