@@ -8,8 +8,10 @@ its interval and 10 minutes).
 Development first: launchd starts this every minute as a background process (com.meteogust.fast.plist, ProcessType
 Background) and each job under `taskpolicy -b`: macOS keeps them on the M4's 6 efficiency cores at low I/O priority,
 Xcode, the simulators and the builds keep the 4 performance cores. A job starts only with the memory pressure normal
-and 25% free (40% for the bigger ones, planned over 500 MB, while Xcode or a simulator runs); one at a time; left to the
-Tower otherwise. Shadow first: a job publishes only while named in ~/.meteogust-fast-live (else --local under the work
+and 25% free (40% for the bigger ones, planned over 500 MB, while Xcode or a simulator runs); left to the Tower
+otherwise. Two lanes, each one job at a time (26.10.2026: in shadow the nowcast's 452 s and the clouds' 318 s held up
+Kolka and the radar): the tiny jobs (jobs.py tiny: Kolka, the radar's GeoTIFFs) and the others (the clouds, the
+nowcast), each lane with its own lock, so at most one big job runs. Shadow first: a job publishes only while named in ~/.meteogust-fast-live (else --local under the work
 folder, removed after). Each job's last run in ~/meteogust-fast/state.json, which mac_beat.py sends in runner/mac.json.
 
     python runner/mac_fast.py          (launchd, every minute; one at a time by a lock)
@@ -54,9 +56,25 @@ def load(path, default):
 
 
 def save(path, data):
-    tmp = Path(str(path) + ".tmp")
+    tmp = Path(f"{path}.{os.getpid()}.tmp")
     tmp.write_text(json.dumps(data))
     os.replace(tmp, path)
+
+
+def update(name, fields=None, drop=()):
+    """One job's (or a root key's) fields merged into the state file under its lock: the two lanes write it at once."""
+    with open(HOME / ".state.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        state = load(STATE, {})
+        if isinstance(fields, dict):
+            mine = state.setdefault(name, {})
+            mine.update(fields)
+            for k in drop:
+                mine.pop(k, None)
+        else:
+            state[name] = fields
+        save(STATE, state)
+        return state
 
 
 def env():
@@ -94,7 +112,7 @@ def pull(state):
     """The code every 10 minutes (not while WRF runs: its own pull at its start)."""
     if time.time() - state.get("_pulled", 0) < PULL_EVERY or wrf_going():
         return
-    state["_pulled"] = time.time()
+    update("_pulled", time.time())
     result = subprocess.run(["git", "-C", str(REPO), "pull", "-q", "--rebase", "--autostash"], capture_output=True, text=True)
     if result.returncode:
         log(f"git pull failed: {result.stderr.strip()[:200]}")
@@ -106,15 +124,13 @@ def planned_mb(name):
     return max(peaks) if peaks else next((j.mem_mb for j in JOBS if j.name == name), 0) or 1500
 
 
-def run(job, live, state):
-    mine = state.setdefault(job.name, {})
+def run(job, live):
     stamp = f"{datetime.now(timezone.utc):%Y%m%dT%H%M}"
     LOGS.mkdir(parents=True, exist_ok=True)
     out = WORK / job.name
     script = [PYTHON, *job.args] + ([] if live else ["--local", str(out)])
     started = time.time()
-    mine.update({"started": round(started), "running": True, "live": live})
-    save(STATE, state)
+    update(job.name, {"started": round(started), "running": True, "live": live})
     with open(LOGS / f"{job.name}-{stamp}.log", "w") as f:
         try:
             # time -l: its peak memory into the log's end, for the plan.
@@ -132,12 +148,12 @@ def run(job, live, state):
         pass
     if not live:
         shutil.rmtree(out, ignore_errors=True)
-    mine.update({"ended": round(time.time()), "exit": code, "running": False})
+    fields = {"ended": round(time.time()), "exit": code, "running": False}
     if code == 0:
-        mine["ok"] = round(time.time())
+        fields["ok"] = round(time.time())
     if peak:
-        mine["peaks"] = (mine.get("peaks") or [])[-9:] + [peak]
-    save(STATE, state)
+        fields["peaks"] = (load(STATE, {}).get(job.name, {}).get("peaks") or [])[-9:] + [peak]
+    update(job.name, fields)
     log(f"{job.name}: {'live' if live else 'shadow'}, exit {code}, {time.time() - started:.0f} s" + (f", {peak} MB" if peak else ""))
 
 
@@ -148,21 +164,17 @@ def tidy():
             path.unlink()
 
 
-def main():
-    HOME.mkdir(parents=True, exist_ok=True)
-    with open(HOME / ".lock", "w") as lock:
+def lane(tiny, live):
+    """The due jobs of one lane (tiny or not), one at a time, under the lane's own lock (a run of it still going: none)."""
+    with open(HOME / (".lock-tiny" if tiny else ".lock-big"), "w") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
-            return  # the run before still going
+            return  # the lane's run before still going
         state = load(STATE, {})
-        pull(state)
-        try:
-            live = {line.strip() for line in LIVE_FILE.read_text().splitlines() if line.strip() and not line.startswith("#")}
-        except OSError:
-            live = set()
         now = time.time()
-        due = [j for j in JOBS if getattr(j, "mac", False) and now - state.get(j.name, {}).get("started", 0) >= j.every * 60]
+        due = [j for j in JOBS if getattr(j, "mac", False) and bool(j.tiny) == tiny
+               and now - state.get(j.name, {}).get("started", 0) >= j.every * 60]
         for job in sorted(due, key=lambda j: (j.priority, state.get(j.name, {}).get("started", 0))):
             level, free = memory()
             dev = developing()
@@ -171,15 +183,33 @@ def main():
                 why = f"held: memory {'pressure' if level != 1 else f'{free:.0%} free'}{' (development going on)' if dev else ''}, left to the Tower"
                 if state.get(job.name, {}).get("held") != why:
                     log(f"{job.name}: {why}")
-                state.setdefault(job.name, {})["held"] = why
-                save(STATE, state)
+                update(job.name, {"held": why})
                 continue
-            state.setdefault(job.name, {}).pop("held", None)
-            run(job, job.name in live, state)
-        if now - state.get("_tidied", 0) > 3600:
-            state["_tidied"] = now
-            tidy()
-            save(STATE, state)
+            if state.get(job.name, {}).get("held"):
+                update(job.name, {}, drop=("held",))
+            run(job, job.name in live)
+
+
+def main():
+    HOME.mkdir(parents=True, exist_ok=True)
+    state = load(STATE, {})
+    try:
+        live = {line.strip() for line in LIVE_FILE.read_text().splitlines() if line.strip() and not line.startswith("#")}
+    except OSError:
+        live = set()
+    # The big lane in a process of its own (launchd starts this again only once it has ended: a big job's minutes in it
+    # would hold the tiny lane up), the tiny lane here, each minute.
+    if "--big" in sys.argv:
+        lane(False, live)
+        return
+    pull(state)
+    with open(HOME / "runner.log", "a") as out:
+        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--big"], cwd=REPO, stdout=out, stderr=subprocess.STDOUT,
+                         start_new_session=True)
+    lane(True, live)
+    if time.time() - state.get("_tidied", 0) > 3600:
+        update("_tidied", time.time())
+        tidy()
 
 
 if __name__ == "__main__":
