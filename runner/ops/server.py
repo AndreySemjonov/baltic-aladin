@@ -675,6 +675,11 @@ class Records:
         # "those runs according github or tower pc?").
         home = [{"job": r["job"], "due": r.get("due"), "start": r["start"], "end": r["end"], "exit": r.get("exit"), "live": bool(r.get("live")),
                  "source": r.get("source"), "sources": r.get("sources")} for r in jsonl(f"{STATS}/_runs.jsonl", 1500) if r.get("end", 0) >= now - 36 * 3600]
+        # And the runs of the Tower's tiny jobs (their own record) and the Mac's fast jobs, each with its machine (the
+        # owner, 26.10.2026: "we have to define on live feed what run on tower what on mac mini").
+        home += [{"job": r["job"], "start": r["start"], "end": r["end"], "exit": r.get("exit"), "live": bool(r.get("live")),
+                  "host": host} for path, host in ((f"{STATS}/_tiny_runs.jsonl", "tower"), (MAC_RUNS, "mac"))
+                 for r in jsonl(path, 3000) if r.get("end", 0) >= now - 36 * 3600 and r.get("start")]
         # Each run's cost from its job's stats (the Pipeline's popup, the owner, 22.10.2026): CPU minutes, peak MB, MB in.
         stats = {job: jsonl(f"{STATS}/{job}.jsonl", 120) for job in {r["job"] for r in home}}
         downloads = {}
@@ -768,6 +773,9 @@ _band = {"at": 0, "hours": 0, "data": {}}
 # its last runs) read at most once a minute; each new beat's numbers kept for the Mac's band.
 MAC_URL = "https://files.meteogust.com/runner/mac.json"
 MAC_SAMPLES = f"{STATS}/_mac_samples.jsonl"
+# The Mac's fast jobs' runs (its beat's newest 40 "fast_runs", the ones not seen yet; 26.10.2026).
+MAC_RUNS = f"{STATS}/_mac_runs.jsonl"
+_mac_seen_runs = set()
 _mac = {"at": 0, "data": None, "lock": threading.Lock()}
 
 
@@ -791,6 +799,18 @@ def mac_state():
                     f.write(json.dumps({"t": data["t"], "wrf": data.get("cpu_wrf"), "other": data.get("cpu_other"),
                                         "mem": data.get("mem_used"), "mem_wrf": data.get("mem_wrf"),
                                         "net_in": data.get("net_in"), "net_out": data.get("net_out")}) + "\n")
+                if not _mac_seen_runs:
+                    _mac_seen_runs.update((r.get("job"), r.get("start")) for r in jsonl(MAC_RUNS, 3000))
+                new = [r for r in data.get("fast_runs") or [] if (r.get("job"), r.get("start")) not in _mac_seen_runs]
+                if new:
+                    with open(MAC_RUNS, "a") as f:
+                        for r in new:
+                            f.write(json.dumps(r) + "\n")
+                            _mac_seen_runs.add((r.get("job"), r.get("start")))
+                    if os.path.getsize(MAC_RUNS) > 600_000:
+                        keep = (read(MAC_RUNS, "") or "").splitlines()[-4000:]
+                        with open(MAC_RUNS, "w") as f:
+                            f.write("\n".join(keep) + "\n")
                 # About 8 days at one a beat, as the scheduler keeps its own samples (a line ~130 bytes).
                 if os.path.getsize(MAC_SAMPLES) > 900_000:
                     keep = (read(MAC_SAMPLES, "") or "").splitlines()[-6000:]

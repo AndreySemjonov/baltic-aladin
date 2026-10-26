@@ -884,6 +884,7 @@ def main():
             for job in JOBS:
                 if job.tiny:
                     trim(f"{STATS}/{job.name}.jsonl", 2000)
+            trim(f"{STATS}/_tiny_runs.jsonl", 3000)
             # Each run's usage samples (measure.py, the run's popup in the panel) 4 days: a few KB a run.
             usage_dir = f"{STATS}/_usage"
             for name in os.listdir(usage_dir) if os.path.isdir(usage_dir) else []:
@@ -916,6 +917,9 @@ def main():
             if run.job.tiny:
                 if code:
                     log(f"{name}: failed, exit {code} ({mine['fails']} in a row)")
+                # Their own record (the panel's live feeds: the radar's runs, 26.10.2026), apart from _runs.jsonl.
+                append(f"{STATS}/_tiny_runs.jsonl", {"job": name, "start": round(run.started), "end": round(time.time()),
+                                                     "exit": code, "live": run.live})
                 continue
             append(f"{STATS}/_runs.jsonl", {"job": name, "due": round(run.wanted), "start": round(run.started),
                                             "source": round(run.source) if run.source else None,

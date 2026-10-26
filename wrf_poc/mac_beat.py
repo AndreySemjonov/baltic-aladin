@@ -151,6 +151,15 @@ def fast_jobs():
     return {name: {k: v for k, v in s.items() if k in keep} for name, s in state.items() if not name.startswith("_") and isinstance(s, dict)}
 
 
+def fast_runs(keep=40):
+    """The fast jobs' newest runs here (~/meteogust-fast/runs.jsonl): the ops panel keeps them as the beats come."""
+    try:
+        with open(os.path.expanduser("~/meteogust-fast/runs.jsonl")) as f:
+            return [json.loads(line) for line in f.readlines()[-keep:] if line.strip()]
+    except (OSError, ValueError):
+        return []
+
+
 def main(region):
     cores = os.cpu_count() or 10
     cpu_wrf, cpu_other, mem_wrf = cpu(cores)
@@ -158,7 +167,7 @@ def main(region):
     net_in, net_out = network()
     body = {"t": round(time.time()), "host": os.uname().nodename, "cores": cores, "mem_total": total, "mem_used": used,
             "cpu_wrf": cpu_wrf, "cpu_other": cpu_other, "mem_wrf": mem_wrf, "net_in": net_in, "net_out": net_out,
-            "wrf": wrf_now(region), "runs": wrf_state.history(region), "fast": fast_jobs()}
+            "wrf": wrf_now(region), "runs": wrf_state.history(region), "fast": fast_jobs(), "fast_runs": fast_runs()}
     key = token()
     if not key:
         sys.exit("no INGEST_TOKEN (~/.meteogust.env)")

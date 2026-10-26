@@ -33,6 +33,9 @@ from jobs import JOBS  # noqa: E402
 
 HOME = Path.home() / "meteogust-fast"
 STATE, LOGS, WORK = HOME / "state.json", HOME / "logs", HOME / "work"
+# Each run (job, start, end, exit, live, peak): mac_beat.py sends the newest, the ops panel keeps them (26.10.2026: "we
+# have to define on live feed what run on tower what on mac mini").
+RUNS = HOME / "runs.jsonl"
 LIVE_FILE = Path.home() / ".meteogust-fast-live"
 ENV_FILE = Path.home() / ".meteogust.env"
 PYTHON = str(HOME / "venv" / "bin" / "python")
@@ -154,10 +157,22 @@ def run(job, live):
     if peak:
         fields["peaks"] = (load(STATE, {}).get(job.name, {}).get("peaks") or [])[-9:] + [peak]
     update(job.name, fields)
+    with open(RUNS, "a") as f:
+        f.write(json.dumps({"job": job.name, "start": round(started), "end": round(time.time()), "exit": code, "live": live,
+                            **({"peak_mb": peak} if peak else {})}) + "\n")
     log(f"{job.name}: {'live' if live else 'shadow'}, exit {code}, {time.time() - started:.0f} s" + (f", {peak} MB" if peak else ""))
 
 
 def tidy():
+    try:
+        lines = RUNS.read_text().splitlines()
+        if len(lines) > 4000:
+            save_text = "\n".join(lines[-3000:]) + "\n"
+            tmp = Path(f"{RUNS}.{os.getpid()}.tmp")
+            tmp.write_text(save_text)
+            os.replace(tmp, RUNS)
+    except OSError:
+        pass
     cut = time.time() - 3 * 86400
     for path in LOGS.glob("*.log"):
         if path.stat().st_mtime < cut:

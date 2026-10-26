@@ -1077,7 +1077,9 @@ const GROUPS = ["Regional", "World and Europe", "Waves and seas", "Mixes and pro
 // the table): [who makes it, its usual interval and its late age in seconds (the station server's WATCHED)]. Their
 // publishes: the panel server's views.FEEDS, each file's Last-Modified every 2 minutes.
 // (The satellite clouds, ALADIN's spots and the gauges at home from 26.10.2026, update.yml their backup.)
-const FEED_ROWS = { radar: ["Tower · Cloudflare", 300, 1800], sat: ["Tower", 900, 2700], "rain-now": ["Tower", 3600, 3 * 3600],
+// (The radar's GeoTIFFs, the satellite clouds and the rain nowcast on the Mac mini from 26.10.2026, the Tower their
+// backup: each run's bar in its machine's colour.)
+const FEED_ROWS = { radar: ["Mac · Tower · Cloudflare", 300, 1800], sat: ["Mac · Tower", 900, 2700], "rain-now": ["Mac · Tower", 3600, 3 * 3600],
   ens: ["Tower", 12 * 3600, 20 * 3600], "helper-aladin": ["Tower", 6 * 3600, 14 * 3600], "helper-gauges": ["Tower", 900, 5400] };
 // Each feed's job (runner/jobs.py): its runs are the lane's bars (the tiny ones, Kolka and the radar's GeoTIFFs, keep
 // out of the runs' record: their lanes show the publishes only).
@@ -1581,7 +1583,7 @@ function BarPop({ d, now, left, top, onClose, band, compact, pinned }) {
     const ran = Math.max(0, end - start);
     const je = running ? jobEnd(r, now) : null;
     const okTag = running ? (je && je.late ? html`<span class="ptag late">running long</span>` : html`<span class="ptag">running · ${r.live ? "live" : "shadow"}</span>`)
-      : html`<span class=${"ptag " + (r.exit === 0 || r.ok ? "done" : "bad")}>${r.exit === 0 || r.ok ? "finished · Tower" : "failed · Tower"}</span>`;
+      : html`<span class=${"ptag " + (r.exit === 0 || r.ok ? "done" : "bad")}>${(r.exit === 0 || r.ok ? "finished · " : "failed · ") + (r.host === "mac" ? "Mac mini" : "Tower")}</span>`;
     const fromWhat = a != null && from === a ? "available" : r.avail && from === r.avail ? "available" : "due";
     // Before it was due: a job that watches a model hadn't seen its run; one made from our own sets (a new input) or on
     // a timer wasn't due yet (its inputs, its gap after its last run, its hour).
@@ -1945,7 +1947,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
         const yt = y + lay.t(r);
         return html`<g ...${hov({ kind: "tower", l, t: r })}>
         ${from ? html`<rect x=${x(from)} y=${yt + 17} width=${w(from, r.start, 1)} height="6" rx="1" fill="var(--wait)"/>` : null}
-        <rect x=${x(r.start)} y=${yt + 17} width=${w(r.start, r.end)} height="6" rx="1" fill=${r.exit === 0 ? "var(--home)" : "var(--bad)"} opacity=${r.live ? 1 : 0.55}/>
+        <rect x=${x(r.start)} y=${yt + 17} width=${w(r.start, r.end)} height="6" rx="1" fill=${r.exit !== 0 ? "var(--bad)" : r.host === "mac" ? "var(--mac)" : "var(--home)"} opacity=${r.live ? 1 : 0.55}/>
         ${((p) => p ? html`<rect x=${x(p[0])} y=${yt + 17} width=${w(p[0], p[1], 1)} height="6" rx="1" fill="var(--accent)" opacity=${r.live ? 1 : 0.7}/>` : null)(dlPart(r, r.start, r.end))}</g>`; })}
       ${l.home && l.home.started ? (() => { const je = jobEnd(l.home, now);
         const yt = y + lay.t("home"), ha = l.homeAvail, cur = [...l.entries].reverse().find((o) => o.avail != null && o.avail <= l.home.started + 120);
