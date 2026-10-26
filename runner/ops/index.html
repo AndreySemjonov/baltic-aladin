@@ -2046,7 +2046,10 @@ const RANGES = [[6, 3], [12, 6], [24, 12]];
 function Pipeline({ maps, fr, f, now, s, cap, ad }) {
   const [sel, setSel] = useState(null);
   const [filter, setFilter] = useState("all");
-  const [range, setRange] = useState(12);
+  // The hours shown, remembered in this browser (the owner, 26.10.2026: "have to save selection 6/12/24h ... so after
+  // restart of page its not jump back to default 12"), as the band's pin is.
+  const [range, setRangeState] = useState(() => { try { const v = +localStorage.getItem("ops-range"); return RANGES.some((r) => r[0] === v) ? v : 12; } catch (e) { return 12; } });
+  const setRange = (v) => { try { localStorage.setItem("ops-range", String(v)); } catch (e) {} setRangeState(v); };
   const all = laneData(maps, fr, f, now, s);
   const both = (l) => l.towerT != null && l.ghT != null && !l.procOnly;
   const pick = { all: () => true, sooner: (l) => both(l) && l.towerT < l.ghT, later: (l) => both(l) && l.towerT >= l.ghT,
