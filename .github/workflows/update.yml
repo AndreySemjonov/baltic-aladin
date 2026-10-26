@@ -59,8 +59,20 @@ jobs:
           python3 -m venv .venv
           .venv/bin/pip install --quiet eccodes numpy pillow h5py scipy copernicusmarine
 
+      # The riders' parts made at home (the owner, 26.10.2026: "move the satellite clouds, the ALADIN spots file and
+      # the gauges file from GitHub's update.yml to the Tower, shadow first, then live"; runner/jobs.py "aladin-spots",
+      # "gauges", "clouds"): each left to the home runner while its heartbeat lists it live (home_live.py), and GitHub
+      # makes it again when it fails there twice in a row. This run's report goes on either way.
+      - name: Which parts are made at home?
+        id: parts
+        run: |
+          python3 home_live.py aladin-spots | sed 's/^home=/aladin=/' >> "$GITHUB_OUTPUT"
+          python3 home_live.py gauges | sed 's/^home=/gauges=/' >> "$GITHUB_OUTPUT"
+          python3 home_live.py clouds | sed 's/^home=/clouds=/' >> "$GITHUB_OUTPUT"
+
       - name: Read the newest ALADIN run
         id: aladin
+        if: steps.parts.outputs.aladin != 'true'
         env:
           RUN: ${{ inputs.run }}
           # The GRIB files stay for the ALADIN map.
@@ -103,6 +115,7 @@ jobs:
       # The Estonian coastal gauges' last 48 hours, from their pages, once an hour.
       - name: Read the Estonian gauges
         id: gauges
+        if: steps.parts.outputs.gauges != 'true'
         run: |
           .venv/bin/python ee_gauges.py || echo "Estonian gauges unavailable this time"
           if git diff --quiet --exit-code docs/ee-gauges.json 2>/dev/null && git ls-files --error-unmatch docs/ee-gauges.json >/dev/null 2>&1; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
@@ -112,6 +125,7 @@ jobs:
       # (files.meteogust.com/clouds) through the station-history Worker with the report token; on
       # every run, not part of the Pages site. A failure never fails the run.
       - name: Satellite clouds
+        if: steps.parts.outputs.clouds != 'true'
         env:
           INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
         run: .venv/bin/python clouds.py || echo "Clouds unavailable this time"
@@ -152,6 +166,8 @@ jobs:
           NEW_ALADIN: ${{ steps.aladin.outputs.changed }}
           FORCE: ${{ inputs.map }}
           WATER_HOME: ${{ steps.home.outputs.water }}
+          ALADIN_HOME: ${{ steps.parts.outputs.aladin }}
+          GAUGES_HOME: ${{ steps.parts.outputs.gauges }}
         run: |
           # A new run is built (a busy source keeps its last published map rather than failing
           # the deploy); otherwise the published frames are copied (built if that fails). Rain is
@@ -168,7 +184,9 @@ jobs:
           # and the gauges.
           # The site folder itself (no picture build makes it any more since the wind pictures retired).
           mkdir -p site
-          cp docs/aladin.json docs/index.html site/
+          cp docs/index.html site/
+          # ALADIN's spots and the gauges: left out while home makes them (the repo's copies would go over its newer ones).
+          if [ "$ALADIN_HOME" = "true" ]; then echo "ALADIN's spots are made at home: left out here"; else cp docs/aladin.json site/; fi
           # The water, the ice and the NEMO files: left out while home makes them (they'd go over its newer ones).
           if [ "$WATER_HOME" = "true" ]; then
             echo "The water map is made at home: left out here"
@@ -181,8 +199,12 @@ jobs:
           # The coast points (about 1 MB, not in git): this run's, else the live ones.
           if [ -f nemo-coast.json ]; then cp nemo-coast.json site/; else curl -sf -o site/nemo-coast.json https://files.meteogust.com/helper/nemo-coast.json || echo "No NEMO coast points yet"; fi
           fi
+          if [ "$GAUGES_HOME" = "true" ]; then
+            echo "The gauges are made at home: left out here"
+          else
           if [ -f docs/ee-gauges.json ]; then cp docs/ee-gauges.json site/; fi
           if [ -f docs/gauges.json ]; then cp docs/gauges.json site/; fi
+          fi
           python3 - <<'PY'
           import json, os, time
           now = time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())

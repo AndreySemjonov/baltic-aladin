@@ -7,6 +7,7 @@ The app downloads one small picture per time step instead of asking EUMETSAT's m
 dozens of tiles (slow, and the mask failed on 10-minute times: it has only quarter hours).
 
     python clouds.py            # the missing pictures of the last day, newest first (at most 16)
+    python clouds.py --local DIR   # written under DIR instead (clouds/..., tiles/sat/...), nothing uploaded
 
 The rain map's box as one picture (clouds/index.json: the app's builds before 211), and Europe as
 map tiles (the owner, 12.10.2026: tiles for everything, fine wherever one looks): a mosaic at zoom
@@ -37,6 +38,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
@@ -376,12 +378,8 @@ def make_tiles(wanted, token):
             print(f"  {when:%H:%M}: no picture")
             continue
         stamp = when.strftime("%Y%m%d%H%M")
-        request = urllib.request.Request(TILES_UPLOAD + stamp + ".pack", data=pack, method="PUT",
-                                         headers={"Authorization": "Bearer " + token, "Content-Type": "application/octet-stream",
-                                                  "User-Agent": AGENT})
         try:
-            with urllib.request.urlopen(request, timeout=120) as reply:
-                reply.read()
+            send(TILES_UPLOAD + stamp + ".pack", pack, "application/octet-stream", token)
             print(f"  {when:%Y-%m-%d %H:%M}: {len(pack) // 1024} KB, {time.time() - started:.0f} s")
         except urllib.error.URLError as error:
             print(f"  {when:%H:%M}: upload failed: {error}")
@@ -397,9 +395,31 @@ def published(folder):
         return set()
 
 
+# The home runner's shadow (--local DIR): the pictures and packs written under DIR, nothing uploaded (the Tower's jobs
+# have the upload token; 26.10.2026).
+LOCAL = None
+
+
+def send(url, data, content_type, token):
+    """One picture or pack: uploaded, or under LOCAL (its path after the upload address's /upload/)."""
+    if LOCAL:
+        kind, _, rest = url.partition("/upload/")
+        path = LOCAL / kind.rsplit("/", 1)[-1] / rest
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return
+    request = urllib.request.Request(url, data=data, method="PUT",
+                                     headers={"Authorization": "Bearer " + token, "Content-Type": content_type, "User-Agent": AGENT})
+    with urllib.request.urlopen(request, timeout=120) as reply:
+        reply.read()
+
+
 def main():
+    global LOCAL
+    if "--local" in sys.argv:
+        LOCAL = Path(sys.argv[sys.argv.index("--local") + 1])
     token = os.environ.get("INGEST_TOKEN", "")
-    if not token:
+    if not token and not LOCAL:
         print("No INGEST_TOKEN: no clouds sent")
         return
     now = datetime.now(timezone.utc)
@@ -429,12 +449,8 @@ def make(one, wanted, token):
         mask = with_low_cloud(mask, picture(FOG, when - timedelta(minutes=when.minute % 10), one["box"], one["size"]))
         data, ground = render(infrared, mask, one["local"], one["quality"], one["alpha"])
         stamp = when.strftime("%Y%m%d%H%M")
-        request = urllib.request.Request(UPLOAD + one["folder"] + stamp, data=data, method="PUT",
-                                         headers={"Authorization": "Bearer " + token, "Content-Type": "image/webp",
-                                                  "User-Agent": AGENT})
         try:
-            with urllib.request.urlopen(request, timeout=60) as reply:
-                reply.read()
+            send(UPLOAD + one["folder"] + stamp, data, "image/webp", token)
             made += 1
             print(f"  {when:%Y-%m-%d %H:%M}: {len(data) // 1024} KB, clear ground grey {ground:.0f}")
         except urllib.error.URLError as error:

@@ -9,6 +9,7 @@ its own zero (level = SEHL - 500 cm); the corrections below put them on LAS-2000
 2.10.2026 against the Estonian gauges and the sea models (the app uses the same).
 """
 import json
+import time
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -117,11 +118,31 @@ def write(estonia, now):
     print(f"Gauges: {len(gauges)} in gauges.json")
 
 
+PUBLISHED = "https://files.meteogust.com/helper/gauges.json"
+
+
 def load():
-    """docs/gauges.json's gauges with {unix hour: level} of their last 48 hours added as "levels"."""
+    """docs/gauges.json's gauges with {unix hour: level} of their last 48 hours added as "levels"; the published file
+    (helper/gauges.json) when the repo's is missing or over 3 hours old (26.10.2026: the gauges made at home, the
+    repo's copy no longer updated; the water map reads them here)."""
+    data = None
     try:
-        gauges = json.loads(OUTPUT.read_text(encoding="utf-8"))["gauges"]
+        data = json.loads(OUTPUT.read_text(encoding="utf-8"))
+        made = datetime.strptime(data["made"], "%Y-%m-%dT%H:%MZ").replace(tzinfo=timezone.utc).timestamp()
+        if time.time() - made > 3 * 3600:
+            data = None
     except (OSError, ValueError, KeyError):
+        data = None
+    if data is None:
+        try:
+            request = urllib.request.Request(f"{PUBLISHED}?t={int(time.time())}", headers={"User-Agent": "baltic-aladin gauges.py"})
+            with urllib.request.urlopen(request, timeout=30) as reply:
+                data = json.load(reply)
+        except Exception:
+            data = None
+    try:
+        gauges = data["gauges"]
+    except (TypeError, KeyError):
         return []
     for gauge in gauges:
         levels = {int(gauge["start"] + k * gauge["step"]): v for k, v in enumerate(gauge["level"]) if v is not None}

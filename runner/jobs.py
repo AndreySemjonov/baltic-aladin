@@ -146,4 +146,12 @@ JOBS = [
     # from 00:25 UTC that day their GeoTIFFs stopped, and with them our radar, the rain alerts and the nowcast): every
     # 3 minutes the last hour's images without theirs, a few seconds each; nothing to do while theirs are there.
     Job("opera", ["opera_tiff.py", "--minutes", "60"], every=3, timeout=10, priority=1, mem_mb=900, tiny=True),
+    # update.yml's last riders' parts (the owner, 26.10.2026: "move the satellite clouds, the ALADIN spots file and the
+    # gauges file from GitHub's update.yml to the Tower, shadow first, then live"): the rain map's satellite clouds
+    # (EUMETSAT's every 15 minutes, made 30 minutes after; GitHub looked every 15), ALADIN's spots (aladin_home.py: a new
+    # ČHMÚ run about 4 hours after 00/06/12/18 UTC), the Estonian and Latvian gauges (gauges_home.py, hourly by
+    # ee_gauges.py's own check). update.yml leaves each to home while it's live here (home_live.py).
+    Job("clouds", ["clouds.py"], every=5, timeout=30, priority=1),
+    Job("aladin-spots", ["aladin_home.py"], every=15, timeout=30, priority=1),
+    Job("gauges", ["gauges_home.py"], every=20, timeout=20, priority=2),
 ]
