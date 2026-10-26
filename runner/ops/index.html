@@ -30,6 +30,9 @@ try { const t = localStorage.getItem("ops-theme"); if (t === "light" || t === "d
 body { background: var(--bg); color: var(--ink); font: 15px/1.45 var(--body); margin: 0 }
 .wrap { max-width: 1320px; margin: 0 auto; padding-block: 0 40px;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)) }
+/* The Pipeline across the whole window, its hours taking the room (the owner, 26.10.2026: "Lets make its fit
+   automatically to left right. This will give more room to graph"); the other tabs keep their column. */
+.wrap.wide { max-width: none; padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px)) }
 .num, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums }
 h2 { font: 600 13px/1 var(--display); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0 }
@@ -1027,7 +1030,7 @@ function TopBar(props) {
   const { f, zone, setZone, sec } = props;
   const now = Date.now() / 1000;
   const stale = f.live_t && now - f.live_t > 180;
-  return html`<header class="top"><div class="wrap"><div class="row1">
+  return html`<header class="top"><div class=${"wrap" + (sec === "pipeline" ? " wide" : "")}><div class="row1">
     <div class="brand"><span class="dot" aria-hidden="true" style=${stale ? "background:var(--bad)" : ""}></span>MeteoGust <small>control · ${f.host || "…"}${f.mac ? html` + <span style="color:var(--mac)"><span aria-hidden="true" style=${now - f.mac.beat > 600 ? "color:var(--bad)" : ""}>● </span>Mac mini</span>` : null}</small></div>
     <${Nav} sec=${sec} />
     <div class="clock"><b>${clock(now, true)}</b> ${zoneName()}
@@ -3553,7 +3556,7 @@ function App() {
   const now = Date.now() / 1000;
   if (!f) return html`<main class="wrap"><p class="empty">Connecting to the Tower…</p></main>`;
   return html`<${TopBar} f=${f} fr=${fr} ad=${ad} spots=${spots} zone=${zone} setZone=${setZone} sec=${sec} />
-    <main class="wrap">
+    <main class=${"wrap" + (sec === "pipeline" ? " wide" : "")}>
       ${sec === "pipeline" ? html`<${Pipeline} maps=${maps} fr=${fr} f=${f} now=${now} s=${s} cap=${cap} ad=${ad} />`
         : sec === "machine" ? html`<${NowTab} f=${f} s=${s} now=${now} /><div style="margin-top:16px"><${Capacity} cap=${cap} now=${now} /></div>`
         : sec === "quality" ? html`<${Quality} ad=${ad} now=${now} />`
