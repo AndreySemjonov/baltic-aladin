@@ -65,7 +65,8 @@ def put(region, stage, cycle=""):
 
 
 def check(region):
-    """0: the Mac made this cycle; 1: it's on it (wait); 2: run it here. Says why on stdout."""
+    """0: the Mac made this cycle; 1: it's on it (wait); 2: run it here; 3: not read (no internet or the file store
+    down: tower.sh waits when it saw the Mac working). Says why on stdout."""
     now = time.time()
     try:
         request = urllib.request.Request(READ.format(region=region) + f"?t={int(now)}", headers=AGENT)
@@ -73,10 +74,10 @@ def check(region):
             state = json.loads(reply.read().decode())
     except urllib.error.HTTPError as error:
         print(f"no word from the Mac ({error.code})")
-        return 2
-    except Exception as error:  # no answer from the file store: safer to run it here
+        return 3 if error.code >= 500 else 2
+    except Exception as error:
         print(f"the Mac's state not read ({error})")
-        return 2
+        return 3
     age, stage = now - state.get("t", 0), state.get("stage", "?")
     said = f"the Mac ({state.get('host', '?')}): {stage}, {state.get('cycle') or 'cycle not chosen yet'}, {age / 60:.0f} min ago"
     if stage == "done" and age < DONE_FOR:

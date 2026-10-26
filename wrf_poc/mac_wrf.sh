@@ -31,7 +31,19 @@ CYCLE=""
 stage() {
   echo "$1" > "$HOME/wrf-logs/.stage-$REGION"
   log "stage: $1${CYCLE:+ ($CYCLE)}"
-  if [ "$TEST" != 1 ]; then "$PY" "$HERE/wrf_poc/wrf_state.py" put "$REGION" "$1" "$CYCLE" || log "state not sent"; fi
+  if [ "$TEST" != 1 ]; then "$PY" "$HERE/wrf_poc/wrf_state.py" put "$REGION" "$1" "$CYCLE" || { log "state not sent"; return 1; }; fi
+}
+# Tried again every 5 minutes for up to 3 hours: the made run kept through an internet break (the owner, 26.10.2026: "if
+# we made WRF and it can't upload what will happen?", a break expected 02:00-06:00 Riga, up to an hour; the night run
+# ends about 02:00).
+again() {
+  local n=0
+  until "$@"; do
+    n=$((n + 1))
+    [ "$n" -ge 36 ] && return 1
+    log "not sent (no internet?): tried again in 5 minutes"
+    sleep 300
+  done
 }
 fail() { log "failed: $1"; stage failed; exit 1; }
 
@@ -100,9 +112,10 @@ rm -rf "$WORK/tiles"
 if [ "$TEST" = 1 ]; then
   log "test: tiles in $WORK/tiles, nothing uploaded"
 else
-  "$PY" wrf_poc/publish_tiles.py "$WORK/tiles" "wrf-$REGION" || fail "upload"
+  again "$PY" wrf_poc/publish_tiles.py "$WORK/tiles" "wrf-$REGION" || fail "upload"
 fi
-stage done
+# "done" sent for sure: the beat stops with this script, and a "tiles" left behind goes stale and the Tower runs it again.
+again stage done
 log "the run took $(( ($(date +%s) - started) / 60 )) minutes"
 # A fortnight of logs.
 find "$HOME/wrf-logs" -name "*.log" -mtime +14 -delete

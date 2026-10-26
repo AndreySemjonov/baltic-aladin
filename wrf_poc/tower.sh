@@ -30,13 +30,20 @@ export GFS_BACK=2 GFS_WAIT=100 GFS_POLL=120
 # daytime run) the Tower asked 3 seconds before the Mac said "waiting" and ran the same cycle beside it (25 and
 # 26.10.2026: 8 cores and 9 GB taken, 20 jobs waiting for slots; the owner: "Tower CPU usage went up just when we
 # started WRF update on mac mini. Coincidence?").
+# The state not read once the Mac was seen working (an internet break, the owner, 26.10.2026: one expected 02:00-06:00
+# Riga): asked again every 5 minutes for up to 3 hours, as the Mac keeps trying its upload (mac_wrf.sh), instead of a run
+# of its own beside the Mac's.
 if [ "${MAC_FALLBACK:-1}" = 1 ]; then
-  first=1
+  first=1 seen=0 unread=0
   while :; do
     ( cd "$HERE" && "$HERE/.venv/bin/python" wrf_poc/wrf_state.py check "$REGION" )
-    case $? in
+    code=$?
+    if [ "$code" = 3 ] && [ "$seen" = 1 ] && [ "$unread" -lt 36 ]; then
+      unread=$((unread + 1)); log "the Mac's state not read: asked again in 5 minutes"; sleep 300; continue
+    fi
+    case $code in
       0) log "the Mac made this run: nothing to do here"; exit 0 ;;
-      1) sleep 300 ;;
+      1) seen=1 unread=0; sleep 300 ;;
       *) if [ "$first" = 1 ]; then log "no word from the Mac yet: asked again in 5 minutes"; sleep 300
          else log "the Tower runs it"; break; fi ;;
     esac
