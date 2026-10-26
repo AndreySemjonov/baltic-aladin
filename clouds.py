@@ -8,7 +8,7 @@ dozens of tiles (slow, and the mask failed on 10-minute times: it has only quart
 
     python clouds.py            # the missing pictures of the last day, newest first (at most 16)
     python clouds.py --local DIR   # written under DIR instead (clouds/..., tiles/sat/...), nothing uploaded
-    python clouds.py --remake FROM TO   # the daytime tile packs from FROM to TO (YYYYMMDDHHMM, UTC) made again
+    python clouds.py --remake FROM TO   # the tile packs from FROM to TO (YYYYMMDDHHMM, UTC) made again
 
 The rain map's box as one picture (clouds/index.json: the app's builds before 211), and Europe as
 map tiles (the owner, 12.10.2026: tiles for everything, fine wherever one looks): a mosaic at zoom
@@ -280,18 +280,13 @@ def sat_box():
     return box, width, height, lats, lons
 
 
-def in_daylight(when):
-    """Whether a quarter hour's pack uses the visible: the sun over 3 degrees somewhere in Europe's box."""
-    _, _, _, lats, lons = sat_box()
-    return bool((sun_height(lats[:, None], lons[None, :], when) > 3).any())
-
-
-def sat_pack(when, without_visible=True):
-    """One quarter hour's Europe tiles as a pack (MGT1, LA PNGs) and how it was made: (pack, "visible"),
-    (pack, "night"), (pack, "without the visible") or (None, why). By day without the visible picture (the biggest
-    and slowest of EUMETSAT's: it fails now and then) the one 10 minutes before; without that either, made only when
-    `without_visible` (the owner's video, 26.10.2026: a frame made without it was the mask's solid sheet between
-    thinned ones, and by day the clouds came and went sliding the map; "build A, with B's remake only as the net")."""
+def sat_pack(when, incomplete=True):
+    """One quarter hour's Europe tiles as a pack (MGT1, LA PNGs) and how it was made: (pack, "complete"),
+    (pack, "without the visible" / "the fog picture") or (None, why). The pictures that say how thick (by day the
+    visible, by night the Fog / Low Clouds RGB; big and slow at EUMETSAT, they fail now and then) missing, the ones
+    10 minutes before; without those either, made only when `incomplete` (the owner's video, 26.10.2026: a frame made
+    without the visible was the mask's solid sheet between thinned ones, and by day the clouds came and went sliding
+    the map; "build A, with B's remake only as the net")."""
     box, width, height, lats, lons = sat_box()
     # The four pictures side by side (the visible, 500 m, is slow to come): the infrared and the
     # visible every 10 minutes (the step at or before the quarter hour), the mask and the cloud
@@ -307,13 +302,21 @@ def sat_pack(when, without_visible=True):
     infrared, mask, cth, visible = got["infrared"], got["mask"], got["height"], got.get("visible")
     if infrared is None or mask is None:
         return None, "no picture"
-    how = "night"
-    if "visible" in jobs:
+    # By night the Fog / Low Clouds picture sets how thick (style_height): without it the same (the owner's photo,
+    # 26.10.2026 23:14 Riga, thin altocumulus with a corona; our 19:00 UTC frame made without it was 86 % cloud round
+    # Riga, 43 % made again with it).
+    lacking = []
+    if "visible" in jobs and visible is None:
+        visible = picture(VISIBLE, ten - timedelta(minutes=10), box, (width, height))
         if visible is None:
-            visible = picture(VISIBLE, ten - timedelta(minutes=10), box, (width, height))
-        if visible is None and not without_visible:
-            return None, "no visible picture"
-        how = "visible" if visible is not None else "without the visible"
+            lacking.append("the visible")
+    if daylight.min() < 1 and got.get("fog") is None:
+        got["fog"] = picture(FOG, ten - timedelta(minutes=10), box, (width // 4, height // 4))
+        if got["fog"] is None:
+            lacking.append("the fog picture")
+    if lacking and not incomplete:
+        return None, "not in yet: " + " or ".join(lacking)
+    how = "without " + " and ".join(lacking) if lacking else "complete"
     mask = with_low_cloud(mask, got.get("fog"))
     # The morning: as the sun comes up the fog picture loses the low deck (its 3.9 um channel sees sunlight; Riga
     # 25.10.2026, OVC004 all morning: seen until 05:20 UTC, lost from 05:50) and the mask is still blind to it. Where
@@ -383,7 +386,7 @@ def sat_pack(when, without_visible=True):
 
 def sat_published():
     """The quarter hours already in the tiles' index: {stamp: its entry ({stamp, time, file}, "visible": False when
-    made by day without the visible)}."""
+    made without a picture that says how thick: the visible or the fog picture)}."""
     try:
         request = urllib.request.Request(TILES_INDEX + f"?t={int(time.time())}", headers={"User-Agent": AGENT})
         with urllib.request.urlopen(request, timeout=30) as reply:
@@ -392,29 +395,29 @@ def sat_published():
         return {}
 
 
-# A daytime frame waits for the visible picture until this long after its time, then goes without it (no gap in the
-# clouds; the owner, 26.10.2026: "build A"); the frames are made about 30 minutes after their time.
+# A frame waits for the pictures that say how thick until this long after its time, then goes without them (no gap in
+# the clouds; the owner, 26.10.2026: "build A"); the frames are made about 30 minutes after their time.
 WAIT_VISIBLE = 45 * 60
 
 
 def make_tiles(wanted, token, remake=None):
-    """Europe's missing tile packs, newest first; then one made without the visible, again now it may be there (the
-    net). `remake`: these quarter hours made again instead (by day only; --remake), each kept as it was when the
-    visible doesn't come."""
+    """Europe's missing tile packs, newest first; then one made without the visible or the fog picture, again now it
+    may be there (the net). `remake`: these quarter hours made again instead (--remake), each kept as it was when a
+    picture doesn't come."""
     have = sat_published()
     if remake is None:
         missing = [t for t in wanted if t.strftime("%Y%m%d%H%M") not in have][:TILES_PER_RUN]
         again = [t for t in wanted if have.get(t.strftime("%Y%m%d%H%M"), {}).get("visible") is False][:1]
-        print(f"Satellite tiles: {len(have)} published, {len(missing)} to make, {len(again)} to make again with the visible")
+        print(f"Satellite tiles: {len(have)} published, {len(missing)} to make, {len(again)} to make again complete")
     else:
-        missing, again = [], [t for t in remake if t.strftime("%Y%m%d%H%M") in have and in_daylight(t)]
+        missing, again = [], [t for t in remake if t.strftime("%Y%m%d%H%M") in have]
         print(f"Satellite tiles: {len(again)} to make again")
     now = time.time()
     for when in missing + again:
         started = time.time()
         stamp = when.strftime("%Y%m%d%H%M")
         before = have.get(stamp)
-        pack, how = sat_pack(when, without_visible=before is None and now - when.timestamp() > WAIT_VISIBLE)
+        pack, how = sat_pack(when, incomplete=before is None and now - when.timestamp() > WAIT_VISIBLE)
         if pack is None:
             print(f"  {when:%H:%M}: {how}" + (", kept as it was" if before else ", tried again next run" if how != "no picture" else ""))
             continue
@@ -424,7 +427,7 @@ def make_tiles(wanted, token, remake=None):
             done = before["file"].removesuffix(".pack").partition("-r")[2]
             name = f"{stamp}-r{int(done or 0) + 1}"
         try:
-            send(TILES_UPLOAD + name + ".pack" + ("?visible=0" if how == "without the visible" else ""), pack,
+            send(TILES_UPLOAD + name + ".pack" + ("?visible=0" if how != "complete" else ""), pack,
                  "application/octet-stream", token)
             print(f"  {when:%Y-%m-%d %H:%M}: {len(pack) // 1024} KB, {time.time() - started:.0f} s, {how}"
                   + (" (made again)" if before else ""))
@@ -475,7 +478,7 @@ def main():
     newest -= timedelta(minutes=newest.minute % 15)
     wanted = [newest - timedelta(minutes=15 * k) for k in range(96)]
     if "--remake" in sys.argv:
-        # A one-off: the daytime tile packs from FROM to TO (YYYYMMDDHHMM, UTC) made again with the visible, the
+        # A one-off: the tile packs from FROM to TO (YYYYMMDDHHMM, UTC) made again with all their pictures, the
         # Baltic set left as it is (26.10.2026: the frames published without the visible before the net).
         i = sys.argv.index("--remake")
         start, end = (datetime.strptime(s, "%Y%m%d%H%M").replace(tzinfo=timezone.utc) for s in sys.argv[i + 1:i + 3])
