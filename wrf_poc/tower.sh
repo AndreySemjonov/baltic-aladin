@@ -26,14 +26,21 @@ export GFS_BACK=2 GFS_WAIT=100 GFS_POLL=120
 # as the fallback"; mac_wrf.sh): this one goes on only when the Mac doesn't answer, failed or is stuck (wrf_state.py),
 # checked every 5 minutes while the Mac works. Without the Mac's state file (before it runs, or the file store down)
 # the Tower runs as before. MAC_FALLBACK=0: run here regardless.
+# The first "run it here" asked again after 5 minutes: both start at 11:45 Riga, and with the GFS cycle already out (the
+# daytime run) the Tower asked 3 seconds before the Mac said "waiting" and ran the same cycle beside it (25 and
+# 26.10.2026: 8 cores and 9 GB taken, 20 jobs waiting for slots; the owner: "Tower CPU usage went up just when we
+# started WRF update on mac mini. Coincidence?").
 if [ "${MAC_FALLBACK:-1}" = 1 ]; then
+  first=1
   while :; do
     ( cd "$HERE" && "$HERE/.venv/bin/python" wrf_poc/wrf_state.py check "$REGION" )
     case $? in
       0) log "the Mac made this run: nothing to do here"; exit 0 ;;
       1) sleep 300 ;;
-      *) log "the Tower runs it"; break ;;
+      *) if [ "$first" = 1 ]; then log "no word from the Mac yet: asked again in 5 minutes"; sleep 300
+         else log "the Tower runs it"; break; fi ;;
     esac
+    first=0
   done
 fi
 
