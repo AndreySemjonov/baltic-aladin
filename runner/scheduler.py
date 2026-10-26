@@ -383,8 +383,36 @@ def keep_ops():
             log("ops tunnel: started" if started.returncode == 0 else f"ops tunnel: not started ({started.stderr.strip()[:200]})")
 
 
+_mac_seen = [0.0, None]  # (when read, the Mac's beat)
+
+
+def mac_has(job, now):
+    """Whether the Mac mini makes this job now (jobs.py mac): its beat (runner/mac.json, read at most once a minute) under
+    10 minutes old, the job live there and running or finished well within its interval and 10 minutes."""
+    if not job.mac:
+        return False
+    if now - _mac_seen[0] > 60:
+        _mac_seen[0] = now
+        try:
+            request = urllib.request.Request(f"{FILES}runner/mac.json?t={int(now)}", headers=AGENT)
+            with urllib.request.urlopen(request, timeout=10) as reply:
+                _mac_seen[1] = json.load(reply)
+        except Exception:
+            _mac_seen[1] = None
+    beat = _mac_seen[1]
+    if not beat or now - beat.get("t", 0) > 600:
+        return False
+    mine = (beat.get("fast") or {}).get(job.name) or {}
+    if not mine.get("live"):
+        return False
+    return bool(mine.get("running")) or now - mine.get("ok", 0) <= job.every * 60 + 600
+
+
 def due(job, state, cache, now, live=False):
     """The run (or moment) a job is due for, None when it isn't."""
+    # Made on the Mac mini now (jobs.py mac): not here.
+    if mac_has(job, now):
+        return None
     mine = state.get(job.name, {})
     since = now - mine.get("started", 0)
     retry = 0 < mine.get("fails", 0) <= RETRIES and since >= RETRY_S

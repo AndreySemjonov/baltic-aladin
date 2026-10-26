@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The fast jobs on the Mac mini (the owner, 26.10.2026: "Agree about B, but we need to be sure that there will be
+     enough resources for development too during the daytime"): runner/mac_fast.py every minute, as a background
+     process (efficiency cores, low I/O priority; development keeps the performance cores). Installed in
+     ~/Library/LaunchAgents, loaded with:
+     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.meteogust.fast.plist (off: launchctl bootout gui/$(id -u)/com.meteogust.fast). -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.meteogust.fast</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/tower-mini/meteogust-fast/venv/bin/python</string>
+    <string>/Users/tower-mini/baltic-aladin/runner/mac_fast.py</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>60</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
+  <key>Nice</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/tower-mini/meteogust-fast/runner.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/tower-mini/meteogust-fast/runner.log</string>
+</dict>
+</plist>

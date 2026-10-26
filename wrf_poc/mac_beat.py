@@ -139,6 +139,18 @@ def wrf_now(region):
     return out
 
 
+def fast_jobs():
+    """The fast jobs made here (runner/mac_fast.py; the owner, 26.10.2026): each one's last start, end, exit, last good
+    run, whether live and running now, and why held (for the Tower's scheduler: mac_has, and the panel)."""
+    try:
+        with open(os.path.expanduser("~/meteogust-fast/state.json")) as f:
+            state = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    keep = ("started", "ended", "exit", "ok", "live", "running", "held")
+    return {name: {k: v for k, v in s.items() if k in keep} for name, s in state.items() if not name.startswith("_") and isinstance(s, dict)}
+
+
 def main(region):
     cores = os.cpu_count() or 10
     cpu_wrf, cpu_other, mem_wrf = cpu(cores)
@@ -146,7 +158,7 @@ def main(region):
     net_in, net_out = network()
     body = {"t": round(time.time()), "host": os.uname().nodename, "cores": cores, "mem_total": total, "mem_used": used,
             "cpu_wrf": cpu_wrf, "cpu_other": cpu_other, "mem_wrf": mem_wrf, "net_in": net_in, "net_out": net_out,
-            "wrf": wrf_now(region), "runs": wrf_state.history(region)}
+            "wrf": wrf_now(region), "runs": wrf_state.history(region), "fast": fast_jobs()}
     key = token()
     if not key:
         sys.exit("no INGEST_TOKEN (~/.meteogust.env)")

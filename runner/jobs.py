@@ -28,6 +28,11 @@ in that order; a 3 starts only while a slot stays free for a 1 or 2.
 takes no slot and waits for nothing but real memory (in the 00Z/12Z peaks every slot is busy for an hour: a station
 would stop), planned at `mem_mb`. Its runs stay out of the runs' record (_runs.jsonl: the panel reads its last lines,
 hundreds of station reads a day would push the models' runs out) and the runner's log says only its failures.
+
+`mac` (the owner, 26.10.2026: "if we do not have free resources on Tower we have to use mac mini. This fast updated jobs
+is important to release in time"; "Agree about B"): made on the Mac mini (runner/mac_fast.py, on its efficiency cores,
+development first), the Tower its backup: the Tower runs it only when the Mac's beat (runner/mac.json) is over 10
+minutes old, or the Mac hasn't finished it well, live, within its interval and 10 minutes.
 """
 from dataclasses import dataclass, field
 
@@ -48,6 +53,7 @@ class Job:
     priority: int = 2
     mem_mb: int = 0
     tiny: bool = False
+    mac: bool = False
 
 
 COPERNICUS = ["COPERNICUSMARINE_SERVICE_USERNAME", "COPERNICUSMARINE_SERVICE_PASSWORD"]
@@ -128,7 +134,7 @@ JOBS = [
     # On each new MEPS run (hourly; the owner, 22.10.2026: "make chance of rain hourly at home, on each new MEPS
     # run"; ICON-EU-EPS under it every 6 h comes with them), every 3 h at the latest.
     Job("chance", ["chance_tiles.py"], every=180, inputs=[MEPS_LATEST], min_gap=30),
-    Job("rain-now", ["rain_now.py"], every=60, priority=1),
+    Job("rain-now", ["rain_now.py"], every=60, priority=1, mac=True),
     Job("air", ["air_points.py"], every=180, priority=3),
     Job("sea", ["water_composite.py"], every=720, heavy=True, needs=COPERNICUS, priority=3),
     # The Baltic's water map from NEMO-EST (twice a day; Copernicus's coasts and sea ice beside it, Copernicus alone when
@@ -141,17 +147,17 @@ JOBS = [
     # Stations read at home (station-history's homeStationRows): Kolka from meteo.kolka.lv's two pictures with the NAS's
     # kolka.py (the owner, 25.10.2026: "Go with plan A", "Make station live already"). Its pictures change every minute
     # or two; the collect takes the newest each 5 minutes.
-    Job("kolka", ["stations/kolka_home.py"], every=2, timeout=3, priority=1, mem_mb=200, tiny=True),
+    Job("kolka", ["stations/kolka_home.py"], every=2, timeout=3, priority=1, mem_mb=200, tiny=True, mac=True),
     # OPERA's radar composite as GeoTIFF where EUMETNET publishes only the HDF5 (the owner, 26.10.2026: "lets make B";
     # from 00:25 UTC that day their GeoTIFFs stopped, and with them our radar, the rain alerts and the nowcast): every
     # 3 minutes the last hour's images without theirs, a few seconds each; nothing to do while theirs are there.
-    Job("opera", ["opera_tiff.py", "--minutes", "60"], every=3, timeout=10, priority=1, mem_mb=900, tiny=True),
+    Job("opera", ["opera_tiff.py", "--minutes", "60"], every=3, timeout=10, priority=1, mem_mb=900, tiny=True, mac=True),
     # update.yml's last riders' parts (the owner, 26.10.2026: "move the satellite clouds, the ALADIN spots file and the
     # gauges file from GitHub's update.yml to the Tower, shadow first, then live"): the rain map's satellite clouds
     # (EUMETSAT's every 15 minutes, made 30 minutes after; GitHub looked every 15), ALADIN's spots (aladin_home.py: a new
     # ČHMÚ run about 4 hours after 00/06/12/18 UTC), the Estonian and Latvian gauges (gauges_home.py, hourly by
     # ee_gauges.py's own check). update.yml leaves each to home while it's live here (home_live.py).
-    Job("clouds", ["clouds.py"], every=5, timeout=30, priority=1),
+    Job("clouds", ["clouds.py"], every=5, timeout=30, priority=1, mac=True),
     Job("aladin-spots", ["aladin_home.py"], every=15, timeout=30, priority=1),
     Job("gauges", ["gauges_home.py"], every=20, timeout=20, priority=2),
 ]
