@@ -5,8 +5,9 @@ run-name: Deploy Workers (${{ inputs.worker }})
 # pasting from a phone; the app repository's own Actions have no minutes left, this public one's
 # are free). Only the Worker's code is uploaded, through Cloudflare's "script content" call: its
 # bindings (the database, the file store), schedules, secrets and domains stay as they are set in
-# the dashboard. The code comes from the app repository's master, read with a read-only token, and
-# is checked as a module first (as Cloudflare reads it); nothing of it is printed here.
+# the dashboard. The code comes from the app repository's master, read with a read-only token: every
+# .js file in the Worker's folder (its modules, worker.js the entry; since 26.10.2026 the big two are
+# split into modules), checked as modules and loaded together first; nothing of it is printed here.
 # station-history's /status is read after.
 #
 # Started by hand or by the chats after a Worker changes on master (gh workflow run workers.yml
@@ -65,17 +66,32 @@ jobs:
               meteogust-mirror) dir=mirror ;;
               *) echo "::error::Unknown Worker $name"; exit 1 ;;
             esac
-            file="app/tools/$dir/worker.js"
-            # As Cloudflare reads it: a module (a plain script check let a broken string through once).
-            cp "$file" "$RUNNER_TEMP/check.mjs"
-            node --check "$RUNNER_TEMP/check.mjs" > /dev/null 2>&1 || { echo "::error::$name: not a valid module"; exit 1; }
+            # Every .js file in the Worker's folder is one of its modules, worker.js the entry (station-history and
+            # meteogust-admin split into modules on 26.10.2026; the others are one file). Checked as Cloudflare reads
+            # them: each a module (a plain script check let a broken string through once), then all loaded together,
+            # so a missing import or export stops here. Only file names are printed, never Node's message (code).
+            check="$RUNNER_TEMP/check-$name"
+            rm -rf "$check"; mkdir -p "$check"
+            cp "app/tools/$dir"/*.js "$check/"
+            echo '{"type":"module"}' > "$check/package.json"
+            for f in "$check"/*.js; do
+              node --check "$f" > /dev/null 2>&1 || { echo "::error::$name: $(basename "$f") is not a valid module"; exit 1; }
+            done
+            ( cd "$check" && node --input-type=module -e 'await import("./worker.js")' ) > /dev/null 2>&1 \
+              || { echo "::error::$name: its modules don't load together (a missing import or export?)"; exit 1; }
+            parts=()
+            for f in "$check"/*.js; do
+              b=$(basename "$f")
+              parts+=(-F "$b=@$f;filename=$b;type=application/javascript+module")
+            done
+            echo "$name: $(( ${#parts[@]} / 2 )) modules"
             if [ "$name" = "meteogust-mirror" ]; then
               # The mirror (21.10.2026) brings its own settings: the file store's binding, room to stream big
               # files, and its 5-minute cron (the older Workers keep theirs from the dashboard).
               reply=$(curl -sS -X PUT "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/workers/scripts/$name" \
                 -H "Authorization: Bearer $TOKEN" \
                 -F 'metadata={"main_module":"worker.js","compatibility_date":"2026-10-01","bindings":[{"type":"r2_bucket","name":"FILES","bucket_name":"meteogust-files"}],"limits":{"cpu_ms":300000}};type=application/json' \
-                -F "worker.js=@$file;filename=worker.js;type=application/javascript+module")
+                "${parts[@]}")
               curl -sS -X PUT "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/workers/scripts/$name/schedules" \
                 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
                 --data '[{"cron":"*/5 * * * *"}]' | python3 -c 'import json,sys; r=json.load(sys.stdin); print("schedule:", "ok" if r.get("success") else r.get("errors"))'
@@ -83,7 +99,7 @@ jobs:
               reply=$(curl -sS -X PUT "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/workers/scripts/$name/content" \
                 -H "Authorization: Bearer $TOKEN" \
                 -F 'metadata={"main_module":"worker.js"};type=application/json' \
-                -F "worker.js=@$file;filename=worker.js;type=application/javascript+module")
+                "${parts[@]}")
             fi
             echo "$reply" | NAME="$name" python3 -c '
           import json, os, sys
