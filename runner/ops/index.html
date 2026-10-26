@@ -1073,8 +1073,9 @@ const GROUPS = ["Regional", "World and Europe", "Waves and seas", "Mixes and pro
 // The watched files without a lane of their own (the owner, 26.10.2026: "Radar late" in the header and nothing red in
 // the table): [who makes it, its usual interval and its late age in seconds (the station server's WATCHED)]. Their
 // publishes: the panel server's views.FEEDS, each file's Last-Modified every 2 minutes.
-const FEED_ROWS = { radar: ["Tower · Cloudflare", 300, 1800], sat: ["GitHub", 900, 2700], "rain-now": ["Tower", 3600, 3 * 3600],
-  ens: ["Tower", 12 * 3600, 20 * 3600], "helper-aladin": ["GitHub", 6 * 3600, 14 * 3600], "helper-gauges": ["GitHub", 900, 5400] };
+// (The satellite clouds, ALADIN's spots and the gauges at home from 26.10.2026, update.yml their backup.)
+const FEED_ROWS = { radar: ["Tower · Cloudflare", 300, 1800], sat: ["Tower", 900, 2700], "rain-now": ["Tower", 3600, 3 * 3600],
+  ens: ["Tower", 12 * 3600, 20 * 3600], "helper-aladin": ["Tower", 6 * 3600, 14 * 3600], "helper-gauges": ["Tower", 900, 5400] };
 const groupOf = (set) => set === "wrf-tarifa" ? "Our own"
   : ["ewam", "ecmwf-waves", "waves", "sea", "water"].includes(set) ? "Waves and seas"
   : set.startsWith("mix") || set === "chance" ? "Mixes and products"
