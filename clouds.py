@@ -28,6 +28,7 @@ OVC004, 120 m, the mask clear: a deck as warm as the ground, the sun low) is add
 Needs INGEST_TOKEN (the helper's report token) in the environment; without it nothing is sent.
 EUMETSAT's open data (EUMETView WMS); credit: "Meteosat, EUMETSAT".
 """
+import http.client
 import io
 import json
 import math
@@ -92,7 +93,9 @@ def picture(layer, when, box, size):
             if data[:4] != b"\x89PNG":
                 return None
             return np.asarray(Image.open(io.BytesIO(data)).convert("RGB"), dtype=np.float32)
-        except (urllib.error.URLError, OSError):
+        # A reply cut off half way (http.client.IncompleteRead, not an OSError: EUMETSAT's slow afternoon, 26.10.2026)
+        # tried again too, not the whole quarter hour lost.
+        except (urllib.error.URLError, OSError, http.client.HTTPException):
             time.sleep(3 * (attempt + 1))
     return None
 
@@ -217,9 +220,10 @@ def smooth_heights(heights, radius):
     return np.where(weight > 0.05, blur(np.where(known, heights, 0), radius) / np.maximum(weight, 1e-3), 1500).astype(np.float32)
 
 
-def style_height(infrared, mask_rgb, visible, heights, daylight):
+def style_height(infrared, mask_rgb, visible, heights, daylight, fog=None):
     """The grey and how much cloud, by the cloud top's height (`heights` in m, smooth, every pixel)
-    with the texture of the visible (by day, `daylight` 0-1) or the infrared (by night)."""
+    with the texture of the visible (by day, `daylight` 0-1) or the infrared (by night); how thick by night from
+    the Fog / Low Clouds RGB (`fog`, the pictures' size) when there is one."""
     _, alpha, _ = style_b(infrared, mask_rgb, local=True)
     km = np.clip(heights / 1000, 0, 12)
     base = np.interp(km, HEIGHT_KM, HEIGHT_GREY)
@@ -240,9 +244,21 @@ def style_height(infrared, mask_rgb, visible, heights, daylight):
         thick = np.clip((blur(v, 1) - ground_v - 4 / 255) / (18 / 255), 0, 1)
         alpha = alpha * (1 - daylight + daylight * (0.15 + 0.85 * thick))
     shade = np.clip(base + np.clip(texture, -26, 26), 120, 240)
-    # Thin high cloud (a high top, but the infrared hardly colder than the ground): see-through.
-    ground = local_ground(ir, (alpha > 0.5).astype(np.float32), float(np.percentile(ir, 15)))
-    alpha = np.where((km > 6) & (ir - ground < 18), alpha * 0.6, alpha)
+    if fog is not None and fog.shape[:2] == alpha.shape:
+        # By night how thick follows the split window (the owner, 26.10.2026: "We can make A but if this will not brake
+        # resolution on day"): the Fog / Low Clouds RGB's red is IR12.0 - IR10.8, strongly negative (dark) through thin
+        # cirrus, near 0 (bright) in thick cloud, by day and night alike. Tuned on the daytime pictures of 23-24.10, the
+        # mask's cloud judged by the visible: thin cloud red 19-30 (median), thick 108-129; high cloud red < 60 caught
+        # 92 % of the thin, thinned 18 % of the thick. 15 and less nearly see-through (0.15), 70 and more solid; low water
+        # cloud and fog (with_low_cloud's deck) solid. Only where the sun is down (1 - daylight): the day as it was. The
+        # grey (the cloud top's height) as it was.
+        red = fog[..., 0].astype(np.float32)
+        night_thick = np.where(low_water(fog), 1.0, np.clip((blur(red, 1) - 15) / 55, 0, 1))
+        alpha = alpha * (daylight + (1 - daylight) * (0.15 + 0.85 * night_thick))
+    else:
+        # Without the fog picture: thin high cloud (a high top, the infrared hardly colder than the ground) see-through.
+        ground = local_ground(ir, (alpha > 0.5).astype(np.float32), float(np.percentile(ir, 15)))
+        alpha = np.where((km > 6) & (ir - ground < 18), alpha * 0.6, alpha)
     return shade, np.clip(alpha, 0, 1)
 
 
@@ -304,7 +320,10 @@ def sat_pack(when):
         heights = np.asarray(Image.fromarray(heights).resize((width, height), Image.BILINEAR), dtype=np.float32)
         heights = blur(heights, 3)
         daylight = np.asarray(Image.fromarray(daylight).resize((width, height), Image.BILINEAR), dtype=np.float32)
-        shade, alpha = style_height(infrared, mask, visible, heights, daylight)
+        fog = got.get("fog")
+        if fog is not None:
+            fog = np.asarray(Image.fromarray(fog.astype(np.uint8)).resize((width, height), Image.BILINEAR), dtype=np.float32)
+        shade, alpha = style_height(infrared, mask, visible, heights, daylight, fog)
     tiles = {}
     for z in TILE_ZOOMS:
         f = 2 ** (TILE_Z - z)
