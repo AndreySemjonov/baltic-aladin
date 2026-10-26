@@ -279,18 +279,31 @@ def main():
     STRIDE = SETS[which]["stride"]
     model = SETS[which]["model"]
     started = time.time()
-    def ask(query, name):
-        # MET Norway's server answers 500 now and then (15.10.2026: for hours on end): five tries,
+    def ask(query, name, tries):
+        # MET Norway's server answers 500 now and then (15.10.2026: for hours on end): a few tries,
         # waiting longer each time.
-        for attempt in range(5):
+        for attempt in range(tries):
             try:
-                return mn.ascii_values(mn.get(f"{mn.SOURCE}.ascii?{query}", timeout=120), name)
+                return mn.ascii_values(mn.get(f"{mn.SOURCE}.ascii?{query}", timeout=120 if tries > 2 else 30), name)
             except Exception:
-                if attempt == 4:
+                if attempt == tries - 1:
                     raise
                 time.sleep(30 * (attempt + 1))
-    times = ask("time", "time")
-    run = ask("forecast_reference_time", "forecast_reference_time")[0]
+    # A model's own set (--only) takes only MET Nordic's hours from it, and when MET Norway's server doesn't answer, the
+    # hours it usually has from the clock: its run the hour before this one, 59 hours from it (the owner, 26.10.2026: "Do
+    # B": from ~23 UTC 25.10 thredds.met.no answered 404, and AROME, ICON-D2, HARM-NL, DINI, ICON-2I and ICON-CH1, all
+    # from Open-Meteo's bucket, failed with it, five tries and 5.5 minutes each). The blend can't go without MET Nordic.
+    clock = False
+    try:
+        times = ask("time", "time", 2 if only else 5)
+        run = ask("forecast_reference_time", "forecast_reference_time", 2 if only else 5)[0]
+    except Exception as error:
+        if not only:
+            raise
+        run = time.time() // 3600 * 3600 - 3600
+        times = [run + k * 3600 for k in range(59)]
+        clock = True
+        print(f"MET Nordic's server didn't answer ({error}): its usual hours from the clock", flush=True)
     run_name = datetime.fromtimestamp(run, timezone.utc).strftime("%Y%m%dT%HZ")
     published = None if local and not shadowing else published_run(model)
     force = (bool(local) and not shadowing) or "--force" in args
@@ -316,10 +329,13 @@ def main():
     # made for the old one then fails (12.10.2026: HTTP 400 half an hour in) or mixes two runs.
     own = mn.SOURCE.replace("_latest.nc", f"_{run_name}.nc")
     try:
+        if clock:
+            raise RuntimeError("its server not answering")
         mn.get(own + ".das")
         mn.SOURCE = own
     except Exception:
-        print(f"MET Nordic {run_name}: its own file not found, reading the latest", flush=True)
+        if not clock:
+            print(f"MET Nordic {run_name}: its own file not found, reading the latest", flush=True)
     steps = hours_wanted(times, run, hourly=which == "wind")
     # The air and rain without the run's own hour: its rain is the hour before the run, not a
     # forecast (it read as 255 everywhere: R3's check, 13.10.2026).
