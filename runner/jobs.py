@@ -142,4 +142,8 @@ JOBS = [
     # kolka.py (the owner, 25.10.2026: "Go with plan A", "Make station live already"). Its pictures change every minute
     # or two; the collect takes the newest each 5 minutes.
     Job("kolka", ["stations/kolka_home.py"], every=2, timeout=3, priority=1, mem_mb=200, tiny=True),
+    # OPERA's radar composite as GeoTIFF where EUMETNET publishes only the HDF5 (the owner, 26.10.2026: "lets make B";
+    # from 00:25 UTC that day their GeoTIFFs stopped, and with them our radar, the rain alerts and the nowcast): every
+    # 3 minutes the last hour's images without theirs, a few seconds each; nothing to do while theirs are there.
+    Job("opera", ["opera_tiff.py", "--minutes", "60"], every=3, timeout=10, priority=1, mem_mb=900, tiny=True),
 ]
