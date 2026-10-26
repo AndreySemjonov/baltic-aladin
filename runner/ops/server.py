@@ -737,6 +737,11 @@ def summaries_loop():
             DOWNLOADS.sync({r["job"]: r.get("started") for r in live_state().get("running", []) if r.get("started")})
         except Exception as error:
             log(f"downloads: {error}")
+        # The live feeds' publishes (views.FEEDS: a HEAD each, every 2 minutes).
+        try:
+            views.FEEDS.refresh()
+        except Exception as error:
+            log(f"feeds: {error}")
         # (admin's overview reads many database rows: every 5 minutes while watched, else every 30)
         if now - last_admin > (300 if watched else 1800):
             last_admin = now

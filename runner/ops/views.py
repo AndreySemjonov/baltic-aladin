@@ -492,6 +492,68 @@ def capacity(now=None):
 
 # MARK: Admin
 
+# MARK: The live feeds' publishes
+
+# The watched files without a Pipeline lane (their makers aren't the model runs' jobs: the station server's radar, the
+# satellite clouds, the rain nowcast, the spots' files): each one's Last-Modified every 2 minutes, kept 26 hours, for the
+# Pipeline's "Live feeds" rows (the owner, 26.10.2026: "Radar late" in the header and nothing red in the table).
+FEED_ROWS = ("radar", "sat", "rain-now", "ens", "helper-aladin", "helper-gauges")
+
+
+class FeedHistory:
+    SAVED = f"{STATS}/_feeds_seen.json"  # kept across the server's reloads
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.at = 0
+        self.seen = {}
+        try:
+            with open(self.SAVED) as f:
+                self.seen = {k: [int(t) for t in v] for k, v in json.load(f).items()}
+        except (OSError, ValueError, AttributeError):
+            pass
+
+    def refresh(self, every=120):
+        now = time.time()
+        if now - self.at < every:
+            return
+        self.at = now
+        changed = False
+        for key, _, path, _, _ in WATCHED:
+            if key not in FEED_ROWS:
+                continue
+            try:
+                modified = fetch(f"{FILES}{path}?t={int(now)}", method="HEAD").headers.get("Last-Modified")
+                t = int(datetime.strptime(modified, "%a, %d %b %Y %H:%M:%S GMT").replace(tzinfo=timezone.utc).timestamp())
+            except Exception:
+                continue
+            with self.lock:
+                times = self.seen.setdefault(key, [])
+                if not times or times[-1] != t:
+                    times.append(t)
+                    changed = True
+        with self.lock:
+            cut = now - 26 * 3600
+            for key in list(self.seen):
+                kept = [t for t in self.seen[key] if t >= cut]
+                changed |= len(kept) != len(self.seen[key])
+                self.seen[key] = kept
+            if changed:
+                try:
+                    with open(self.SAVED + ".tmp", "w") as f:
+                        json.dump(self.seen, f)
+                    os.replace(self.SAVED + ".tmp", self.SAVED)
+                except OSError:
+                    pass
+
+    def snapshot(self):
+        with self.lock:
+            return {k: list(v) for k, v in self.seen.items()}
+
+
+FEEDS = FeedHistory()
+
+
 class Admin:
     def __init__(self):
         self.data = {"t": 0}
@@ -529,4 +591,4 @@ class Admin:
                 error = f"admin.meteogust.com not read ({type(e).__name__})"
         else:
             error = "token"
-        self.data = {"t": round(now), "feeds": feeds, "overview": overview, "error": error}
+        self.data = {"t": round(now), "feeds": feeds, "overview": overview, "error": error, "pubs": FEEDS.snapshot()}

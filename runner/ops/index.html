@@ -1070,6 +1070,11 @@ const MIX_INPUTS = {
   "mix-world-wx": ["icon-eu-wx", "ecmwf", "gfs", "icon", "gdps"],
 };
 const GROUPS = ["Regional", "World and Europe", "Waves and seas", "Mixes and products", "Our own"];
+// The watched files without a lane of their own (the owner, 26.10.2026: "Radar late" in the header and nothing red in
+// the table): [who makes it, its usual interval and its late age in seconds (the station server's WATCHED)]. Their
+// publishes: the panel server's views.FEEDS, each file's Last-Modified every 2 minutes.
+const FEED_ROWS = { radar: ["Cloudflare", 300, 1800], sat: ["GitHub", 900, 2700], "rain-now": ["Tower", 3600, 3 * 3600],
+  ens: ["Tower", 12 * 3600, 20 * 3600], "helper-aladin": ["GitHub", 6 * 3600, 14 * 3600], "helper-gauges": ["GitHub", 900, 5400] };
 const groupOf = (set) => set === "wrf-tarifa" ? "Our own"
   : ["ewam", "ecmwf-waves", "waves", "sea", "water"].includes(set) ? "Waves and seas"
   : set.startsWith("mix") || set === "chance" ? "Mixes and products"
@@ -1661,7 +1666,7 @@ function BarPop({ d, now, left, top, onClose, band, compact, pinned }) {
 }
 
 const LANES_MIN_W = 760;
-function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head }) {
+function Lanes({ lanes, feeds = [], now, sel, setSel, back, ahead, band, slots, wrf, head }) {
   const t0 = now - back * 3600, t1 = now + ahead * 3600, lh = 30, gh = 24, PITCH = 9;
   const box = useRef(null);
   // Drawn at the box's own width, 1:1 (the owner, 22.10.2026: zoomed in, the lanes scrolled sideways; "I want to have
@@ -1815,10 +1820,32 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
     rows.push({ g, y }); y += gh;
     for (const l of ls) { const lay = layout(l); rows.push({ l, y, lay }); y += lay.h + NAME_H; }
   }
+  if (feeds.length) {
+    rows.push({ g: "Live feeds", y }); y += gh;
+    for (const fd of feeds) { rows.push({ fd, y }); y += lh + NAME_H; }
+  }
   const H = y + 22;
   const hours = [];
   for (let t = Math.ceil(t0 / 3600) * 3600; t <= t1; t += 3600) hours.push(t);
   const runTip = (l, e) => `${l.label} ${runZ(e.run)}${e.avail != null ? ` · available ${clock(e.avail)}` : ""}`;
+  // A live feed's row: its dot, name and maker as the lanes have them; a tick at each publish (thinner for the frequent
+  // ones); late, a red bar from its last publish to now; else its next one expected; its age in the right columns.
+  const feedRow = (fd, y0) => {
+    const y = y0 + NAME_H, age = fd.last != null ? now - fd.last : null, dot = fd.late ? "var(--bad)" : "var(--ok)";
+    const ageText = age == null ? "not found" : hrs(age) + " ago", tw = fd.every < 1800 ? 1.5 : 2.5;
+    const makerColor = fd.maker === "Tower" ? "var(--home)" : fd.maker === "GitHub" ? "var(--muted)" : "var(--accent)";
+    const next = !fd.late && fd.last != null ? fd.last + fd.every : null;
+    return html`<g class="row">
+      ${compact ? html`<circle cx="5" cy=${y0 + 9} r="4" fill=${dot}/><text class="lname cap" x="14" y=${y0 + 13}>${fd.name}</text>
+        <text class="ours cap" x=${W - 2} y=${y0 + 13} text-anchor="end" style=${`fill:${fd.late ? "var(--bad)" : "var(--muted)"}`}>${ageText}</text>`
+      : html`<circle cx="8" cy=${y + 15} r="4" fill=${dot}/><text class="lname" x="18" y=${y + 19}>${fd.name.length > 28 ? fd.name.slice(0, 27) + "…" : fd.name}</text>
+        <text class="src" x=${X0 - 6} y=${y + 19} text-anchor="end" style=${`fill:${makerColor}`}>${fd.maker}</text>
+        <text class="ours" x=${X1 + 22} y=${y + 19} style=${`fill:${fd.late ? "var(--bad)" : "var(--muted)"}`}>${ageText}</text>`}
+      ${fd.pubs.filter((t) => t >= t0 && t <= t1).map((t) => html`<rect x=${x(t) - tw / 2} y=${y + 10} width=${tw} height="10" fill="var(--ok)"><title>${fd.name}: published ${clock(t)}</title></rect>`)}
+      ${fd.late && fd.last != null ? html`<rect x=${x(Math.max(fd.last, t0))} y=${y + 13} width=${w(Math.max(fd.last, t0), now)} height="4" rx="1" fill="var(--bad)" opacity=".8"><title>${fd.name}: nothing new since ${clock(fd.last)} (usually ${fd.usual})</title></rect>` : null}
+      ${next && next < t1 ? html`<path d=${`M${x(Math.max(next, now))} ${y + 6} l5 9 -5 9 -5 -9 Z`} fill="none" stroke="var(--faint)"><title>${fd.name}: next expected ${clock(next)} (usually ${fd.usual})</title></path>` : null}
+    </g>`;
+  };
   const entry = (l, e, y, lay) => {
     const a = e.avail, out = [], yg = y + lay.g(e), yt = y + lay.t(e);
     const end = Math.max(e.pub || 0, e.tower ? e.tower.end : 0, e.gh ? e.gh.end || now : 0, a || 0);
@@ -1904,7 +1931,8 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
   <div class="lanes" ref=${box} onScroll=${() => { if (bandRef.current && box.current) bandRef.current.scrollLeft = box.current.scrollLeft; }}><svg ref=${svgRef} viewBox="0 ${TOP} ${W} ${H - TOP}" style=${`min-width:${W}px`} role="img" aria-label="Every map's runs from available to published"
       onPointerDown=${offBar}>
     ${hours.map((t) => html`<line x1=${x(t)} x2=${x(t)} y1=${TOP} y2=${H - 20} stroke="var(--line)"/>`)}
-    ${rows.map(({ g, l, y: y0, lay }) => { if (g) return html`<text class="grp" x="0" y=${y0 + 16}>${g.toUpperCase()}</text>
+    ${rows.map(({ g, l, fd, y: y0, lay }) => { if (fd) return feedRow(fd, y0);
+      if (g) return html`<text class="grp" x="0" y=${y0 + 16}>${g.toUpperCase()}</text>
       ${compact ? html`<text class="grp" x=${W} y=${y0 + 16} text-anchor="end"><tspan style="fill:var(--home)">TOWER</tspan> · <tspan style="fill:var(--mac)">MAC</tspan> · GITHUB · <tspan style="fill:var(--bad)">SKIPPED</tspan></text>` : null}`;
       // On a phone the lane's name line, then its bars from y (below it).
       const y = y0 + NAME_H, dot = l.status === "bad" ? "var(--bad)" : l.status === "proc" ? "var(--accent)" : l.status === "wait" ? "var(--warn)" : "var(--ok)";
@@ -2004,7 +2032,7 @@ function LaneDetail({ l, now, cap, all }) {
 
 const RANGES = [[6, 3], [12, 6], [24, 12]];
 
-function Pipeline({ maps, fr, f, now, s, cap }) {
+function Pipeline({ maps, fr, f, now, s, cap, ad }) {
   const [sel, setSel] = useState(null);
   const [filter, setFilter] = useState("all");
   const [range, setRange] = useState(12);
@@ -2013,6 +2041,12 @@ function Pipeline({ maps, fr, f, now, s, cap }) {
   const pick = { all: () => true, sooner: (l) => both(l) && l.towerT < l.ghT, later: (l) => both(l) && l.towerT >= l.ghT,
     skip: (l) => l.skipped > 0, home: (l) => l.isLive || !!l.home, bad: (l) => l.status === "bad" };
   const lanes = all.filter(pick[filter]);
+  // The live feeds: each one's publishes, its age from the newest (live, each second), late past its limit.
+  const feeds = ((ad && ad.feeds) || []).filter((x) => FEED_ROWS[x.key]).map((x) => {
+    const [maker, every, limit] = FEED_ROWS[x.key], pubs = ((ad && ad.pubs) || {})[x.key] || [];
+    const last = pubs.length ? pubs[pubs.length - 1] : x.age != null ? (ad.t || now) - x.age : null;
+    return { ...x, maker, every, limit, pubs, last, late: last == null || now - last > limit };
+  }).filter((x) => filter === "all" || (filter === "bad" && x.late));
   const picked = all.find((l) => l.name === sel);
   // A tapped lane's detail sits under the chart: brought into view.
   const choose = (name) => { setSel(name); setTimeout(() => { const d = document.getElementById("lanedetail"); if (d) d.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, 50); };
@@ -2045,7 +2079,7 @@ function Pipeline({ maps, fr, f, now, s, cap }) {
     <div class="pipe" style="margin-top:16px">
     <section class="panel" aria-label="Pipeline">
       ${!maps ? html`<h2>Every map: from available to published · last ${back} h and next ${ahead} · ${zoneName()} time</h2><p class="empty">Reading admin's map history…</p>` : html`
-      <${Lanes} lanes=${lanes} now=${now} sel=${sel} setSel=${choose} back=${back} ahead=${ahead} band=${band} slots=${f && f.slots} wrf=${f && f.mac && f.mac.wrf && (f.mac.wrf.running || f.mac.wrf.waiting) ? { ...(f.wrf || {}), ...f.mac.wrf } : f && f.wrf}
+      <${Lanes} lanes=${lanes} feeds=${feeds} now=${now} sel=${sel} setSel=${choose} back=${back} ahead=${ahead} band=${band} slots=${f && f.slots} wrf=${f && f.mac && f.mac.wrf && (f.mac.wrf.running || f.mac.wrf.waiting) ? { ...(f.wrf || {}), ...f.mac.wrf } : f && f.wrf}
         head=${html`<h2>Every map: from available to published · last ${back} h and next ${ahead} · ${zoneName()} time</h2>
         <div class="filters">${RANGES.map(([b]) => html`<span class=${"chip" + (range === b ? " on" : "")} onClick=${() => setRange(b)}>${b} h</span>`)}<span style="width:10px"></span>
           ${chips.map(([k, label]) => html`<span class=${"chip" + (filter === k ? " on" : "")} onClick=${() => setFilter(k)}>${label}</span>`)}</div>`} />
@@ -3500,7 +3534,7 @@ function App() {
   if (!f) return html`<main class="wrap"><p class="empty">Connecting to the Tower…</p></main>`;
   return html`<${TopBar} f=${f} fr=${fr} ad=${ad} spots=${spots} zone=${zone} setZone=${setZone} sec=${sec} />
     <main class="wrap">
-      ${sec === "pipeline" ? html`<${Pipeline} maps=${maps} fr=${fr} f=${f} now=${now} s=${s} cap=${cap} />`
+      ${sec === "pipeline" ? html`<${Pipeline} maps=${maps} fr=${fr} f=${f} now=${now} s=${s} cap=${cap} ad=${ad} />`
         : sec === "machine" ? html`<${NowTab} f=${f} s=${s} now=${now} /><div style="margin-top:16px"><${Capacity} cap=${cap} now=${now} /></div>`
         : sec === "quality" ? html`<${Quality} ad=${ad} now=${now} />`
         : sec === "app" ? html`<${AppSection} ad=${ad} spots=${spots} roles=${roles} builds=${builds} refresh=${refresh} reloadSpots=${refresh} reloadRoles=${reloadRoles} now=${now} />`
