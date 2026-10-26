@@ -114,7 +114,9 @@ OPS_PORT, OPS_UDP = 8090, 8091
 OPS_HOST = os.environ.get("MG_OPS_HOST", "172.17.0.1")
 TUNNEL = "meteogust-tunnel"
 # A version two weeks old or more (Cloudflare marks old connectors "Unsupported": 2024.12.2 was, 21.10.2026).
-TUNNEL_IMAGE = "cloudflare/cloudflared:2026.10.0"
+# 2026.10.3 (the owner, 26.10.2026, Cloudflare's notice: before 2026.10.2 cloudflared trusts eight eMudhra intermediate
+# certificates with weak keys); keep_ops replaces the running container when this changes.
+TUNNEL_IMAGE = "cloudflare/cloudflared:2026.10.3"
 AGENT = {"User-Agent": "MeteoGust helper runner (data.meteogust.com)"}
 
 
