@@ -1073,7 +1073,7 @@ const GROUPS = ["Regional", "World and Europe", "Waves and seas", "Mixes and pro
 // The watched files without a lane of their own (the owner, 26.10.2026: "Radar late" in the header and nothing red in
 // the table): [who makes it, its usual interval and its late age in seconds (the station server's WATCHED)]. Their
 // publishes: the panel server's views.FEEDS, each file's Last-Modified every 2 minutes.
-const FEED_ROWS = { radar: ["Cloudflare", 300, 1800], sat: ["GitHub", 900, 2700], "rain-now": ["Tower", 3600, 3 * 3600],
+const FEED_ROWS = { radar: ["Tower · Cloudflare", 300, 1800], sat: ["GitHub", 900, 2700], "rain-now": ["Tower", 3600, 3 * 3600],
   ens: ["Tower", 12 * 3600, 20 * 3600], "helper-aladin": ["GitHub", 6 * 3600, 14 * 3600], "helper-gauges": ["GitHub", 900, 5400] };
 const groupOf = (set) => set === "wrf-tarifa" ? "Our own"
   : ["ewam", "ecmwf-waves", "waves", "sea", "water"].includes(set) ? "Waves and seas"
@@ -1822,7 +1822,9 @@ function Lanes({ lanes, feeds = [], now, sel, setSel, back, ahead, band, slots, 
   }
   if (feeds.length) {
     rows.push({ g: "Live feeds", y }); y += gh;
-    for (const fd of feeds) { rows.push({ fd, y }); y += lh + NAME_H; }
+    // At a lane's height when it's made at home only (no GitHub line), as most are (the owner, 26.10.2026: "make
+    // distance between rows same as everywhere else").
+    for (const fd of feeds) { rows.push({ fd, y }); y += lh - PITCH + NAME_H; }
   }
   const H = y + 22;
   const hours = [];
@@ -1833,16 +1835,16 @@ function Lanes({ lanes, feeds = [], now, sel, setSel, back, ahead, band, slots, 
   const feedRow = (fd, y0) => {
     const y = y0 + NAME_H, age = fd.last != null ? now - fd.last : null, dot = fd.late ? "var(--bad)" : "var(--ok)";
     const ageText = age == null ? "not found" : hrs(age) + " ago", tw = fd.every < 1800 ? 1.5 : 2.5;
-    const makerColor = fd.maker === "Tower" ? "var(--home)" : fd.maker === "GitHub" ? "var(--muted)" : "var(--accent)";
+    const makerColor = fd.maker.startsWith("Tower") ? "var(--home)" : fd.maker === "GitHub" ? "var(--muted)" : "var(--accent)";
     const next = !fd.late && fd.last != null ? fd.last + fd.every : null;
     return html`<g class="row">
       ${compact ? html`<circle cx="5" cy=${y0 + 9} r="4" fill=${dot}/><text class="lname cap" x="14" y=${y0 + 13}>${fd.name}</text>
         <text class="ours cap" x=${W - 2} y=${y0 + 13} text-anchor="end" style=${`fill:${fd.late ? "var(--bad)" : "var(--muted)"}`}>${ageText}</text>`
       : html`<circle cx="8" cy=${y + 15} r="4" fill=${dot}/><text class="lname" x="18" y=${y + 19}>${fd.name.length > 28 ? fd.name.slice(0, 27) + "…" : fd.name}</text>
-        <text class="src" x=${X0 - 6} y=${y + 19} text-anchor="end" style=${`fill:${makerColor}`}>${fd.maker}</text>
+        <text class="src" x=${X0 - 6} y=${y + 19} text-anchor="end" style=${`fill:${makerColor}`}>${fd.maker.includes(" · ") ? fd.maker.split(" · ").map((m, i) => html`${i ? html`<tspan style="fill:var(--faint)"> · </tspan>` : null}<tspan style=${`fill:${m === "Tower" ? "var(--home)" : m === "GitHub" ? "var(--muted)" : "var(--accent)"}`}>${m}</tspan>`) : fd.maker}</text>
         <text class="ours" x=${X1 + 22} y=${y + 19} style=${`fill:${fd.late ? "var(--bad)" : "var(--muted)"}`}>${ageText}</text>`}
-      ${fd.pubs.filter((t) => t >= t0 && t <= t1).map((t) => html`<rect x=${x(t) - tw / 2} y=${y + 10} width=${tw} height="10" fill="var(--ok)"><title>${fd.name}: published ${clock(t)}</title></rect>`)}
-      ${fd.late && fd.last != null ? html`<rect x=${x(Math.max(fd.last, t0))} y=${y + 13} width=${w(Math.max(fd.last, t0), now)} height="4" rx="1" fill="var(--bad)" opacity=".8"><title>${fd.name}: nothing new since ${clock(fd.last)} (usually ${fd.usual})</title></rect>` : null}
+      ${fd.pubs.filter((t) => t >= t0 && t <= t1).map((t) => html`<rect x=${x(t) - tw / 2} y=${y + 6} width=${tw} height="10" fill="var(--ok)"><title>${fd.name}: published ${clock(t)}</title></rect>`)}
+      ${fd.late && fd.last != null ? html`<rect x=${x(Math.max(fd.last, t0))} y=${y + 8} width=${w(Math.max(fd.last, t0), now)} height="6" rx="1" fill="var(--bad)" opacity=".8"><title>${fd.name}: nothing new since ${clock(fd.last)} (usually ${fd.usual})</title></rect>` : null}
       ${next && next < t1 ? html`<path d=${`M${x(Math.max(next, now))} ${y + 6} l5 9 -5 9 -5 -9 Z`} fill="none" stroke="var(--faint)"><title>${fd.name}: next expected ${clock(next)} (usually ${fd.usual})</title></path>` : null}
     </g>`;
   };
