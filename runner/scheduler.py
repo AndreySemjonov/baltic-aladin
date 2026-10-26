@@ -47,7 +47,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from jobs import JOBS  # noqa: E402
+from jobs import INPUT_RUNS, JOBS  # noqa: E402
 
 REPO = os.environ.get("MG_REPO", "/root/baltic-aladin")
 HOME = os.environ.get("MG_HOME", "/var/lib/meteogust")
@@ -592,6 +592,23 @@ def mem_available():
 _inputs_seen = {}
 
 
+def input_runs(job):
+    """The source runs a job's inputs hold as it starts ({Open-Meteo's model: run, Unix seconds}; INPUT_RUNS), what
+    a watched model's run is for the others; {} when unread."""
+    out = {}
+    for url in job.inputs:
+        if url not in INPUT_RUNS:
+            continue
+        model, ask = INPUT_RUNS[url]
+        try:
+            with urllib.request.urlopen(urllib.request.Request(ask, headers=AGENT), timeout=20) as reply:
+                # OPeNDAP's ASCII: the variable's line last ("forecast_reference_time, 1.7930412E9").
+                out[model] = round(float(reply.read(4096).decode().strip().splitlines()[-1].split(",")[-1]))
+        except (OSError, ValueError, IndexError):
+            pass
+    return out
+
+
 def input_stamp(set_name):
     """A map set's last publish ("updated", else its run) from its index (through Cloudflare's 2-minute cache), or for a
     URL a fingerprint of its answer (MEPS's description: its creation time); asked at most every 2 minutes; None when
@@ -1071,6 +1088,9 @@ def main():
             if job.inputs:
                 # Its inputs' publishes as it starts: a newer one makes it due again (D).
                 mine["inputs"] = {s: input_stamp(s) for s in job.inputs}
+                ran = input_runs(job)
+                if ran:
+                    mine["sources"] = running[job.name].sources = ran
             if job.watch:
                 mine["source"] = wanted
                 # Every watched model's newest run as the job starts (it makes each model's newest it finds).

@@ -75,6 +75,10 @@ MEPS_LATEST = "https://thredds.met.no/thredds/dodsC/mepslatest/meps_lagged_6_h_l
 # from 04:29 to past 08:38 UTC while MET Norway had 08Z, "MET Nordic late 3.5 h"). A failed read keeps the last
 # fingerprint (no start on an outage's error page).
 METNORDIC_LATEST = "https://thredds.met.no/thredds/dodsC/metpplatest/met_forecast_1_0km_nordic_latest.nc.das"
+# The run an input's job makes, recorded as it starts like a watched model's (the ops panel joins a run to its source
+# run by it; the owner, 26.10.2026: "Auto regional wind not running?", the blends ran hourly but drew no bars since they
+# left watch for the input): the input, Open-Meteo's name for the model and where its newest run's time is (OPeNDAP).
+INPUT_RUNS = {METNORDIC_LATEST: ("metno_nordic_pp", METNORDIC_LATEST.removesuffix(".das") + ".ascii?forecast_reference_time")}
 # The models regional_tiles.py makes besides MET Nordic: its --only name and Open-Meteo's open-data model (when each
 # run is complete there).
 REGIONAL_MODELS = [("icon-d2", "dwd_icon_d2"), ("dini", "dmi_harmonie_arome_europe"), ("harm-nl", "knmi_harmonie_arome_netherlands"),
