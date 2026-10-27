@@ -678,6 +678,23 @@ def set_shares(names, shares):
         subprocess.run(["docker", "update", "--cpu-shares", str(shares), f"mg-{name}"], capture_output=True)
 
 
+def reap_strays(keep):
+    """The runner's ended children from before its reloads, left unwaited (27.10.2026: 132 docker clients, zombies of
+    the runner: each reload before the hand-over left its runs' clients behind). The runs handed over (keep) aren't
+    touched: their exit codes are theirs."""
+    reaped = 0
+    for pid in filter(str.isdigit, os.listdir("/proc") if os.path.isdir("/proc") else []):
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                fields = f.read().rsplit(")", 1)[1].split()
+            if fields[0] == "Z" and int(fields[1]) == os.getpid() and int(pid) not in keep:
+                reaped += os.waitpid(int(pid), os.WNOHANG)[0] != 0
+        except (OSError, ValueError, IndexError):
+            pass
+    if reaped:
+        log(f"runner: {reaped} ended processes from before its reloads cleared")
+
+
 class Running:
     def __init__(self, job, live, source, wanted, shares=1024, limit_mb=None):
         self.job, self.live, self.source, self.wanted = job, live, source, wanted
@@ -946,6 +963,7 @@ def main():
     for handed in load(HANDOVER, []):
         if handed.get("job") in by_name:
             running[handed["job"]] = Adopted(by_name[handed["job"]], handed)
+    reap_strays({run.pid for run in running.values()})
     if os.path.exists(HANDOVER):
         os.remove(HANDOVER)
         log(f"runner: took over {len(running)} running jobs: " + ", ".join(sorted(running)) if running else "runner: no running jobs to take over")
