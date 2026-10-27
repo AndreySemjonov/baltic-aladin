@@ -53,6 +53,8 @@ REPO = os.environ.get("MG_REPO", "/root/baltic-aladin")
 HOME = os.environ.get("MG_HOME", "/var/lib/meteogust")
 WORK = os.environ.get("MG_WORK", "/mnt/d/meteogust/runner-work")
 STATS, LOGS, STATE, LIVE = f"{HOME}/stats", f"{HOME}/logs", f"{HOME}/state.json", f"{HOME}/live.json"
+# The runs going on, written just before a reload and taken over by the reloaded runner (Adopted).
+HANDOVER = f"{HOME}/handover.json"
 ENV_FILE = os.environ.get("MG_ENV", "/root/.meteogust.env")
 LIVE_FILE = os.environ.get("MG_LIVE", "/root/.meteogust-live")
 IMAGE = os.environ.get("MG_IMAGE", "meteogust-helper")
@@ -722,6 +724,64 @@ class Running:
         shutil.rmtree(f"{WORK}/{self.job.name}", ignore_errors=True)
         return code
 
+    def handed(self):
+        """What the reloaded runner needs to take this run over (Adopted)."""
+        return {"job": self.job.name, "pid": self.process.pid, "started": self.started, "live": self.live,
+                "source": self.source, "wanted": self.wanted, "sources": self.sources, "log": self.log_path}
+
+
+class Adopted(Running):
+    """A run started before a reload, taken over by the reloaded runner (the owner, 27.10.2026: World ECMWF 12Z made and
+    published on 26.10 but never recorded: the push of the runner's code at 19:28 UTC reloaded it mid-run, and the new
+    runner only saw its container). os.execv keeps the runner's process, so its `docker run` is still our child: waitpid
+    gives its exit code. Started some other way (the runner restarted), it isn't: its end is when its container goes,
+    its exit code measure.py's record of the run."""
+
+    def __init__(self, job, handed):
+        self.job, self.live, self.source, self.wanted = job, handed["live"], handed["source"], handed["wanted"]
+        self.sources, self.started, self.log_path = handed.get("sources") or {}, handed["started"], handed["log"]
+        self.name, self.pid = f"mg-{job.name}", handed["pid"]
+        self.ours = True
+
+    def ended(self):
+        if self.ours:
+            try:
+                pid, status = os.waitpid(self.pid, os.WNOHANG)
+                return None if pid == 0 else os.waitstatus_to_exitcode(status)
+            except ChildProcessError:
+                self.ours = False
+        if self.job.name in containers():
+            return None
+        try:
+            with open(f"{STATS}/{self.job.name}.jsonl") as f:
+                for record in map(json.loads, reversed(f.readlines()[-20:])):
+                    if record.get("start", 0) >= self.started - 120:
+                        return record.get("exit")
+        except (OSError, ValueError):
+            pass
+        return -1  # gone without a record: counted as failed
+
+    def finished(self):
+        code = self.ended()
+        if code is None and time.time() - self.started > self.job.timeout * 60:
+            log(f"{self.job.name}: over {self.job.timeout} min, stopped")
+            subprocess.run(["docker", "kill", self.name], capture_output=True)
+            code = None
+            for _ in range(30):
+                code = self.ended()
+                if code is not None:
+                    break
+                time.sleep(1)
+            code = 137 if code is None else code
+        if code is None:
+            return None
+        shutil.rmtree(f"{WORK}/{self.job.name}", ignore_errors=True)
+        return code
+
+    def handed(self):
+        return {"job": self.job.name, "pid": self.pid, "started": self.started, "live": self.live, "source": self.source,
+                "wanted": self.wanted, "sources": self.sources, "log": self.log_path}
+
 
 _net_last = [None]
 
@@ -881,6 +941,14 @@ def main():
         if w.get("job") and w.get("since"):
             _due_since.setdefault(w["job"], w["since"])
     running, last_pull, stamp, wrf_was, last_beat, beat_said, last_ops = {}, 0, code_stamp(), None, 0, False, 0
+    # The runs the runner had before its reload, taken over so their ends are recorded.
+    by_name = {j.name: j for j in JOBS}
+    for handed in load(HANDOVER, []):
+        if handed.get("job") in by_name:
+            running[handed["job"]] = Adopted(by_name[handed["job"]], handed)
+    if os.path.exists(HANDOVER):
+        os.remove(HANDOVER)
+        log(f"runner: took over {len(running)} running jobs: " + ", ".join(sorted(running)) if running else "runner: no running jobs to take over")
     threading.Thread(target=sampler, daemon=True).start()
     log(f"runner: {len(JOBS)} jobs, at most {MAX_TOTAL} at once ({MAX_HEAVY} heavy), work in {WORK}")
     while True:
@@ -890,7 +958,8 @@ def main():
             pull()
             last_pull = now
             if code_stamp() != stamp:
-                log("the runner's code changed: reloading (running jobs go on in their containers)")
+                log(f"the runner's code changed: reloading ({len(running)} running jobs go on in their containers, handed over)")
+                save(HANDOVER, [run.handed() for run in running.values()])
                 os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)])
             # The runs' logs a week (about 60 MB a day; the owner asked about the disks, 21.10.2026).
             for name in os.listdir(LOGS):
