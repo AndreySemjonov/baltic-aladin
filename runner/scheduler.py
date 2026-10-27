@@ -53,7 +53,7 @@ REPO = os.environ.get("MG_REPO", "/root/baltic-aladin")
 HOME = os.environ.get("MG_HOME", "/var/lib/meteogust")
 WORK = os.environ.get("MG_WORK", "/mnt/d/meteogust/runner-work")
 STATS, LOGS, STATE, LIVE = f"{HOME}/stats", f"{HOME}/logs", f"{HOME}/state.json", f"{HOME}/live.json"
-# The runs going on, written just before a reload and taken over by the reloaded runner (Adopted).
+# The runs going on, written just before a reload and taken over by the reloaded runner (Adopted); removed once read.
 HANDOVER = f"{HOME}/handover.json"
 ENV_FILE = os.environ.get("MG_ENV", "/root/.meteogust.env")
 LIVE_FILE = os.environ.get("MG_LIVE", "/root/.meteogust-live")
