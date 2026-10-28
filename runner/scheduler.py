@@ -58,9 +58,11 @@ HANDOVER = f"{HOME}/handover.json"
 ENV_FILE = os.environ.get("MG_ENV", "/root/.meteogust.env")
 LIVE_FILE = os.environ.get("MG_LIVE", "/root/.meteogust-live")
 IMAGE = os.environ.get("MG_IMAGE", "meteogust-helper")
-# Big jobs at once: 3 outside WRF (23.10.2026: 2 held the seas back for hours with the machine half idle; memory is the
-# real-memory check's since 22.10), 1 beside it (MAX_HEAVY // 2).
-MAX_TOTAL, MAX_HEAVY = int(os.environ.get("MG_MAX", "4")), int(os.environ.get("MG_MAX_HEAVY", "3"))
+# Big jobs at once: 5 outside WRF, 1 beside it. 3 from 23.10.2026 (2 held the seas back for hours with the machine half
+# idle; memory is the real-memory check's since 22.10); 5 since 28.10.2026, the Tower at 64 GB (WSL 54): World ECMWF 12Z
+# waited 18:28-18:47 UTC for a big job's place with 38 of 54 GB planned and CPU under 75% (the owner: "We still have some
+# waiting even with 64gb ram?", "Yes, raise to 5").
+MAX_TOTAL, MAX_HEAVY = int(os.environ.get("MG_MAX", "4")), int(os.environ.get("MG_MAX_HEAVY", "5"))
 # Outside WRF the slots follow the machine (the owner, 22.10.2026, from the Pipeline's machine band: with WRF off jobs
 # waited 314 of 342 minutes while CPU was under 50% and over 6 GB free): beyond MAX_TOTAL, up to MAX_FLEX at once
 # while the machine's CPU over the last minute is under FLEX_CPU %, one more a minute (a new job's load shows the
@@ -1048,7 +1050,7 @@ def main():
         # spot points and rain now among them; the memory budget and the low CPU share keep WRF safe).
         cpu_now = cpu_busy()
         flex = not wrf and cpu_now is not None and cpu_now < FLEX_CPU
-        total_max, heavy_max = (MAX_TOTAL, max(MAX_HEAVY // 2, 1)) if wrf else (MAX_FLEX if flex else MAX_TOTAL, MAX_HEAVY)
+        total_max, heavy_max = (MAX_TOTAL, 1) if wrf else (MAX_FLEX if flex else MAX_TOTAL, MAX_HEAVY)
         flex_left = 1  # starts beyond MAX_TOTAL this minute
         names, live, cache = env_names(), live_jobs(), {}
         by_name = {j.name: j for j in JOBS}
