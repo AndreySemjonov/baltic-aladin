@@ -1524,7 +1524,8 @@ function RunTimeline({ q, id, running, now, spec, compact, pinned }) {
       const f = (v) => b1 - Math.min(v, 100) / 100 * (b1 - a1), g = (v) => b1 - Math.min(v, total) / total * (b1 - a1);
       const grey = "M" + mrows.map((m) => { const p1 = x(m[0]), p2 = x(m[0] + mstep), h = f(m[1]).toFixed(1);
         return `${p1.toFixed(1)},${b1}L${p1.toFixed(1)},${h}L${p2.toFixed(1)},${h}L${p2.toFixed(1)},${b1}`; }).join("L") + "Z";
-      const m2 = "M" + mrows.map((m) => `${x(m[0] + mstep / 2).toFixed(1)},${g(m[2]).toFixed(1)}`).join("L");
+      // (a new line after a hole of over 10 minutes, as the Mac's band, 28.10.2026)
+      const m2 = mrows.map((m, i) => `${i && m[0] - mrows[i - 1][0] <= 600 ? "L" : "M"}${x(m[0] + mstep / 2).toFixed(1)},${g(m[2]).toFixed(1)}`).join("");
       return html`<path d=${grey} fill="var(--machine)"/><path d=${m2} fill="none" stroke="var(--muted)" stroke-dasharray="3 3"/>`; });
   }
   const H = y - 12;
