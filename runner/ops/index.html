@@ -1172,7 +1172,7 @@ function laneData(maps, fr, f, now, s) {
         // (since 21.10.2026 evening each run records every watched model's run as it started: exact)
         const t = towerRuns.filter((t) => t.sources && t.sources[om] === e.run).sort((a, b) => a.start - b.start)[0]
           || towerRuns.find((t) => JOB_WATCH[t.job] === om && t.source === e.run)
-          || towerRuns.filter((t) => JOB_WATCH[t.job] !== om && t.exit === 0 && t.start >= e.avail - 120 && t.start <= e.avail + 3 * 3600)
+          || towerRuns.filter((t) => JOB_WATCH[t.job] !== om && t.exit === 0 && !t.idle && t.start >= e.avail - 120 && t.start <= e.avail + 3 * 3600)
             .sort((a, b) => a.start - b.start)[0];
         if (t) { matched.add(t); e.tower = { start: t.start, end: t.end, due: t.due, ok: t.exit === 0, live: t.live, job: t.job, cpu: t.cpu, peak: t.peak, net: t.net,
                                              dl_s: t.dl_s, dl_mb: t.dl_mb, dl_files: t.dl_files, dl_first: t.dl_first }; }
@@ -1367,6 +1367,14 @@ function BandTip({ band, row, left, top }) {
     ${row[5] ? html`<span class="k">why</span> ${why}<br/>` : null}
     ${roomy(row, total) ? html`<span class="room">waiting with room: the machine wasn't full</span>` : null}
   </div>`;
+}
+
+// Where a home run's wait (amber) starts: the scheduler holding it from due to start, and none before a run that found
+// nothing new (its record's idle, scheduler.made_nothing). The mixes' own pace (the Mix makes each hour once, the world
+// mix every 5 h) is no wait: an input published meanwhile shows in "ours", not as amber (the owner, 29.10.2026: "there
+// still are some long waitings", most were re-checks and the mixes' pace; "Yes, A then B").
+function held(r, start) {
+  return r.idle || !r.due || start - r.due <= 60 ? null : r.due;
 }
 
 // The download part of a home run's bar (the owner, 22.10.2026: "make also on bar download indication"): from its first
@@ -1963,7 +1971,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
       <circle cx="8" cy=${y + 15} r="4" fill=${dot}/>
       <text class="lname" x="18" y=${y + 19}>${l.label.length > 28 ? l.label.slice(0, 27) + "…" : l.label}</text>`}
       ${l.entries.map((e) => entry(l, e, y, lay))}
-      ${l.loose.filter((r) => r.end >= t0 && r.start <= t1).map((r) => { const from = r.avail || (r.due && r.start - r.due > 60 ? r.due : null);
+      ${l.loose.filter((r) => r.end >= t0 && r.start <= t1).map((r) => { const from = held(r, r.start);
         const yt = y + lay.t(r);
         return html`<g ...${hov({ kind: "tower", l, t: r })}>
         ${from ? html`<rect x=${x(from)} y=${yt + 17} width=${w(from, r.start, 1)} height="6" rx="1" fill="var(--wait)"/>` : null}
@@ -1971,8 +1979,9 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
         ${((p) => p ? html`<rect x=${x(p[0])} y=${yt + 17} width=${w(p[0], p[1], 1)} height="6" rx="1" fill="var(--accent)" opacity=${r.live ? 1 : 0.7}/>` : null)(dlPart(r, r.start, r.end))}</g>`; })}
       ${l.home && l.home.started ? (() => { const je = jobEnd(l.home, now);
         const yt = y + lay.t("home"), ha = l.homeAvail, cur = [...l.entries].reverse().find((o) => o.avail != null && o.avail <= l.home.started + 120);
+        const hf = MIX_INPUTS[l.set] ? held(l.home, l.home.started) : ha && l.home.started > ha.avail ? ha.avail : null;
         return html`<g ...${hov({ kind: "running", l, j: l.home, e: ha ? { ...(cur || {}), ...(ha.run ? l.entries.find((o) => o.run === ha.run) : {}), avail: ha.avail, availFrom: ha.availFrom } : cur })}>
-          ${ha && l.home.started > ha.avail ? html`<rect x=${x(ha.avail)} y=${yt + 17} width=${w(ha.avail, l.home.started, 1)} height="6" rx="1" fill="var(--wait)"/>` : null}<rect x=${x(l.home.started)} y=${yt + 17} width=${w(l.home.started, now, 3)} height="6" rx="1" fill="var(--home)" opacity=${l.home.live ? 1 : 0.55}/>
+          ${hf != null ? html`<rect x=${x(hf)} y=${yt + 17} width=${w(hf, l.home.started, 1)} height="6" rx="1" fill="var(--wait)"/>` : null}<rect x=${x(l.home.started)} y=${yt + 17} width=${w(l.home.started, now, 3)} height="6" rx="1" fill="var(--home)" opacity=${l.home.live ? 1 : 0.55}/>
           ${((p) => p ? html`<rect x=${x(p[0])} y=${yt + 17} width=${w(p[0], p[1], 1)} height="6" rx="1" fill="var(--accent)" opacity=${l.home.live ? 1 : 0.7}/>` : null)(dlPart(l.home, l.home.started, now))}
           ${je ? (je.late ? expect(yt, now, "var(--home)", `${Math.round((now - l.home.started) / 60)} min · over its usual ${Math.round(je.typ / 60)}`, true)
             : expect(yt, je.end, "var(--home)", `${Math.round(je.pct * 100)}% · ~${clock(je.end)}`, false)) : null}</g>`; })() : null}

@@ -75,6 +75,15 @@ AGE_AFTER = 60 * 60
 WRF_LOCK = "/root/wrf-logs/.lock"
 REGION = os.environ.get("MG_REGION", "eu")
 LOW_SHARES = int(os.environ.get("MG_LOW_SHARES", "128"))
+# The jobs' CPU share by priority, of Docker's 1024 (LOW_SHARES while WRF runs): when the machine is full a priority-1
+# job (the Mix, the series, the spot points) gets the CPU first and a big priority-3 one (the world weather mix, the
+# sea) what is left; on a quiet machine each still takes all it can. The owner, 29.10.2026 ("Yes, A then B"): the Mix
+# took 48 min instead of ~16 beside the world weather mix, the sea, UKV and the regional jobs (00:05-00:53 Riga).
+PRIORITY_SHARE = {1: 2.0, 2: 1.0, 3: 0.25}
+
+
+def cpu_shares(job, wrf):
+    return max(2, round((LOW_SHARES if wrf else 1024) * PRIORITY_SHARE.get(job.priority, 1.0)))
 # The jobs' memory: all but this much of the machine's (MB), unless MG_MEM_MB says.
 MEM_SPARE = 1800
 MEM_DEFAULT = {True: 6000, False: 1500}
@@ -267,6 +276,19 @@ def why_kind(why):
     if why.startswith("all ") and "slots busy" in why:
         return "slots"
     return "starting"
+
+
+def made_nothing(path, took):
+    """A run that found nothing new: done within 3 minutes with at most 3 lines said ("ENS ... already published",
+    "Water: nothing new", "Estonian gauges read 40 min ago"); a run that makes something says dozens. The panel paints
+    no wait before it (the owner, 29.10.2026: "there still are some long waitings", most were these re-checks)."""
+    if took >= 180:
+        return False
+    try:
+        with open(path, errors="replace") as f:
+            return sum(1 for line in f if line.strip()) <= 3
+    except OSError:
+        return False
 
 
 _fetch_fails = {}  # model -> latest.json failures in a row (logged at the 3rd)
@@ -675,9 +697,11 @@ def containers():
     return {name[3:] for name in out.split() if name.startswith("mg-")}
 
 
-def set_shares(names, shares):
+def set_shares(names, wrf):
     for name in names:
-        subprocess.run(["docker", "update", "--cpu-shares", str(shares), f"mg-{name}"], capture_output=True)
+        job = next((j for j in JOBS if j.name == name), None)
+        if job:
+            subprocess.run(["docker", "update", "--cpu-shares", str(cpu_shares(job, wrf)), f"mg-{name}"], capture_output=True)
 
 
 def reap_strays(keep):
@@ -1029,19 +1053,21 @@ def main():
                 append(f"{STATS}/_tiny_runs.jsonl", {"job": name, "start": round(run.started), "end": round(time.time()),
                                                      "exit": code, "live": run.live})
                 continue
+            idle = code == 0 and made_nothing(run.log_path, time.time() - run.started)
             append(f"{STATS}/_runs.jsonl", {"job": name, "due": round(run.wanted), "start": round(run.started),
                                             "source": round(run.source) if run.source else None,
                                             **({"sources": {m: round(r) for m, r in run.sources.items()}} if run.sources else {}),
-                                            "end": round(time.time()), "exit": code, "live": run.live})
-            log(f"{name}: done in {(time.time() - run.started) / 60:.1f} min, exit {code}")
+                                            "end": round(time.time()), "exit": code, "live": run.live,
+                                            **({"idle": True} if idle else {})})
+            log(f"{name}: done in {(time.time() - run.started) / 60:.1f} min, exit {code}" + (", nothing new" if idle else ""))
         # WRF started or ended: the running jobs' CPU share follows.
         wrf = wrf_running()
         _shape["wrf"] = wrf
         there = containers()
         if wrf != wrf_was:
-            set_shares(there, LOW_SHARES if wrf else 1024)
+            set_shares(there, wrf)
             if wrf_was is not None:
-                log(f"WRF {'started' if wrf else 'ended'}: the jobs' CPU share {LOW_SHARES if wrf else 1024}")
+                log(f"WRF {'started' if wrf else 'ended'}: the jobs' CPU share {LOW_SHARES if wrf else 1024} (by priority)")
             wrf_was = wrf
         # Due runs, as many as allowed (containers left from before a reload count too).
         others = [name for name in there if name not in running]
@@ -1171,7 +1197,7 @@ def main():
             if limit is None:
                 log(f"{job.name}: its last run was killed (137): this one without a memory limit")
             running[job.name] = Running(job, is_live, wanted if job.watch else None, _due_since.pop(job.name, now),
-                                        LOW_SHARES if wrf else 1024, limit)
+                                        cpu_shares(job, wrf), limit)
             mine["started"] = now
             mine["live"] = is_live
             if job.inputs:

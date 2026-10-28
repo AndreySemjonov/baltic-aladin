@@ -432,7 +432,8 @@ def capacity(now=None):
                                        "longest_wait": 0, "failed": 0, "net_gb": 0.0})
         j["runs"] += 1
         j["wall_h"] += (r["end"] - r["start"]) / 3600
-        wait = max(r["start"] - r.get("due", r["start"]), 0)
+        # A run that found nothing new held nothing back (scheduler.made_nothing).
+        wait = 0 if r.get("idle") else max(r["start"] - r.get("due", r["start"]), 0)
         j["waited_h"] += wait / 3600
         j["longest_wait"] = max(j["longest_wait"], wait)
         if r.get("exit") != 0:

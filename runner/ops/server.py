@@ -674,7 +674,7 @@ class Records:
         # The home runs of the last 36 hours, for the Pipeline's Tower line under GitHub's bars (the owner, 21.10.2026:
         # "those runs according github or tower pc?").
         home = [{"job": r["job"], "due": r.get("due"), "start": r["start"], "end": r["end"], "exit": r.get("exit"), "live": bool(r.get("live")),
-                 "source": r.get("source"), "sources": r.get("sources")} for r in jsonl(f"{STATS}/_runs.jsonl", 1500) if r.get("end", 0) >= now - 36 * 3600]
+                 "source": r.get("source"), "sources": r.get("sources"), "idle": bool(r.get("idle"))} for r in jsonl(f"{STATS}/_runs.jsonl", 1500) if r.get("end", 0) >= now - 36 * 3600]
         # And the runs of the Tower's tiny jobs (their own record) and the Mac's fast jobs, each with its machine (the
         # owner, 26.10.2026: "we have to define on live feed what run on tower what on mac mini").
         home += [{"job": r["job"], "start": r["start"], "end": r["end"], "exit": r.get("exit"), "live": bool(r.get("live")),
@@ -874,7 +874,7 @@ def band(hours=12):
     queue = [q for q in jsonl(f"{STATS}/_queue.jsonl", hours * 60 + 120) if q.get("t", 0) >= since]
     first_queue = queue[0]["t"] if queue else now
     waits = [(r["due"], r["start"], r["job"]) for r in jsonl(f"{STATS}/_runs.jsonl", 3000)
-             if r.get("start", 0) >= since - 6 * 3600 and r.get("due") and r["start"] - r["due"] > 60]
+             if r.get("start", 0) >= since - 6 * 3600 and r.get("due") and r["start"] - r["due"] > 60 and not r.get("idle")]
     names, index = [], {}
 
     def ix(name):
