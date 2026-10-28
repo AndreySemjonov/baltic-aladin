@@ -319,9 +319,15 @@ def sat_pack(when, incomplete=True):
             "height": (HEIGHT, when, (width // 4, height // 4)), "fog": (FOG, ten, (width // 4, height // 4))}
     if daylight.max() > 0:
         jobs["visible"] = (VISIBLE, ten, (width, height))
+
+    def listed(layer, t):
+        # Asked for a time it hasn't listed, the map server answers with its newest older picture (a 09:40 visible for a
+        # 12:00 frame thins the wrong places): not asked then, it counts as missing.
+        return layer not in LISTED or t <= LISTED[layer]
+    jobs = {k: job for k, job in jobs.items() if k in ("infrared", "mask") or listed(job[0], job[1])}
     with ThreadPoolExecutor(len(jobs)) as pool:
         got = dict(zip(jobs, pool.map(lambda job: picture(job[0], job[1], box, job[2]), jobs.values())))
-    infrared, mask, cth, visible = got["infrared"], got["mask"], got["height"], got.get("visible")
+    infrared, mask, cth, visible = got["infrared"], got["mask"], got.get("height"), got.get("visible")
     # The infrared missing (or a blank), the one 10 or 20 minutes before: it gives the texture only, the mask and the
     # height where and how high (28.10.2026: MTG's 02:50 and 03:00 blank, 02:40 fine).
     for minutes in (10, 20):
@@ -335,14 +341,18 @@ def sat_pack(when, incomplete=True):
     # 26.10.2026 23:14 Riga, thin altocumulus with a corona; our 19:00 UTC frame made without it was 86 % cloud round
     # Riga, 43 % made again with it).
     lacking = []
-    if "visible" in jobs and visible is None:
-        visible = picture(VISIBLE, ten - timedelta(minutes=10), box, (width, height))
+    if daylight.max() > 0 and visible is None:
+        if listed(VISIBLE, ten - timedelta(minutes=10)):
+            visible = picture(VISIBLE, ten - timedelta(minutes=10), box, (width, height))
         if visible is None:
             lacking.append("the visible")
     if daylight.min() < 1 and got.get("fog") is None:
-        got["fog"] = picture(FOG, ten - timedelta(minutes=10), box, (width // 4, height // 4))
-        if got["fog"] is None:
+        if listed(FOG, ten - timedelta(minutes=10)):
+            got["fog"] = picture(FOG, ten - timedelta(minutes=10), box, (width // 4, height // 4))
+        if got.get("fog") is None:
             lacking.append("the fog picture")
+    if cth is None:
+        lacking.append("the cloud height")
     if lacking and not incomplete:
         return None, "not in yet: " + " or ".join(lacking)
     how = "without " + " and ".join(lacking) if lacking else "complete"
@@ -376,13 +386,18 @@ def sat_pack(when, incomplete=True):
         heights = None if cth is None else cloud_heights(cth)
     except (urllib.error.URLError, OSError, ValueError):
         heights = None
-    if heights is None:
+    if heights is None and visible is None and got.get("fog") is None:
         shade, alpha, _ = style_b(infrared, mask, local=True)
     else:
-        # Smoothed on its own 3 km grid, then spread out smoothly (no blocks, no blobs).
-        heights = smooth_heights(heights, 1.5)
-        heights = np.asarray(Image.fromarray(heights).resize((width, height), Image.BILINEAR), dtype=np.float32)
-        heights = blur(heights, 3)
+        if heights is None:
+            # Without the cloud top's height all at 1.5 km: the visible's and the fog picture's how thick still apply,
+            # not the mask's solid sheet (28.10.2026).
+            heights = np.full((height, width), 1500, dtype=np.float32)
+        else:
+            # Smoothed on its own 3 km grid, then spread out smoothly (no blocks, no blobs).
+            heights = smooth_heights(heights, 1.5)
+            heights = np.asarray(Image.fromarray(heights).resize((width, height), Image.BILINEAR), dtype=np.float32)
+            heights = blur(heights, 3)
         daylight = np.asarray(Image.fromarray(daylight).resize((width, height), Image.BILINEAR), dtype=np.float32)
         sun = np.asarray(Image.fromarray(sun_now.astype(np.float32)).resize((width, height), Image.BILINEAR), dtype=np.float32)
         fog = got.get("fog")
@@ -438,9 +453,28 @@ WAIT_VISIBLE = 45 * 60
 # next, sunset, night and sunrise alike; the 03:00 UTC frame made from EUMETSAT's blank pictures was -77 %. A pack off
 # all its published neighbours (30 minutes before, 15 after) by more than this is held, whatever broke it.
 JUMP = 0.25
-# A quarter hour still missing this long after its time (no picture, or held) is tried once an hour, not every run
-# (28.10.2026: 03:15, MTG's pictures gone for good, took one of the run's two places all day).
+# A quarter hour this long after its time whose last try failed (no picture, held, or still lacking a picture) is tried
+# again an hour later, not every run (28.10.2026: 03:15, MTG's pictures gone for good, took one of the run's two places
+# all day, and 27.10's 13:45, its fog picture never come, the net's only one). Only failed ones: the first take on this
+# (once an hour for all of them past 2 h) left 10:00-12:45 UTC unmade for 4 hours after a stall. Each machine keeps its
+# own memory (TRIES).
 RETRY_LATE = 2 * 3600
+TRIES = Path(os.environ.get("CLOUDS_TRIES", str(Path.home() / ".cache" / "meteogust-clouds-tries.json")))
+
+
+def load_tries():
+    try:
+        return {k: float(v) for k, v in json.loads(TRIES.read_text()).items()}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def save_tries(tries):
+    try:
+        TRIES.parent.mkdir(parents=True, exist_ok=True)
+        TRIES.write_text(json.dumps({k: v for k, v in tries.items() if time.time() - v < 2 * 86400}))
+    except OSError:
+        pass
 
 
 def cloud_bytes(head):
@@ -487,11 +521,13 @@ def make_tiles(wanted, token, remake=None):
     may be there (the net). `remake`: these quarter hours made again instead (--remake), each kept as it was when a
     picture doesn't come."""
     have = sat_published()
+    tries = load_tries()
+
+    def due(t):
+        return time.time() - t.timestamp() < RETRY_LATE or time.time() - tries.get(t.strftime("%Y%m%d%H%M"), 0) > 3600
     if remake is None:
-        hourly = datetime.now(timezone.utc).minute < 15 or TILES_PER_RUN > 4
-        missing = [t for t in wanted if t.strftime("%Y%m%d%H%M") not in have
-                   and (hourly or time.time() - t.timestamp() < RETRY_LATE)][:TILES_PER_RUN]
-        again = [t for t in wanted if have.get(t.strftime("%Y%m%d%H%M"), {}).get("visible") is False][:1]
+        missing = [t for t in wanted if t.strftime("%Y%m%d%H%M") not in have and due(t)][:TILES_PER_RUN]
+        again = [t for t in wanted if have.get(t.strftime("%Y%m%d%H%M"), {}).get("visible") is False and due(t)][:1]
         print(f"Satellite tiles: {len(have)} published, {len(missing)} to make, {len(again)} to make again complete")
     else:
         missing, again = [], [t for t in remake if t.strftime("%Y%m%d%H%M") in have]
@@ -503,12 +539,18 @@ def make_tiles(wanted, token, remake=None):
         before = have.get(stamp)
         pack, how = sat_pack(when, incomplete=before is None and now - when.timestamp() > WAIT_VISIBLE)
         if pack is None:
+            tries[stamp] = time.time()
             print(f"  {when:%H:%M}: {how}" + (", kept as it was" if before else ", tried again next run" if how != "no picture" else ""))
             continue
         held = jump(when, pack, have)
         if held:
+            tries[stamp] = time.time()
             print(f"  {when:%H:%M}: {held}" + (", kept as it was" if before else ", tried again"))
             continue
+        if how != "complete":
+            tries[stamp] = time.time()
+        else:
+            tries.pop(stamp, None)
         name = stamp
         if before:
             # Its own name (the packs are cached for a year): <stamp>-r<n>.
@@ -521,6 +563,7 @@ def make_tiles(wanted, token, remake=None):
                   + (" (made again)" if before else ""))
         except urllib.error.URLError as error:
             print(f"  {when:%H:%M}: upload failed: {error}")
+    save_tries(tries)
 
 
 def published(folder):
@@ -552,6 +595,10 @@ def send(url, data, content_type, token):
         reply.read()
 
 
+# Each layer's newest listed time (newest_ready): sat_pack doesn't ask for a picture past it.
+LISTED = {}
+
+
 def listed_until(layer):
     """The newest time EUMETSAT's map server lists for a layer (its GetCapabilities' time dimension, "start/end/step"
     ranges or single times), or None."""
@@ -574,22 +621,34 @@ def newest_ready(now):
     asked for a time it hasn't got, the map server answers with the newest older picture (21:55's infrared came back as
     21:40's), so a frame could mix a new infrared with an old mask. Unlisted (the server down): 30 minutes old, as before."""
     until = {layer: listed_until(layer) for layer in (MASK, HEIGHT, INFRARED, FOG, VISIBLE)}
-    if all(until.values()):
-        quarter = min(until[MASK], until[HEIGHT]).replace(second=0, microsecond=0)
+    LISTED.clear()
+    LISTED.update({layer: t for layer, t in until.items() if t})
+    if until[MASK] and until[INFRARED]:
+        quarter = until[MASK].replace(second=0, microsecond=0)
         quarter -= timedelta(minutes=quarter.minute % 15)
         _, _, _, lats, lons = sat_box()
 
         def ready(q):
             ten = q - timedelta(minutes=q.minute % 10)
+            if ten > until[INFRARED]:
+                return False
             # The visible only where sat_pack asks it: the sun over 3 degrees somewhere in the box (by night it's listed
             # 10 minutes behind the others and not used).
             day = bool((sun_height(lats[:, None], lons[None, :], q) > 3).any())
-            return ten <= min(until[INFRARED], until[FOG]) and (not day or ten <= until[VISIBLE])
+            rest = (until[HEIGHT] and q <= until[HEIGHT] and until[FOG] and ten <= until[FOG]
+                    and (not day or until[VISIBLE] and ten <= until[VISIBLE]))
+            # The cloud height, the fog picture and the visible waited for only until WAIT_VISIBLE after the frame's
+            # time, then it goes without them (marked, made again when they come; sat_pack). Before 28.10.2026 all five
+            # held it: one of them stopped being listed at ~09:40 UTC and no frame came for 4.5 hours, the map in the
+            # forecast's morning fog over a clear Riga (the owner's photos, 15:28 and 16:08 Riga: "Fog went away, but in
+            # app it's showed").
+            return bool(rest) or (now - q).total_seconds() >= WAIT_VISIBLE
 
         while not ready(quarter):
             quarter -= timedelta(minutes=15)
-        print(f"Listed: the mask to {until[MASK]:%H:%M}, the infrared to {until[INFRARED]:%H:%M}: frames to {quarter:%H:%M} "
-              f"({(now - quarter).total_seconds() / 60:.0f} min ago)")
+        listed = ", ".join(f"{name} {until[layer]:%H:%M}" if until[layer] else f"{name} not listed" for name, layer in
+                           (("mask", MASK), ("height", HEIGHT), ("infrared", INFRARED), ("fog", FOG), ("visible", VISIBLE)))
+        print(f"Listed: {listed}: frames to {quarter:%H:%M} ({(now - quarter).total_seconds() / 60:.0f} min ago)")
         return quarter
     print("Not listed: frames at least 30 minutes old")
     newest = (now - timedelta(minutes=30)).replace(second=0, microsecond=0)
