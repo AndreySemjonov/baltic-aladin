@@ -5,12 +5,12 @@ For each place (a catalog spot, or one asked for with --at), a grid of the drivi
 ~4 km cell within 300 km, from OpenStreetMap's roads (and ferries) with OSRM's car profile. The phone downloads the
 files for its cards and looks up the rider's cell offline: no routing service, no location sent anywhere.
 
-File tiles/roads/v1/<lat>_<lon>.bin (the place rounded to 0.01°, as the phones round it), little-endian:
+File tiles/roads/v2/<lat>_<lon>.bin (the place rounded to 0.01°, as the phones round it), little-endian:
   "MGRD", version u8 (1), cell km u8, n u16 (the grid is 2n x 2n), lat f32, lon f32 (the rounded place),
   then raw DEFLATE (zlib wbits -15) of 2n*2n pairs [minutes/2, km/2] (u8 each; 255 = no road), rows from the south,
   each row from the west. Cell (i, j) holds the point
     lat = lat0 + (i + 0.5 - n) * cell / 110.574,  lon = lon0 + (j + 0.5 - n) * cell / (111.32 * cos(lat0))
-tiles/roads/v1/index.json: {"places": ["57.31_24.40", ...]}, the files there.
+tiles/roads/v2/index.json: {"places": ["57.31_24.40", ...]}, the files there.
 
 OpenStreetMap data © OpenStreetMap contributors (ODbL); these files are a derived database under the ODbL too.
 
@@ -34,7 +34,7 @@ import zlib
 CATALOG = "https://data.meteogust.com/spots/catalog"
 FILES = "https://files.meteogust.com/"
 UPLOAD = "https://data.meteogust.com/tiles/upload/"
-FOLDER = "roads/v1"                 # under tiles/ on our files (files.meteogust.com/tiles/roads/v1/...)
+FOLDER = "roads/v2"                 # under tiles/ on our files; a new folder when made again (Cloudflare keeps a file a month)
 AGENT = "MeteoGust helper"
 OSRM_IMAGE = "ghcr.io/project-osrm/osrm-backend:v5.27.1"
 CELL_KM = 4
