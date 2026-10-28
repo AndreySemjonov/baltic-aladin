@@ -747,6 +747,13 @@ def summaries_loop():
             views.FEEDS.refresh()
         except Exception as error:
             log(f"feeds: {error}")
+        # The Mac's beat every minute, watched or not (mac_state keeps each new one for its band): before 28.10.2026 only
+        # the panel's own requests read it, so a night with nobody watching kept no beats and its band drew one slope
+        # across (the owner: "mac mini have problem in ops.meteogust.com its showed incorrect usage").
+        try:
+            mac_state()
+        except Exception as error:
+            log(f"mac: {error}")
         # (admin's overview reads many database rows: every 5 minutes while watched, else every 30)
         if now - last_admin > (300 if watched else 1800):
             last_admin = now

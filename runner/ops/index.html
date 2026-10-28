@@ -1246,14 +1246,19 @@ function macBandLayer(mac, x, t0, X0, X1, compact, y0) {
   const yCpu = (p) => CPU[1] - Math.min(p, 100) / 100 * (CPU[1] - CPU[0]);
   const yMem = (g) => MEM[1] - Math.min(g, mac.total_gb) / mac.total_gb * (MEM[1] - MEM[0]);
   const xm = (r) => x(r[0] + step / 2);
-  const area = (f0, f1) => "M" + rows.map((r) => `${xm(r)},${f1(r)}`).join("L") + "L" + [...rows].reverse().map((r) => `${xm(r)},${f0(r)}`).join("L") + "Z";
+  // A hole in the beats (over 10 minutes) stays a hole, not a straight line across it (the owner, 28.10.2026: "its
+  // showed incorrect usage", a night with no beats kept drawn as one slope from WRF's 60% down to the morning).
+  const runs = [];
+  rows.forEach((r, i) => (i && r[0] - rows[i - 1][0] <= 600 ? runs[runs.length - 1].push(r) : runs.push([r])));
+  const line = (f) => runs.map((rs) => "M" + rs.map((r) => `${xm(r)},${f(r)}`).join("L")).join("");
+  const area = (f0, f1) => runs.map((rs) => "M" + rs.map((r) => `${xm(r)},${f1(r)}`).join("L") + "L" + [...rs].reverse().map((r) => `${xm(r)},${f0(r)}`).join("L") + "Z").join("");
   const avg = rows.reduce((a, r) => a + r[1] + r[2], 0) / rows.length, peak = Math.max(...rows.map((r) => r[3]));
   return html`<g aria-label="The Mac mini">
     <path d=${area(() => yCpu(0), (r) => yCpu(r[2]))} fill="var(--wrf-soft)"/>
     <path d=${area((r) => yCpu(r[2]), (r) => yCpu(r[1] + r[2]))} fill="var(--mac-soft)"/>
-    <path d=${"M" + rows.map((r) => `${xm(r)},${yCpu(r[1] + r[2])}`).join("L")} fill="none" stroke="var(--mac)" stroke-width="1.3"/>
+    <path d=${line((r) => yCpu(r[1] + r[2]))} fill="none" stroke="var(--mac)" stroke-width="1.3"/>
     ${[50, 100].map((p) => html`<line x1=${X0} x2=${X1} y1=${yCpu(p)} y2=${yCpu(p)} stroke="var(--line)" stroke-dasharray="3 3"/>${compact ? null : html`<text x=${X0 - 6} y=${yCpu(p) + 4} text-anchor="end">${p}%</text>`}`)}
-    <path d=${"M" + rows.map((r) => `${xm(r)},${yMem(r[3])}`).join("L")} fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+    <path d=${line((r) => yMem(r[3]))} fill="none" stroke="var(--accent)" stroke-width="1.5"/>
     ${compact ? html`<text class="cap" x=${X0 + 2} y=${CPU[0] + 11}><tspan class="grp" style="fill:var(--mac)">MAC MINI </tspan><tspan style="fill:var(--ink)">CPU ${mac.threads} cores · avg ${Math.round(avg)}%</tspan></text>
         <text class="cap" x=${X0 + 2} y=${MEM[0] + 11}><tspan class="grp" style="fill:var(--muted)">MEMORY </tspan><tspan style="fill:var(--ink)">peak ${peak.toFixed(1)} GB</tspan></text>`
       : html`<text class="grp" x="0" y=${CPU[0] + 12} style="fill:var(--mac)">MAC MINI</text><text x="0" y=${CPU[0] + 26}>CPU · ${mac.threads} cores</text>
