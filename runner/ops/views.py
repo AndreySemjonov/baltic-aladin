@@ -14,6 +14,7 @@ lack capacity"; the mockup docs/mockups/ops-panel-v2-2026-10-21.html in the app'
 import json
 import os
 import statistics
+import struct
 import threading
 import time
 import urllib.request
@@ -554,6 +555,61 @@ class FeedHistory:
 FEEDS = FeedHistory()
 
 
+# MARK: The satellite clouds' frames
+
+class SatFrames:
+    """The satellite clouds' last day checked from outside, whichever machine made them (the owner, 28.10.2026: "build
+    the guard (1) and the ops panel line (2)"; 03:00 UTC that day was made from EUMETSAT's blank pictures, nearly clear
+    over Europe): the quarter hours missing from tiles/sat/index.json (held by clouds.py's guard, no picture, a run
+    lost), and the frames whose Europe-wide cloud (their zoom-6 tiles' bytes, from the pack's header) is off every
+    neighbour within 30 minutes by more than JUMP (clouds.py's; normal is 4 % at most). Each header read once."""
+    JUMP = 0.25
+
+    def __init__(self):
+        self.sizes = {}
+
+    @staticmethod
+    def size(file):
+        url = f"{FILES}tiles/sat/{file}"
+
+        def part(first, last):
+            request = urllib.request.Request(url, headers={**AGENT, "Range": f"bytes={first}-{last}"})
+            with urllib.request.urlopen(request, timeout=30) as reply:
+                return reply.read()
+        try:
+            n = struct.unpack("<I", part(0, 7)[4:8])[0]
+            return sum(v[1] for k, v in json.loads(part(8, 7 + n))["tiles"].items() if k.startswith("6/"))
+        except Exception:
+            return None
+
+    def check(self, now):
+        from concurrent.futures import ThreadPoolExecutor
+        frames = sorted(fetch(f"{FILES}tiles/sat/index.json?t={int(now)}").get("frames", []), key=lambda f: f["time"])
+        if not frames:
+            return None
+        newest = frames[-1]["time"]
+        recent = [f for f in frames if f["time"] > newest - 24 * 3600]
+        listed = {f["time"] for f in recent}
+        missing = [t for t in range(newest - 24 * 3600 + 900, newest, 900) if t not in listed]
+        todo = [f["file"] for f in recent if f["file"] not in self.sizes]
+        with ThreadPoolExecutor(8) as pool:
+            for file, size in zip(todo, pool.map(self.size, todo)):
+                if size is not None:
+                    self.sizes[file] = size
+        self.sizes = {f["file"]: self.sizes[f["file"]] for f in recent if f["file"] in self.sizes}
+        broken = []
+        for i, f in enumerate(recent):
+            here = self.sizes.get(f["file"])
+            near = [self.sizes.get(g["file"]) for g in recent[max(i - 2, 0):i + 3] if g is not f and abs(g["time"] - f["time"]) <= 1800]
+            near = [x for x in near if x]
+            if here is not None and near and all(abs(here / x - 1) > self.JUMP for x in near):
+                broken.append(f["time"])
+        return {"frames": len(recent), "missing": missing, "broken": broken}
+
+
+SAT = SatFrames()
+
+
 class Admin:
     def __init__(self):
         self.data = {"t": 0}
@@ -575,6 +631,13 @@ class Admin:
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(8) as pool:
             feeds = list(pool.map(head, WATCHED))
+        try:
+            frames = SAT.check(now)
+            for f in feeds:
+                if f["key"] == "sat" and frames:
+                    f["frames"] = frames
+        except Exception:
+            pass
         try:
             beat = fetch(f"{FILES}runner/heartbeat.json?t={int(now)}")
             age = now - beat["t"]

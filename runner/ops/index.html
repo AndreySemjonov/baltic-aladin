@@ -904,7 +904,7 @@ function Admin({ ad, now }) {
   return html`<p class="note" style="margin:0 0 12px">admin.meteogust.com's data, read-only, every minute while open. Changes (approve a spot, add a station, start a build) stay on <a href="https://admin.meteogust.com/" style="color:var(--accent)">admin.meteogust.com</a>, which also keeps working when home is down.</p>
     <div class="cards">
       <div class="panel"><h2>Feeds and alerts · ${late ? late + " late" : "all fine"}</h2>
-        ${ad.feeds.map((f) => html`<div class="feed"><span>${f.name}<span class="sub">${f.usual}</span></span><span class="num">${f.age != null ? hrs(f.age) + " ago" : "not found"}</span>
+        ${ad.feeds.map((f) => html`<div class="feed"><span>${f.name}<span class="sub">${f.usual}</span>${f.frames ? html`<span class="sub">${satNote(f.frames)}</span>` : ""}</span><span class="num">${f.age != null ? hrs(f.age) + " ago" : "not found"}</span>
           <span class=${"st " + (f.late ? "bad" : "ok")}>${f.late ? "late" : "fine"}</span></div>`)}
         <a class="btn" href="https://admin.meteogust.com/">Alert settings in admin ↗</a></div>
       ${ad.error === "token" ? html`<div class="panel"><h2>The rest of admin's overview</h2>
@@ -981,8 +981,17 @@ function Nav({ sec }) {
     <a href="/admin/" title="admin.meteogust.com's own page, served from home">Full admin ↗</a></nav>`;
 }
 
+// The satellite clouds' last day (views.SatFrames, 28.10.2026): its quarter hours missing (held by clouds.py's guard, no
+// picture, a run lost) and its frames off every neighbour (made from broken pictures).
+const satNote = (s) => `${s.frames} of 96 frames` + (s.missing.length ? ` · missing ${s.missing.slice(-4).map((t) => clock(t)).join(", ")}${s.missing.length > 4 ? " and " + (s.missing.length - 4) + " more" : ""}` : "")
+  + (s.broken.length ? ` · broken ${s.broken.map((t) => clock(t)).join(", ")}` : "");
+
 function warningsList({ f, fr, ad, spots, now }) {
   const out = [];
+  const sat = ((ad && ad.feeds) || []).find((x) => x.key === "sat" && x.frames);
+  if (sat && sat.frames.broken.length) out.push(["bad", "Satellite clouds", "broken frame " + sat.frames.broken.map((t) => clock(t)).join(", "), "#pipeline"]);
+  else if (sat && sat.frames.missing.some((t) => now - t < 6 * 3600))
+    out.push(["warn", "Satellite clouds", sat.frames.missing.filter((t) => now - t < 6 * 3600).map((t) => clock(t)).join(", ") + " missing", "#pipeline"]);
   for (const r of (fr && fr.rows) || []) if (r.status === "bad") out.push(["bad", r.label, `${r.behind_runs} run${r.behind_runs > 1 ? "s" : ""} behind${r.waited ? " · " + hrs(r.waited) : ""}`, "#pipeline"]);
   for (const x of (ad && ad.feeds) || []) if (x.late) out.push(["bad", x.name, x.age != null ? "late · " + hrs(x.age) : "not found", "#pipeline"]);
   const o = ad && ad.overview;

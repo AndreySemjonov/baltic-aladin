@@ -35,6 +35,7 @@ import io
 import json
 import math
 import os
+import struct
 import sys
 import time
 import urllib.error
@@ -432,6 +433,53 @@ def sat_published():
 # A frame waits for the pictures that say how thick until this long after its time, then goes without them (no gap in
 # the clouds; the owner, 26.10.2026: "build A"); the frames are made about 30 minutes after their time.
 WAIT_VISIBLE = 45 * 60
+# The guard (the owner, 28.10.2026: "build the guard (1) and the ops panel line (2)"): Europe's cloud hardly changes in
+# a quarter hour; the last day's packs' zoom-6 bytes (how much cloud, near enough) moved 4 % at most from one to the
+# next, sunset, night and sunrise alike; the 03:00 UTC frame made from EUMETSAT's blank pictures was -77 %. A pack off
+# all its published neighbours (30 minutes before, 15 after) by more than this is held, whatever broke it.
+JUMP = 0.25
+# A quarter hour still missing this long after its time (no picture, or held) is tried once an hour, not every run
+# (28.10.2026: 03:15, MTG's pictures gone for good, took one of the run's two places all day).
+RETRY_LATE = 2 * 3600
+
+
+def cloud_bytes(head):
+    """How much cloud a pack holds, near enough: its zoom-6 tiles' bytes (clear sky is left out, cloud's texture costs)."""
+    return sum(size for key, (_, size) in head["tiles"].items() if key.startswith(f"{TILE_Z}/"))
+
+
+def pack_head(data):
+    return json.loads(data[8:8 + struct.unpack("<I", data[4:8])[0]])
+
+
+def published_bytes(file):
+    """A published pack's cloud_bytes from its header alone (two small Range requests), or None."""
+    url = TILES_INDEX.rsplit("/", 1)[0] + "/" + file
+
+    def part(first, last):
+        request = urllib.request.Request(url, headers={"User-Agent": AGENT, "Range": f"bytes={first}-{last}"})
+        with urllib.request.urlopen(request, timeout=30) as reply:
+            return reply.read()
+    try:
+        n = struct.unpack("<I", part(0, 7)[4:8])[0]
+        return cloud_bytes(json.loads(part(8, 7 + n)))
+    except (urllib.error.URLError, OSError, ValueError, KeyError, struct.error):
+        return None
+
+
+def jump(when, pack, have):
+    """None when the pack fits a published neighbour (or has none to compare), else why it's held."""
+    new = cloud_bytes(pack_head(pack))
+    seen = []
+    for minutes in (-15, -30, 15):
+        entry = have.get((when + timedelta(minutes=minutes)).strftime("%Y%m%d%H%M"))
+        old = entry and published_bytes(entry["file"])
+        if not old:
+            continue
+        if abs(new / old - 1) <= JUMP:
+            return None
+        seen.append(f"{new / old - 1:+.0%} on {when + timedelta(minutes=minutes):%H:%M}")
+    return f"held: Europe's cloud {new / 1e6:.2f} MB, " + ", ".join(seen) if seen else None
 
 
 def make_tiles(wanted, token, remake=None):
@@ -440,7 +488,9 @@ def make_tiles(wanted, token, remake=None):
     picture doesn't come."""
     have = sat_published()
     if remake is None:
-        missing = [t for t in wanted if t.strftime("%Y%m%d%H%M") not in have][:TILES_PER_RUN]
+        hourly = datetime.now(timezone.utc).minute < 15 or TILES_PER_RUN > 4
+        missing = [t for t in wanted if t.strftime("%Y%m%d%H%M") not in have
+                   and (hourly or time.time() - t.timestamp() < RETRY_LATE)][:TILES_PER_RUN]
         again = [t for t in wanted if have.get(t.strftime("%Y%m%d%H%M"), {}).get("visible") is False][:1]
         print(f"Satellite tiles: {len(have)} published, {len(missing)} to make, {len(again)} to make again complete")
     else:
@@ -454,6 +504,10 @@ def make_tiles(wanted, token, remake=None):
         pack, how = sat_pack(when, incomplete=before is None and now - when.timestamp() > WAIT_VISIBLE)
         if pack is None:
             print(f"  {when:%H:%M}: {how}" + (", kept as it was" if before else ", tried again next run" if how != "no picture" else ""))
+            continue
+        held = jump(when, pack, have)
+        if held:
+            print(f"  {when:%H:%M}: {held}" + (", kept as it was" if before else ", tried again"))
             continue
         name = stamp
         if before:
