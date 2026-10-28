@@ -20,6 +20,7 @@ import fcntl
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -90,6 +91,9 @@ def env():
     except OSError:
         pass
     out["PYTHONPATH"] = str(REPO)
+    # Each line into the log as it's printed: a run stopped at its time limit kept nothing (28.10.2026, clouds' first
+    # live run: 30 minutes, an empty log).
+    out["PYTHONUNBUFFERED"] = "1"
     return out
 
 
@@ -135,12 +139,23 @@ def run(job, live):
     started = time.time()
     update(job.name, {"started": round(started), "running": True, "live": live})
     with open(LOGS / f"{job.name}-{stamp}.log", "w") as f:
+        # time -l: its peak memory into the log's end, for the plan. In its own process group, so its time limit stops
+        # the job's Python too: killing only `time` left it running on with no parent (28.10.2026: clouds' first live run
+        # at its 30 minutes, still downloading beside the next one).
+        proc = subprocess.Popen(["/usr/bin/time", "-l", "taskpolicy", "-b", *script], cwd=REPO, env=env(), stdout=f,
+                                stderr=subprocess.STDOUT, start_new_session=True)
         try:
-            # time -l: its peak memory into the log's end, for the plan.
-            result = subprocess.run(["/usr/bin/time", "-l", "taskpolicy", "-b", *script], cwd=REPO, env=env(), stdout=f,
-                                    stderr=subprocess.STDOUT, timeout=job.timeout * 60)
-            code = result.returncode
+            code = proc.wait(timeout=job.timeout * 60)
         except subprocess.TimeoutExpired:
+            for sig, wait in ((signal.SIGTERM, 15), (signal.SIGKILL, 5)):
+                try:
+                    os.killpg(proc.pid, sig)
+                    proc.wait(timeout=wait)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+                except ProcessLookupError:
+                    break
             code = 124
     peak = None
     try:
