@@ -39,6 +39,7 @@ memory and the machine's load and free memory (STATS/_samples.jsonl); each run's
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -279,17 +280,26 @@ def why_kind(why):
     return "starting"
 
 
+# What the jobs say when there was nothing to make (read from the Tower's logs, 29.10.2026), and the neutral
+# "GDPS from https://..." line before one.
+NOTHING_NEW = re.compile(r"already (published|made)|published already|nothing new|read \d+ min ago|"
+                         r"made [\d.]+ h ago, the next after|runs are published already|has this run or a newer one|"
+                         r"^\w[\w-]* from https?://", re.I)
+
+
 def made_nothing(path, took):
-    """A run that found nothing new: done within 3 minutes with at most 3 lines said ("ENS ... already published",
-    "Water: nothing new", "Estonian gauges read 40 min ago"); a run that makes something says dozens. The panel paints
-    no wait before it (the owner, 29.10.2026: "there still are some long waitings", most were these re-checks)."""
+    """A run that found nothing new: done within 3 minutes, every line it said one of NOTHING_NEW ("ENS ... already
+    published", "Water: nothing new", "Estonian gauges read 40 min ago"). Line counts alone won't do: air says two
+    lines when it makes the global set ("global ...: 8 files, 589 MB, 62 s"). The panel paints no wait before such a
+    run (the owner, 29.10.2026: "there still are some long waitings", most were these re-checks)."""
     if took >= 180:
         return False
     try:
         with open(path, errors="replace") as f:
-            return sum(1 for line in f if line.strip()) <= 3
+            lines = [line.strip() for line in f if line.strip()]
     except OSError:
         return False
+    return 0 < len(lines) <= 6 and all(NOTHING_NEW.search(line) for line in lines)
 
 
 _fetch_fails = {}  # model -> latest.json failures in a row (logged at the 3rd)
