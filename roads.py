@@ -113,7 +113,9 @@ def prepare(region, work):
     parts = []
     for extract in extracts:
         name = merged if len(extracts) == 1 else extract.replace("/", "-") + ".osm.pbf"
-        if not os.path.exists(os.path.join(work, name)):
+        path = os.path.join(work, name)
+        # Geofabrik's daily extracts, taken again when ours is over a month old (from the cache).
+        if not os.path.exists(path) or time.time() - os.path.getmtime(path) > 30 * 86400:
             run("curl", "-sSfL", "-A", AGENT, "-o", os.path.join(work, name),
                 f"https://download.geofabrik.de/{extract}-latest.osm.pbf")
         parts.append(os.path.join(work, name))
@@ -212,6 +214,7 @@ def main():
     parser.add_argument("--region", help="only this region's places")
     parser.add_argument("--at", action="append", default=[], help="LAT,LON: this place too (or only, with no catalog)")
     parser.add_argument("--only", action="store_true", help="only the --at places, not the catalog's")
+    parser.add_argument("--again", action="store_true", help="the places already made too (after a profile change)")
     parser.add_argument("--local", help="write the files here instead of uploading them")
     parser.add_argument("--work", default="roads-work")
     parser.add_argument("--check", action="store_true", help="only the CHECKS drives (the Baltic region), nothing made")
@@ -247,6 +250,11 @@ def main():
         index = set(json.loads(fetch(FILES + "tiles/" + FOLDER + "/index.json?t=" + str(int(time.time()))))["places"])
     except (urllib.error.URLError, OSError, ValueError, KeyError):
         index = set()
+    # Only the places not made yet (a new catalog spot, the nightly run), unless made again.
+    if not args.again:
+        by_region = {region: [(place, name) for place, name in todo if place not in index]
+                     for region, todo in by_region.items()}
+        by_region = {region: todo for region, todo in by_region.items() if todo}
     made = 0
     for region, todo in by_region.items():
         work = os.path.join(args.work, region)

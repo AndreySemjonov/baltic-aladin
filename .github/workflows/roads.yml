@@ -3,8 +3,11 @@ run-name: Road distances ${{ inputs.at || inputs.region || 'all spots' }}
 
 # Road distances to the spots (roads.py; the owner, 29.10.2026: "Where to kite" and the Nearest sort by the road):
 # OpenStreetMap's roads from Geofabrik, OSRM's car profile in Docker, a grid per place uploaded to our files.
-# Started by hand for the catalog's spots (made again when spots are added), or with `at` for one place.
+# Every night for the catalog's spots not made yet (a new public spot); by hand with `again` after a profile change,
+# with `at` for one place, `check` for the test drives.
 on:
+  schedule:
+    - cron: "40 2 * * *"
   workflow_dispatch:
     inputs:
       region:
@@ -17,6 +20,10 @@ on:
         default: ""
       check:
         description: "Only print the check drives against Google's times (nothing made)"
+        type: boolean
+        default: false
+      again:
+        description: "Make the places already made too (after a profile change)"
         type: boolean
         default: false
 
@@ -35,11 +42,15 @@ jobs:
       - name: Check out
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      - name: This month (one cache of the extracts a month, not one a night)
+        id: month
+        run: echo "month=$(date +%Y-%m)" >> "$GITHUB_OUTPUT"
+
       - name: Restore the OpenStreetMap extracts (kept between runs)
         uses: actions/cache@v4
         with:
           path: roads-work/*/*.osm.pbf
-          key: roads-osm-${{ inputs.region || 'all' }}-${{ github.run_id }}
+          key: roads-osm-${{ steps.month.outputs.month }}
           restore-keys: roads-osm-
 
       - name: Install osmium
@@ -51,9 +62,11 @@ jobs:
           REGION: ${{ inputs.region }}
           AT: ${{ inputs.at }}
           CHECK: ${{ inputs.check }}
+          AGAIN: ${{ inputs.again }}
         run: |
           args=()
           if [ -n "$REGION" ]; then args+=(--region "$REGION"); fi
           if [ -n "$AT" ]; then args+=(--at "$AT" --only); fi
           if [ "$CHECK" = "true" ]; then args+=(--check); fi
+          if [ "$AGAIN" = "true" ]; then args+=(--again); fi
           python3 roads.py "${args[@]}"
