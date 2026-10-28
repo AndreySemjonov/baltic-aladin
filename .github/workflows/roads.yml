@@ -1,0 +1,53 @@
+name: Roads
+run-name: Road distances ${{ inputs.at || inputs.region || 'all spots' }}
+
+# Road distances to the spots (roads.py; the owner, 29.10.2026: "Where to kite" and the Nearest sort by the road):
+# OpenStreetMap's roads from Geofabrik, OSRM's car profile in Docker, a grid per place uploaded to our files.
+# Started by hand for the catalog's spots (made again when spots are added), or with `at` for one place.
+on:
+  workflow_dispatch:
+    inputs:
+      region:
+        description: "Only this region (baltic, andalucia); empty: all"
+        required: false
+        default: ""
+      at:
+        description: "Only this place: LAT,LON (empty: the catalog's spots)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: roads
+  cancel-in-progress: false
+
+jobs:
+  roads:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Restore the OpenStreetMap extracts (kept between runs)
+        uses: actions/cache@v4
+        with:
+          path: roads-work/*/*.osm.pbf
+          key: roads-osm-${{ inputs.region || 'all' }}-${{ github.run_id }}
+          restore-keys: roads-osm-
+
+      - name: Install osmium
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq osmium-tool
+
+      - name: Make and upload the road distances
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          REGION: ${{ inputs.region }}
+          AT: ${{ inputs.at }}
+        run: |
+          args=()
+          if [ -n "$REGION" ]; then args+=(--region "$REGION"); fi
+          if [ -n "$AT" ]; then args+=(--at "$AT" --only); fi
+          python3 roads.py "${args[@]}"
