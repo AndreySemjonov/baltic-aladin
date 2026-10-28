@@ -15,6 +15,10 @@ on:
         description: "Only this place: LAT,LON (empty: the catalog's spots)"
         required: false
         default: ""
+      check:
+        description: "Only print the check drives against Google's times (nothing made)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -46,8 +50,10 @@ jobs:
           INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
           REGION: ${{ inputs.region }}
           AT: ${{ inputs.at }}
+          CHECK: ${{ inputs.check }}
         run: |
           args=()
           if [ -n "$REGION" ]; then args+=(--region "$REGION"); fi
           if [ -n "$AT" ]; then args+=(--at "$AT" --only); fi
+          if [ "$CHECK" = "true" ]; then args+=(--check); fi
           python3 roads.py "${args[@]}"

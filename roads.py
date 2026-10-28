@@ -14,10 +14,12 @@ tiles/roads/v1/index.json: {"places": ["57.31_24.40", ...]}, the files there.
 
 OpenStreetMap data © OpenStreetMap contributors (ODbL); these files are a derived database under the ODbL too.
 
-Run: python roads.py [--region baltic] [--at LAT,LON] [--local DIR]   (needs docker and osmium-tool; GitHub's
-roads.yml). --local writes the files to DIR instead of uploading them.
+Run: python roads.py [--region baltic] [--at LAT,LON] [--local DIR] [--check]   (needs docker and osmium-tool;
+GitHub's roads.yml). --local writes the files to DIR instead of uploading them; --check only prints the CHECKS drives
+against Google's times (nothing made).
 """
 import argparse
+import re
 import json
 import math
 import os
@@ -40,6 +42,18 @@ RADIUS_KM = 300
 N = RADIUS_KM // CELL_KM            # 75: a 150 x 150 grid
 SNAP_M = 2500                       # a cell farther than this from a road (the sea, a forest) has none
 CHUNK = 300                         # cells per table request (the URL stays under 8 KB)
+
+# OSRM's car profile drives slow here: 80 % of the speed limit, and untagged roads at 55 km/h (secondary) or 40
+# (tertiary) where Latvia's are 90 by law. Its speeds raised to match Google's times without traffic (the owner,
+# 29.10.2026: "usually google maps right about distances", three drives from Riga in CHECKS); --check prints them.
+PROFILE = {"speed_reduction": 0.95, "trunk": 90, "primary": 85, "secondary": 75, "tertiary": 60, "unclassified": 45}
+
+# Google's drives without traffic (minutes, km; the owner's maps, 29.10.2026) from west Riga by Babīte.
+CHECKS = [
+    ("Riga → Kolka", (56.952, 24.005), (57.759, 22.607), 126, 156),
+    ("Riga → Häädemeeste", (56.952, 24.005), (58.080, 24.474), 125, 149),
+    ("Riga → Liepāja's breakwater", (56.952, 24.005), (56.558, 21.001), 168, 211),     # with traffic
+]
 
 # The regions with spots, each one OpenStreetMap file from Geofabrik's extracts (merged when several).
 # A place outside every box gets no file (the phones keep the straight line there).
@@ -105,10 +119,33 @@ def prepare(region, work):
         parts.append(os.path.join(work, name))
     if len(parts) > 1:
         run("osmium", "merge", "--overwrite", "-o", os.path.join(work, merged), *parts)
-    docker = ["docker", "run", "--rm", "-v", f"{os.path.abspath(work)}:/data", OSRM_IMAGE]
+    profile(work)
+    docker = ["docker", "run", "--rm", "-v", f"{os.path.abspath(work)}:/data",
+              "-v", f"{os.path.abspath(work)}/car.lua:/opt/car.lua:ro", OSRM_IMAGE]
     run(*docker, "osrm-extract", "-p", "/opt/car.lua", f"/data/{merged}")
     run(*docker, "osrm-partition", f"/data/{region}.osrm")
     run(*docker, "osrm-customize", f"/data/{region}.osrm")
+
+
+def profile(work):
+    """OSRM's car profile with our speeds (PROFILE) as work/car.lua, put over the image's own (its lib/ stays)."""
+    text = subprocess.run(["docker", "run", "--rm", OSRM_IMAGE, "cat", "/opt/car.lua"],
+                          check=True, capture_output=True, text=True).stdout
+    for name, value in PROFILE.items():
+        text, count = re.subn(rf"(\n\s+{name}\s+=\s+)[0-9.]+", rf"\g<1>{value}", text, count=1)
+        if count != 1:
+            raise SystemExit(f"car.lua has no {name}")
+    with open(os.path.join(work, "car.lua"), "w") as out:
+        out.write(text)
+
+
+def check():
+    """The CHECKS drives by our roads against Google's."""
+    for name, (lat1, lon1), (lat2, lon2), minutes, km in CHECKS:
+        route = json.loads(fetch(f"http://127.0.0.1:5000/route/v1/driving/{lon1},{lat1};{lon2},{lat2}?overview=false"))["routes"][0]
+        ours = route["duration"] / 60
+        print(f"{name}: ours {ours:.0f} min {route['distance'] / 1000:.0f} km, Google {minutes} min {km} km: "
+              f"x{ours / minutes:.2f}", flush=True)
 
 
 def serve(region, work):
@@ -177,6 +214,7 @@ def main():
     parser.add_argument("--only", action="store_true", help="only the --at places, not the catalog's")
     parser.add_argument("--local", help="write the files here instead of uploading them")
     parser.add_argument("--work", default="roads-work")
+    parser.add_argument("--check", action="store_true", help="only the CHECKS drives (the Baltic region), nothing made")
     args = parser.parse_args()
 
     places = {}
@@ -187,6 +225,15 @@ def main():
     for at in args.at:
         lat, lon = (float(v) for v in at.split(","))
         places[key(lat, lon)] = at
+    if args.check:
+        work = os.path.join(args.work, "baltic")
+        prepare("baltic", work)
+        container = serve("baltic", work)
+        try:
+            check()
+        finally:
+            subprocess.run(["docker", "stop", container], capture_output=True)
+        return
     by_region = {}
     for place, name in sorted(places.items()):
         lat, lon = (float(v) for v in place.split("_"))
