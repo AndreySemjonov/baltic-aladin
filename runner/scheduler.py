@@ -14,7 +14,8 @@ from ENV_FILE): the switch, one job at a time, its GitHub schedule turned off th
 
 While WRF runs here (its lock), the jobs' containers get a low CPU share (LOW_SHARES of Docker's 1024; the
 owner, 21.10.2026: WRF keeps the fast cores, the jobs use what's left: the slow cores and the fast ones'
-second threads), set again on the running ones as WRF starts and ends. The scheduler reloads itself when its
+second threads), set again on the running ones as WRF starts and ends; each job's share weighted by its priority
+(PRIORITY_SHARE, 29.10.2026: priority 1 twice, 3 a quarter). The scheduler reloads itself when its
 code changes (after a pull); a job whose container is still there (mg-<job>, e.g. from before a reload)
 counts as running.
 
