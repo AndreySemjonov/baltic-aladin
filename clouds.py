@@ -95,12 +95,29 @@ def picture(layer, when, box, size):
                 data = reply.read()
             if data[:4] != b"\x89PNG":
                 return None
-            return np.asarray(Image.open(io.BytesIO(data)).convert("RGB"), dtype=np.float32)
+            rgba = np.asarray(Image.open(io.BytesIO(data)).convert("RGBA"))
+            if blank(layer, rgba):
+                return None
+            return rgba[..., :3].astype(np.float32)
         # A reply cut off half way (http.client.IncompleteRead, not an OSError: EUMETSAT's slow afternoon, 26.10.2026)
         # tried again too, not the whole quarter hour lost.
         except (urllib.error.URLError, OSError, http.client.HTTPException):
             time.sleep(3 * (attempt + 1))
     return None
+
+
+def blank(layer, rgba):
+    """A picture with nothing in it: EUMETSAT's map server answers a time whose MTG pictures are missing with a PNG
+    all the same (28.10.2026 02:50-03:20 and 07:10 UTC: the infrared one flat white, the visible and the Fog / Low
+    Clouds fully see-through; the 03:00 frame made from them was nearly clear over all Europe, the fog picture's black
+    read as thin cloud, and by day the visible's as cloud no brighter than the ground, the owner's screenshots: "at
+    5:00 clouds disappears completely"). Mostly see-through, or one colour, is no picture; the cloud top's height is
+    see-through over clear sky, and the mask may be one white over an overcast box."""
+    if layer == HEIGHT:
+        return False
+    if (rgba[..., 3] > 127).mean() < 0.5:
+        return True
+    return layer != MASK and int(np.ptp(rgba[..., :3])) < 3
 
 
 def with_low_cloud(mask, fog):
@@ -300,6 +317,13 @@ def sat_pack(when, incomplete=True):
     with ThreadPoolExecutor(len(jobs)) as pool:
         got = dict(zip(jobs, pool.map(lambda job: picture(job[0], job[1], box, job[2]), jobs.values())))
     infrared, mask, cth, visible = got["infrared"], got["mask"], got["height"], got.get("visible")
+    # The infrared missing (or a blank), the one 10 or 20 minutes before: it gives the texture only, the mask and the
+    # height where and how high (28.10.2026: MTG's 02:50 and 03:00 blank, 02:40 fine).
+    for minutes in (10, 20):
+        if infrared is None and mask is not None:
+            infrared = picture(INFRARED, ten - timedelta(minutes=minutes), box, (width, height))
+            if infrared is not None:
+                print(f"  {when:%H:%M}: the infrared of {ten - timedelta(minutes=minutes):%H:%M}")
     if infrared is None or mask is None:
         return None, "no picture"
     # By night the Fog / Low Clouds picture sets how thick (style_height): without it the same (the owner's photo,
@@ -541,6 +565,9 @@ def make(one, wanted, token):
     for when in missing:
         # The infrared every 10 minutes: the step at or before the quarter hour; the mask at it.
         infrared = picture(INFRARED, when - timedelta(minutes=when.minute % 10), one["box"], one["size"])
+        for minutes in (10, 20):
+            if infrared is None:
+                infrared = picture(INFRARED, when - timedelta(minutes=when.minute % 10 + minutes), one["box"], one["size"])
         mask = picture(MASK, when, one["box"], one["size"])
         if infrared is None or mask is None:
             print(f"  {when:%H:%M}: no picture ({'infrared' if infrared is None else 'mask'})")
