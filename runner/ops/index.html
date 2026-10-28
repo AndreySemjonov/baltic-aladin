@@ -1978,7 +1978,14 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
             : expect(yt, je.end, "var(--home)", `${Math.round(je.pct * 100)}% · ~${clock(je.end)}`, false)) : null}</g>`; })() : null}
       ${links(l, y, lay)}
       ${l.feed && l.feed.late && l.feed.last != null ? html`<rect x=${x(Math.max(l.feed.last, t0))} y=${y + lay.t(null) + 17} width=${w(Math.max(l.feed.last, t0), now)} height="6" rx="1" fill="var(--bad)" opacity=".8"><title>${l.label}: nothing new since ${clock(l.feed.last)} (usually ${l.feed.usual})</title></rect>` : null}
-      ${(() => { const out = []; if (l.next) for (let t = l.next; t < t1 && out.length < 30; t += l.cad || 1e9) if (t > now) out.push(html`<path d=${`M${x(t)} ${y + 6} l5 9 -5 9 -5 -9 Z`} fill="none" stroke="var(--faint)"><title>${l.label}: next run expected about ${clock(t)}</title></path>`); return out; })()}
+      ${/* The next runs: the ▼ hollow where the source should be available, and a dashed ghost of the bar for the lane's
+            usual time to published (the owner, 28.10.2026: "lets make better symbol for upcoming scheduled tasks", "Build
+            B"; mockup ops-upcoming-runs-2026-10-28; the hollow diamond before). */
+        (() => { const out = [], usual = l.towerT ?? l.macT ?? l.ghT, yb = y + lay.t("home") + 17;
+        if (l.next) for (let t = l.next; t < t1 && out.length < 30; t += l.cad || 1e9) if (t > now) out.push(html`<g>
+          <title>${l.label}: next run expected available about ${clock(t)}${usual ? `, published about ${clock(t + usual)} (usually ${mins(usual)})` : ""}</title>
+          <path d=${`M${x(t) - 4} ${y + 1.5} h8 l-4 5 z`} fill="none" stroke="var(--faint)" stroke-width="1.2"/>
+          ${usual ? html`<rect x=${x(t)} y=${yb + 0.5} width=${Math.max(x(t + usual) - x(t), 3)} height="5" rx="1" fill="none" stroke="var(--faint)" stroke-dasharray="2 2"/>` : null}</g>`); return out; })()}
       ${compact ? null : html`<text class="ours" x=${X1 + 10} y=${y + 19} style=${"fill:var(--home)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.towerT)}</text>
       <text class="ours" x=${X1 + 54} y=${y + 19} style="fill:var(--mac)">${l.macT != null ? mins(l.macT) : "–"}</text>
       <text class="ours" x=${X1 + 98} y=${y + 19} style=${"fill:var(--muted)" + (l.procOnly ? ";font-style:italic" : "")}>${mins(l.ghT)}</text>
@@ -2128,7 +2135,7 @@ function Pipeline({ maps, fr, f, now, s, cap, ad }) {
           ${chips.map(([k, label]) => html`<span class=${"chip" + (filter === k ? " on" : "")} onClick=${() => setFilter(k)}>${label}</span>`)}</div>`} />
       <div class="legend"><span style="--c:var(--wrf)">CPU: WRF</span><span style="--c:var(--home)">CPU: jobs · jobs running</span><span style="--c:var(--mac)">Mac mini: its other work</span><span style="--c:var(--wait)">jobs waiting · waiting to start</span><span style="--c:var(--accent)">memory used (dashed: the jobs' budget) · a run's downloading</span><span style="--c:var(--net)">network in (dashed: out)</span><span style="--c:var(--room)">waiting with room (CPU &lt; 50%, &gt; 6 GB free)</span></div>
       <div class="legend"><span class="t">▼ run available to us (Open-Meteo's record; a mix: a new input published; a line down: its bars in a lane with more rows)</span><span style="--c:var(--gh)">GitHub (upper bar; for maps made at home only where it stood in)</span><span style="--c:var(--home)">Tower (lower bar; faint: shadow, not published)</span><span style="--c:var(--mac)">Mac mini (lower bar)</span>
-        <span style="--c:var(--wait)">waiting to start</span><span style="--c:var(--ok)">published</span><span class="t" style="color:var(--bad)">× a source run nobody took</span><span class="t">◇ next run expected</span><span class="t">right: our time, median of 24 h (italic: the job's own time, no "available" moment)</span></div>
+        <span style="--c:var(--wait)">waiting to start</span><span style="--c:var(--ok)">published</span><span class="t" style="color:var(--bad)">× a source run nobody took</span><span class="t">▽ ┄ next run expected: available, then its usual time to published</span><span class="t">right: our time, median of 24 h (italic: the job's own time, no "available" moment)</span></div>
       <p class="note" style="margin:8px 0 0">Each bar starts when the run was complete on Open-Meteo's open data, where our jobs read it, and ends when riders could see it. The maker's own time before that is left out. Sooner is better. "Available" is recorded for every model from 21.10.2026 evening; older runs start at GitHub's job.</p>`}
     </section>
     <aside class="detail" id="lanedetail">${html`<${LaneDetail} l=${picked} now=${now} cap=${cap} all=${all} />`}</aside>
