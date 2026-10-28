@@ -139,7 +139,11 @@ JOBS = [
     Job("gfs013", ["gfs013_points.py"], watch=[("ncep_gfs013", 6)], priority=1),
     Job("ecmwf-short", ["ecmwf_short_points.py"], watch=[("ecmwf_ifs", 6)], priority=1),
     Job("icon-eu-short", ["iconeu_short_points.py"], watch=[("dwd_icon_eu", 3)], priority=1),
-    Job("ens", ["ens_points.py"], watch=[("ecmwf_ifs", 12)], delay=1.5, heavy=True, priority=3),
+    # every=30: ENS's last step (360 h, what ens_points.py waits for) comes out after HRES's, some evenings after the 1.5 h
+    # (27.10.2026 19:54 UTC: 12Z not complete, "00Z already published", the 12Z run marked seen and never made; the spots
+    # kept the 00Z all day and went late at 20 h, the owner 28.10.2026: "Ensemble at the spots some problem?"). Due again
+    # every 30 minutes, the script exits in a minute until the new run is complete.
+    Job("ens", ["ens_points.py"], watch=[("ecmwf_ifs", 12)], delay=1.5, every=30, heavy=True, priority=3),
     # Rain, air, seas.
     # On each new MEPS run (hourly; the owner, 22.10.2026: "make chance of rain hourly at home, on each new MEPS
     # run"; ICON-EU-EPS under it every 6 h comes with them), every 3 h at the latest.
