@@ -240,10 +240,10 @@ def smooth_heights(heights, radius):
     return np.where(weight > 0.05, blur(np.where(known, heights, 0), radius) / np.maximum(weight, 1e-3), 1500).astype(np.float32)
 
 
-def style_height(infrared, mask_rgb, visible, heights, daylight, fog=None):
+def style_height(infrared, mask_rgb, visible, heights, daylight, fog=None, sun=None):
     """The grey and how much cloud, by the cloud top's height (`heights` in m, smooth, every pixel)
     with the texture of the visible (by day, `daylight` 0-1) or the infrared (by night); how thick by night from
-    the Fog / Low Clouds RGB (`fog`, the pictures' size) when there is one."""
+    the Fog / Low Clouds RGB (`fog`, the pictures' size) when there is one; `sun`: the sun's height (deg) per pixel."""
     _, alpha, _ = style_b(infrared, mask_rgb, local=True)
     km = np.clip(heights / 1000, 0, 12)
     base = np.interp(km, HEIGHT_KM, HEIGHT_GREY)
@@ -261,7 +261,11 @@ def style_height(infrared, mask_rgb, visible, heights, daylight, fog=None):
         # and more solid.
         ground_v = local_ground(v, (alpha > 0.5).astype(np.float32),
                                 float(np.percentile(v[alpha < 0.5], 50)) if (alpha < 0.5).sum() > v.size / 50 else float(np.percentile(v, 20)))
-        thick = np.clip((blur(v, 1) - ground_v - 4 / 255) / (18 / 255), 0, 1)
+        # With the sun low everything in the visible is darker, a deck's lead over the ground too: the thresholds scaled
+        # by sin(sun) / sin(20 deg), at least half (28.10.2026, seven days' daytime METARs where we draw cloud: overcast
+        # drawn see-through 37 of 848 -> 15, clear drawn solid 146 of 219 -> 158; 15 deg as the reference only 29).
+        scale = 1.0 if sun is None else np.clip(np.sin(np.radians(sun)) / math.sin(math.radians(20)), 0.5, 1)
+        thick = np.clip((blur(v, 1) - ground_v - 4 / 255 * scale) / (18 / 255 * scale), 0, 1)
         alpha = alpha * (1 - daylight + daylight * (0.15 + 0.85 * thick))
     shade = np.clip(base + np.clip(texture, -26, 26), 120, 240)
     if fog is not None and fog.shape[:2] == alpha.shape:
@@ -347,13 +351,18 @@ def sat_pack(when, incomplete=True):
     # the sun is rising and under 12 deg, the fog pictures of the last two hours count too, each where the sun was
     # still below the horizon when it was taken (four days' morning METARs: 40 of the 47 overcast reports still missed
     # caught, 5 clear reports of 72 called cloud, decks that broke up after sunrise; looking back one hour: 25 and 1).
+    # Three hours and under 15 deg since 28.10.2026 (the owner's screenshots: east Latvia clear at 09:15-09:30 Riga
+    # under one deck, Riga OVC002 04:20-08:20 UTC, Šiauliai fog; the mask saw it only from 07:45 UTC, the sun ~15 deg
+    # there; "A+B, check on the morning METARs first"): seven mornings (22-28.10, 20 airports, 03:15-13:45 UTC,
+    # 1,494 overcast reports, 212 missed without the memory, 748 clear): 2 h and 12 deg caught 84, called 11 clear
+    # cloud; 3 h 93 and 17, and 15 deg 18; 4 h 94-96 and 22-24.
     def grid(a):
         return np.asarray(Image.fromarray(a.astype(np.uint8) * 255).resize((mask.shape[1], mask.shape[0]), Image.NEAREST)) > 127
 
     sun_now = sun_height(lats[:, None], lons[None, :], when)
-    rising = (sun_now >= -6) & (sun_now < 12) & (sun_now > sun_height(lats[:, None], lons[None, :], when - timedelta(minutes=30)))
+    rising = (sun_now >= -6) & (sun_now < 15) & (sun_now > sun_height(lats[:, None], lons[None, :], when - timedelta(minutes=30)))
     if rising.any():
-        for minutes in (30, 60, 90, 120):
+        for minutes in (30, 60, 90, 120, 150, 180):
             then = ten - timedelta(minutes=minutes)
             dark = rising & (sun_height(lats[:, None], lons[None, :], then) < 0)
             if not dark.any():
@@ -374,10 +383,11 @@ def sat_pack(when, incomplete=True):
         heights = np.asarray(Image.fromarray(heights).resize((width, height), Image.BILINEAR), dtype=np.float32)
         heights = blur(heights, 3)
         daylight = np.asarray(Image.fromarray(daylight).resize((width, height), Image.BILINEAR), dtype=np.float32)
+        sun = np.asarray(Image.fromarray(sun_now.astype(np.float32)).resize((width, height), Image.BILINEAR), dtype=np.float32)
         fog = got.get("fog")
         if fog is not None:
             fog = np.asarray(Image.fromarray(fog.astype(np.uint8)).resize((width, height), Image.BILINEAR), dtype=np.float32)
-        shade, alpha = style_height(infrared, mask, visible, heights, daylight, fog)
+        shade, alpha = style_height(infrared, mask, visible, heights, daylight, fog, sun)
     tiles = {}
     for z in TILE_ZOOMS:
         f = 2 ** (TILE_Z - z)
