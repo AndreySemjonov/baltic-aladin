@@ -873,8 +873,19 @@ def band(hours=12):
     samples = [x for x in jsonl(f"{STATS}/_samples.jsonl", hours * 60 + 120) if x.get("t", 0) >= since]
     queue = [q for q in jsonl(f"{STATS}/_queue.jsonl", hours * 60 + 120) if q.get("t", 0) >= since]
     first_queue = queue[0]["t"] if queue else now
-    waits = [(r["due"], r["start"], r["job"]) for r in jsonl(f"{STATS}/_runs.jsonl", 3000)
-             if r.get("start", 0) >= since - 6 * 3600 and r.get("due") and r["start"] - r["due"] > 60 and not r.get("idle")]
+    runs = [r for r in jsonl(f"{STATS}/_runs.jsonl", 3000) if r.get("start", 0) >= since - 6 * 3600]
+    waits = [(r["due"], r["start"], r["job"]) for r in runs if r.get("due") and r["start"] - r["due"] > 60 and not r.get("idle")]
+    # Each job's runs by start, idle or not: a queue record's waiting job whose next run found nothing new held nothing
+    # back and isn't counted (the owner, 29.10.2026: "jobs chart with waits have to be adjusted too?"). One still
+    # waiting (no run yet) is.
+    starts = {}
+    for r in runs:
+        starts.setdefault(r["job"], []).append((r["start"], bool(r.get("idle"))))
+    for v in starts.values():
+        v.sort()
+
+    def empty_wait(job, t):
+        return next((idle for start, idle in starts.get(job, ()) if start >= t - 60), False)
     names, index = [], {}
 
     def ix(name):
@@ -922,6 +933,8 @@ def band(hours=12):
         why, who = {}, []
         if last is not None:
             for job, kind, _priority in last.get("wait") or []:
+                if empty_wait(job, last["t"]):
+                    continue
                 why[kind] = why.get(kind, 0) + 1
                 who.append(ix(job))
             budget = round((last.get("bud") or 0) / 1000, 1)
