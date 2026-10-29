@@ -331,7 +331,7 @@ def sat_box():
     return box, width, height, lats, lons
 
 
-def sat_pack(when, incomplete=True):
+def sat_pack(when, incomplete=True, again=False):
     """One quarter hour's Europe tiles as a pack (MGT1, LA PNGs) and how it was made: (pack, "complete"),
     (pack, "without the visible" / "the fog picture") or (None, why). The pictures that say how thick (by day the
     visible, by night the Fog / Low Clouds RGB; big and slow at EUMETSAT, they fail now and then) missing, the ones
@@ -382,8 +382,10 @@ def sat_pack(when, incomplete=True):
             lacking.append("the fog picture")
     if cth is None:
         lacking.append("the cloud height")
-    if lacking and not incomplete:
-        return None, "not in yet: " + " or ".join(lacking)
+    # A stopped fog picture not waited for (newest_ready); a frame made again still needs it (it was made without).
+    waiting = [what for what in lacking if again or not (what == "the fog picture" and FOG in DOWN)]
+    if waiting and not incomplete:
+        return None, "not in yet: " + " or ".join(waiting)
     how = "without " + " and ".join(lacking) if lacking else "complete"
     mask = with_low_cloud(mask, got.get("fog"))
     # The morning: as the sun comes up the fog picture loses the low deck (its 3.9 um channel sees sunlight; Riga
@@ -590,7 +592,7 @@ def make_tiles(wanted, token, remake=None):
         started = time.time()
         stamp = when.strftime("%Y%m%d%H%M")
         before = have.get(stamp)
-        pack, how = sat_pack(when, incomplete=before is None and now - when.timestamp() > WAIT_VISIBLE)
+        pack, how = sat_pack(when, incomplete=before is None and now - when.timestamp() > WAIT_VISIBLE, again=before is not None)
         if pack is None:
             tries[stamp] = time.time()
             print(f"  {when:%H:%M}: {how}" + (", kept as it was" if before else ", tried again next run" if how != "no picture" else ""))
@@ -651,6 +653,8 @@ def send(url, data, content_type, token):
 
 # Each layer's newest listed time (newest_ready): sat_pack doesn't ask for a picture past it.
 LISTED = {}
+# The layers EUMETSAT has stopped listing (newest_ready): a frame doesn't wait for them.
+DOWN = set()
 
 
 def listed_until(layer):
@@ -677,6 +681,14 @@ def newest_ready(now):
     until = {layer: listed_until(layer) for layer in (MASK, HEIGHT, INFRARED, FOG, VISIBLE)}
     LISTED.clear()
     LISTED.update({layer: t for layer, t in until.items() if t})
+    # The fog picture comes with the infrared (both MTG's, the same 10-minute steps, listed together): two steps
+    # behind it, EUMETSAT has stopped listing it, and the frames go without it at once (marked, made again when it
+    # comes) instead of each waiting WAIT_VISIBLE (29.10.2026: listed to 09:50 UTC for over an hour while the rest
+    # went on; 10:00's frame came at 11:07, the map showed 09:45's carried 80 minutes on, the clearing east of Riga
+    # by Madona while the other radar app had it down to Jēkabpils: the owner's screenshot, 13:05 Riga).
+    DOWN.clear()
+    if until[INFRARED] and (not until[FOG] or until[INFRARED] - until[FOG] >= timedelta(minutes=20)):
+        DOWN.add(FOG)
     if until[MASK] and until[INFRARED]:
         quarter = until[MASK].replace(second=0, microsecond=0)
         quarter -= timedelta(minutes=quarter.minute % 15)
@@ -689,7 +701,7 @@ def newest_ready(now):
             # The visible only where sat_pack asks it: the sun over 3 degrees somewhere in the box (by night it's listed
             # 10 minutes behind the others and not used).
             day = bool((sun_height(lats[:, None], lons[None, :], q) > 3).any())
-            rest = (until[HEIGHT] and q <= until[HEIGHT] and until[FOG] and ten <= until[FOG]
+            rest = (until[HEIGHT] and q <= until[HEIGHT] and (FOG in DOWN or until[FOG] and ten <= until[FOG])
                     and (not day or until[VISIBLE] and ten <= until[VISIBLE]))
             # The cloud height, the fog picture and the visible waited for only until WAIT_VISIBLE after the frame's
             # time, then it goes without them (marked, made again when they come; sat_pack). Before 28.10.2026 all five
@@ -702,7 +714,8 @@ def newest_ready(now):
             quarter -= timedelta(minutes=15)
         listed = ", ".join(f"{name} {until[layer]:%H:%M}" if until[layer] else f"{name} not listed" for name, layer in
                            (("mask", MASK), ("height", HEIGHT), ("infrared", INFRARED), ("fog", FOG), ("visible", VISIBLE)))
-        print(f"Listed: {listed}: frames to {quarter:%H:%M} ({(now - quarter).total_seconds() / 60:.0f} min ago)")
+        down = " (the fog picture stopped: not waited for)" if FOG in DOWN else ""
+        print(f"Listed: {listed}: frames to {quarter:%H:%M} ({(now - quarter).total_seconds() / 60:.0f} min ago){down}")
         return quarter
     print("Not listed: frames at least 30 minutes old")
     newest = (now - timedelta(minutes=30)).replace(second=0, microsecond=0)
