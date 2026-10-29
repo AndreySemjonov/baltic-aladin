@@ -71,6 +71,16 @@ SETS = [
 TILE_Z, TILE_X, TILE_Y, TILE_ZOOMS = 6, (27, 39), (13, 25), range(3, 7)
 # 2 a run with the helper (one is due every quarter hour; a daytime one takes a minute or two); more for a one-off backfill (sat-backfill.yml: the last day at once).
 TILES_PER_RUN = int(os.environ.get("TILES_PER_RUN", "2"))
+# A run's time: a new frame started only while one as slow as the slowest so far still fits in this (the job's limit is
+# 30 minutes on the Mac and the Tower, runner/jobs.py; 29.10.2026: EUMETSAT's map server slow for everyone, a frame
+# 333-918 s, three runs killed at the limit with the frame in hand lost). Left for the next run, 5 minutes on.
+BUDGET = float(os.environ.get("CLOUDS_BUDGET", 28 * 60))
+STARTED = time.time()
+
+
+def fits(longest, least):
+    """Whether one more frame, as slow as `longest` (at least `least` seconds), fits in the run's budget."""
+    return time.time() - STARTED + 1.2 * max(longest, least) < BUDGET
 TILES_UPLOAD = os.environ.get("TILES_UPLOAD", "https://data.meteogust.com/tiles/upload/sat/")
 TILES_INDEX = "https://files.meteogust.com/tiles/sat/index.json"
 UPLOAD = os.environ.get("CLOUDS_UPLOAD", "https://data.meteogust.com/clouds/upload/")
@@ -353,10 +363,35 @@ def sat_pack(when, incomplete=True, again=False):
         # Asked for a time it hasn't listed, the map server answers with its newest older picture (a 09:40 visible for a
         # 12:00 frame thins the wrong places): not asked then, it counts as missing.
         return layer not in LISTED or t <= LISTED[layer]
-    jobs = {k: job for k, job in jobs.items() if k in ("infrared", "mask") or listed(job[0], job[1])}
-    with ThreadPoolExecutor(len(jobs)) as pool:
-        got = dict(zip(jobs, pool.map(lambda job: picture(job[0], job[1], box, job[2]), jobs.values())))
-    infrared, mask, cth, visible = got["infrared"], got["mask"], got.get("height"), got.get("visible")
+    got = {}
+
+    def fetch(keys, back=0):
+        """These pictures side by side (`back` minutes before their time), those not got yet and listed."""
+        keys = [k for k in keys if k in jobs and got.get(k) is None
+                and (k in ("infrared", "mask") or listed(jobs[k][0], jobs[k][1] - timedelta(minutes=back)))]
+        if keys:
+            with ThreadPoolExecutor(len(keys)) as pool:
+                got.update(zip(keys, pool.map(lambda k: picture(jobs[k][0], jobs[k][1] - timedelta(minutes=back), box, jobs[k][2]), keys)))
+    # By night the Fog / Low Clouds picture sets how thick (style_height): without it the same (the owner's photo,
+    # 26.10.2026 23:14 Riga, thin altocumulus with a corona; our 19:00 UTC frame made without it was 86 % cloud round
+    # Riga, 43 % made again with it).
+    thick = {"visible": "the visible", "fog": "the fog picture", "height": "the cloud height"}
+    need = [k for k in thick if k == "height" or (k == "visible" and daylight.max() > 0) or (k == "fog" and daylight.min() < 1)]
+
+    def missing(keys):
+        return [thick[k] for k in keys if k in need and got.get(k) is None]
+    if again:
+        # Made again, it needs what it was made without: the small pictures asked first, then the visible, and the big
+        # ones only once those came (29.10.2026: EUMETSAT's fog picture stops by day, 09:50 to ~14:00 UTC on 28 and
+        # 29.10, and the gap never fills; every run fetched all of one of yesterday's midday frames to find it still
+        # missing: a minute a run, 4-14 minutes with the server slow, and the new frames ran into the 30-minute limit).
+        for keys in (["fog", "height"], ["visible"]):
+            fetch(keys)
+            fetch([k for k in keys if k != "height"], back=10)
+            if missing(keys):
+                return None, "not in yet: " + " or ".join(missing(keys))
+    fetch(list(jobs))
+    infrared, mask = got["infrared"], got["mask"]
     # The infrared missing (or a blank), the one 10 or 20 minutes before: it gives the texture only, the mask and the
     # height where and how high (28.10.2026: MTG's 02:50 and 03:00 blank, 02:40 fine).
     for minutes in (10, 20):
@@ -366,22 +401,10 @@ def sat_pack(when, incomplete=True, again=False):
                 print(f"  {when:%H:%M}: the infrared of {ten - timedelta(minutes=minutes):%H:%M}")
     if infrared is None or mask is None:
         return None, "no picture"
-    # By night the Fog / Low Clouds picture sets how thick (style_height): without it the same (the owner's photo,
-    # 26.10.2026 23:14 Riga, thin altocumulus with a corona; our 19:00 UTC frame made without it was 86 % cloud round
-    # Riga, 43 % made again with it).
-    lacking = []
-    if daylight.max() > 0 and visible is None:
-        if listed(VISIBLE, ten - timedelta(minutes=10)):
-            visible = picture(VISIBLE, ten - timedelta(minutes=10), box, (width, height))
-        if visible is None:
-            lacking.append("the visible")
-    if daylight.min() < 1 and got.get("fog") is None:
-        if listed(FOG, ten - timedelta(minutes=10)):
-            got["fog"] = picture(FOG, ten - timedelta(minutes=10), box, (width // 4, height // 4))
-        if got.get("fog") is None:
-            lacking.append("the fog picture")
-    if cth is None:
-        lacking.append("the cloud height")
+    # The visible and the fog picture missing, theirs 10 minutes before (side by side).
+    fetch([k for k in ("visible", "fog") if k in need], back=10)
+    cth, visible = got.get("height"), got.get("visible")
+    lacking = missing(thick)
     # A stopped fog picture not waited for (newest_ready); a frame made again still needs it (it was made without).
     waiting = [what for what in lacking if again or not (what == "the fog picture" and FOG in DOWN)]
     if waiting and not incomplete:
@@ -417,12 +440,13 @@ def sat_pack(when, incomplete=True, again=False):
         sun_m = np.asarray(Image.fromarray(sun_now.astype(np.float32)).resize(size, Image.BILINEAR))
         deck = (sun_m < 0) | (v > 23 + 2 * sun_m)
     if rising.any():
-        for minutes in (30, 60, 90, 120, 150, 180):
-            then = ten - timedelta(minutes=minutes)
-            dark = rising & (sun_height(lats[:, None], lons[None, :], then) < 0)
-            if not dark.any():
-                continue
-            earlier = picture(FOG, then, box, (width // 4, height // 4))
+        darks = [(ten - timedelta(minutes=m), rising & (sun_height(lats[:, None], lons[None, :], ten - timedelta(minutes=m)) < 0))
+                 for m in (30, 60, 90, 120, 150, 180)]
+        darks = [(then, dark) for then, dark in darks if dark.any()]
+        # Side by side (one after another before 29.10.2026; most are kept on disk from the frame before).
+        with ThreadPoolExecutor(max(len(darks), 1)) as pool:
+            earliers = list(pool.map(lambda d: picture(FOG, d[0], box, (width // 4, height // 4)), darks))
+        for (then, dark), earlier in zip(darks, earliers):
             if earlier is not None and earlier.shape == mask.shape:
                 mask[low_water(earlier) & grid(dark) & deck] = 255
     mask = np.asarray(Image.fromarray(mask.astype(np.uint8)).resize((width, height), Image.NEAREST), dtype=np.float32)
@@ -588,7 +612,13 @@ def make_tiles(wanted, token, remake=None):
         missing, again = [], [t for t in remake if t.strftime("%Y%m%d%H%M") in have]
         print(f"Satellite tiles: {len(again)} to make again")
     now = time.time()
+    longest, started = 0, None
     for when in missing + again:
+        if started is not None:
+            longest = max(longest, time.time() - started)
+        if not fits(longest, 120):
+            print(f"  {when:%H:%M}: out of time ({time.time() - STARTED:.0f} s of {BUDGET:.0f} used), left for the next run")
+            break
         started = time.time()
         stamp = when.strftime("%Y%m%d%H%M")
         before = have.get(stamp)
@@ -678,7 +708,9 @@ def newest_ready(now):
     listed"; frames came 31-35 min after their time, EUMETSAT lists them after about 22). Not merely a shorter wait:
     asked for a time it hasn't got, the map server answers with the newest older picture (21:55's infrared came back as
     21:40's), so a frame could mix a new infrared with an old mask. Unlisted (the server down): 30 minutes old, as before."""
-    until = {layer: listed_until(layer) for layer in (MASK, HEIGHT, INFRARED, FOG, VISIBLE)}
+    layers = (MASK, HEIGHT, INFRARED, FOG, VISIBLE)
+    with ThreadPoolExecutor(len(layers)) as pool:
+        until = dict(zip(layers, pool.map(listed_until, layers)))
     LISTED.clear()
     LISTED.update({layer: t for layer, t in until.items() if t})
     # The fog picture comes with the infrared (both MTG's, the same 10-minute steps, listed together): two steps
@@ -740,9 +772,10 @@ def main():
         start, end = (datetime.strptime(s, "%Y%m%d%H%M").replace(tzinfo=timezone.utc) for s in sys.argv[i + 1:i + 3])
         make_tiles(wanted, token, remake=[t for t in wanted if start <= t <= end])
         return
+    # Europe's tiles first, the app's map (GLWindMapView's SatelliteTiles); the Baltic set in the time left (29.10.2026).
+    make_tiles(wanted, token)
     for one in SETS:
         make(one, wanted, token)
-    make_tiles(wanted, token)
 
 
 def make(one, wanted, token):
@@ -751,18 +784,25 @@ def make(one, wanted, token):
     have = published(one["folder"])
     missing = [t for t in wanted if t.strftime("%Y%m%d%H%M") not in have][:one["per_run"]]
     print(f"Clouds ({name}): {len(have)} published, {len(missing)} to make")
-    made = 0
+    made, longest = 0, 0
     for when in missing:
-        # The infrared every 10 minutes: the step at or before the quarter hour; the mask at it.
-        infrared = picture(INFRARED, when - timedelta(minutes=when.minute % 10), one["box"], one["size"])
+        if not fits(longest, 30):
+            print(f"  {when:%H:%M}: out of time ({time.time() - STARTED:.0f} s of {BUDGET:.0f} used), left for the next run")
+            break
+        started = time.time()
+        # The infrared every 10 minutes: the step at or before the quarter hour; the mask at it; the three side by side.
+        ten = when - timedelta(minutes=when.minute % 10)
+        with ThreadPoolExecutor(3) as pool:
+            infrared, mask, fog = pool.map(lambda job: picture(job[0], job[1], one["box"], one["size"]),
+                                           ((INFRARED, ten), (MASK, when), (FOG, ten)))
         for minutes in (10, 20):
             if infrared is None:
-                infrared = picture(INFRARED, when - timedelta(minutes=when.minute % 10 + minutes), one["box"], one["size"])
-        mask = picture(MASK, when, one["box"], one["size"])
+                infrared = picture(INFRARED, ten - timedelta(minutes=minutes), one["box"], one["size"])
+        longest = max(longest, time.time() - started)
         if infrared is None or mask is None:
             print(f"  {when:%H:%M}: no picture ({'infrared' if infrared is None else 'mask'})")
             continue
-        mask = with_low_cloud(mask, picture(FOG, when - timedelta(minutes=when.minute % 10), one["box"], one["size"]))
+        mask = with_low_cloud(mask, fog)
         data, ground = render(infrared, mask, one["local"], one["quality"], one["alpha"])
         stamp = when.strftime("%Y%m%d%H%M")
         try:
