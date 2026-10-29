@@ -32,6 +32,8 @@ import urllib.request
 import zlib
 
 CATALOG = "https://data.meteogust.com/spots/catalog"
+# Places the phones asked for (stations, riders' public spots: station-history roads.js), INGEST_TOKEN.
+WANTS = "https://data.meteogust.com/roads/wants"
 FILES = "https://files.meteogust.com/"
 UPLOAD = "https://data.meteogust.com/tiles/upload/"
 FOLDER = "roads/v2"                 # under tiles/ on our files; a new folder when made again (Cloudflare keeps a file a month)
@@ -77,8 +79,11 @@ def region_of(lat, lon):
     return None
 
 
-def fetch(url, timeout=60):
-    request = urllib.request.Request(url, headers={"User-Agent": AGENT})
+def fetch(url, timeout=60, token=None):
+    headers = {"User-Agent": AGENT}
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    request = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(request, timeout=timeout) as reply:
         return reply.read()
 
@@ -225,6 +230,14 @@ def main():
         for entry in json.loads(fetch(CATALOG))["spots"]:
             spot = entry["spot"]
             places[key(spot["lat"], spot["lon"])] = entry["id"]
+        # The phones' asks (the owner, 29.10.2026: "Road files for stations and your own public spots - ok").
+        token = os.environ.get("INGEST_TOKEN")
+        if token:
+            try:
+                for place in json.loads(fetch(WANTS, token=token))["places"]:
+                    places.setdefault(place, "asked by a phone")
+            except (urllib.error.URLError, OSError, ValueError, KeyError) as error:
+                print(f"The phones' asks not read: {error}")
     for at in args.at:
         lat, lon = (float(v) for v in at.split(","))
         places[key(lat, lon)] = at
@@ -247,9 +260,12 @@ def main():
             by_region.setdefault(region, []).append((place, name))
 
     try:
-        index = set(json.loads(fetch(FILES + "tiles/" + FOLDER + "/index.json?t=" + str(int(time.time()))))["places"])
+        published = json.loads(fetch(FILES + "tiles/" + FOLDER + "/index.json?t=" + str(int(time.time()))))
+        index = set(published["places"])
     except (urllib.error.URLError, OSError, ValueError, KeyError):
-        index = set()
+        published, index = {}, set()
+    # The regions' boxes in the index too: the phones ask only for places inside them.
+    regions = [list(region["box"]) for region in REGIONS.values()]
     # Only the places not made yet (a new catalog spot, the nightly run), unless made again.
     if not args.again:
         by_region = {region: [(place, name) for place, name in todo if place not in index]
@@ -278,11 +294,11 @@ def main():
                 made += 1
         finally:
             subprocess.run(["docker", "stop", container], capture_output=True)
-    body = json.dumps({"places": sorted(index)}, separators=(",", ":")).encode()
+    body = json.dumps({"places": sorted(index), "regions": regions}, separators=(",", ":")).encode()
     if args.local:
         with open(os.path.join(args.local, FOLDER, "index.json"), "wb") as out:
             out.write(body)
-    elif made:
+    elif made or published.get("regions") != regions:
         upload(f"{FOLDER}/index.json", body)
     print(f"{made} places made; {len(index)} in the index")
 
