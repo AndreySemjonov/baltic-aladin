@@ -30,6 +30,7 @@ OVC004, 120 m, the mask clear: a deck as warm as the ground, the sun low) is add
 Needs INGEST_TOKEN (the helper's report token) in the environment; without it nothing is sent.
 EUMETSAT's open data (EUMETView WMS); credit: "Meteosat, EUMETSAT".
 """
+import hashlib
 import http.client
 import io
 import json
@@ -89,6 +90,17 @@ def picture(layer, when, box, size):
     x1, y1 = mercator(north, east)
     query = (f"service=WMS&version=1.3.0&request=GetMap&layers={layer}&styles=&format=image/png&crs=EPSG:3857"
              f"&bbox={x0},{y0},{x1},{y1}&width={size[0]}&height={size[1]}&time={when.strftime('%Y-%m-%dT%H:%M:%SZ')}")
+    # Small pictures already listed kept on disk for a few hours: the morning memory asks for six fog pictures of the
+    # last three hours a frame, one after another, the frame before asked for the same ones (29.10.2026: frames out
+    # 45-60 min after their time, 6-9 min a build, nearly all of it waiting on EUMETSAT). Never one not listed yet:
+    # for that the server answers with an older picture.
+    kept = None
+    if size[0] * size[1] <= 1_000_000 and layer in LISTED and when <= LISTED[layer]:
+        kept = PICTURES / (hashlib.sha1(query.encode()).hexdigest()[:24] + ".npy")
+        try:
+            return np.load(kept).astype(np.float32)
+        except (OSError, ValueError):
+            pass
     for attempt in range(3):
         try:
             request = urllib.request.Request(WMS + "?" + query, headers={"User-Agent": AGENT})
@@ -99,6 +111,14 @@ def picture(layer, when, box, size):
             rgba = np.asarray(Image.open(io.BytesIO(data)).convert("RGBA"))
             if blank(layer, rgba):
                 return None
+            if kept is not None:
+                try:
+                    PICTURES.mkdir(parents=True, exist_ok=True)
+                    part = kept.with_suffix(".part.npy")
+                    np.save(part, rgba[..., :3])
+                    os.replace(part, kept)
+                except OSError:
+                    pass
             return rgba[..., :3].astype(np.float32)
         # A reply cut off half way (http.client.IncompleteRead, not an OSError: EUMETSAT's slow afternoon, 26.10.2026)
         # tried again too, not the whole quarter hour lost.
@@ -460,6 +480,17 @@ JUMP = 0.25
 # own memory (TRIES).
 RETRY_LATE = 2 * 3600
 TRIES = Path(os.environ.get("CLOUDS_TRIES", str(Path.home() / ".cache" / "meteogust-clouds-tries.json")))
+# picture()'s kept pictures, 4 h (the memory looks 3 h back).
+PICTURES = Path(os.environ.get("CLOUDS_PICTURES", str(Path.home() / ".cache" / "meteogust-clouds-pictures")))
+
+
+def forget_old_pictures():
+    try:
+        for p in PICTURES.glob("*.npy"):
+            if time.time() - p.stat().st_mtime > 4 * 3600:
+                p.unlink()
+    except OSError:
+        pass
 
 
 def load_tries():
@@ -564,6 +595,7 @@ def make_tiles(wanted, token, remake=None):
         except urllib.error.URLError as error:
             print(f"  {when:%H:%M}: upload failed: {error}")
     save_tries(tries)
+    forget_old_pictures()
 
 
 def published(folder):
