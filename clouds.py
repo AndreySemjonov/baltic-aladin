@@ -161,16 +161,18 @@ def low_water(fog):
 
 
 def local_ground(grey, mask, ground, block=64):
-    """The clear ground's grey region by region: the median of the clear pixels in each block (the
-    whole picture's where a block has too few), smoothed out to every pixel."""
+    """The clear ground's grey region by region: the median of the clear pixels in each block (`ground`'s where a
+    block has too few: one number, or a picture of it), smoothed out to every pixel."""
     rows, cols = -(-grey.shape[0] // block), -(-grey.shape[1] // block)
-    grid = np.full((rows, cols), ground, dtype=np.float32)
+    grid = np.full((rows, cols), ground if np.isscalar(ground) else 0, dtype=np.float32)
     for j in range(rows):
         for i in range(cols):
             g = grey[j * block:(j + 1) * block, i * block:(i + 1) * block]
             clear = g[mask[j * block:(j + 1) * block, i * block:(i + 1) * block] < 0.5]
             if clear.size > g.size / 10:
                 grid[j, i] = np.median(clear)
+            elif not np.isscalar(ground):
+                grid[j, i] = np.mean(ground[j * block:(j + 1) * block, i * block:(i + 1) * block])
     padded = np.pad(grid, 1, mode="edge")
     grid = sum(padded[dj:dj + rows, di:di + cols] for dj in range(3) for di in range(3)) / 9
     small = Image.fromarray(grid.astype(np.float32), "F")
@@ -280,8 +282,15 @@ def style_height(infrared, mask_rgb, visible, heights, daylight, fog=None, sun=N
         # 97-115). Four days of daytime METARs, the mask cloudy: overcast +37 over the ground (median, a quarter under
         # +21), the mask's cloud at clear reports +16 (a third under +5). +4 and less nearly see-through (0.15), +22
         # and more solid.
-        ground_v = local_ground(v, (alpha > 0.5).astype(np.float32),
-                                float(np.percentile(v[alpha < 0.5], 50)) if (alpha < 0.5).sum() > v.size / 50 else float(np.percentile(v, 20)))
+        # Where a block (about 85 km) has too few clear pixels, its region's ground (about 350 km), the whole picture's
+        # only where the region has none either (29.10.2026, the owner's photos: blue sky by Riga airport at 08:20-09:05
+        # Riga, the app grey under the morning memory's deck: the whole picture's median was 10 of 255 with half of
+        # Europe still dark, Riga's ground about 25, so nothing was thinned at sunrise and sunset under a wide deck).
+        # Clear land only was tried and scored worse (eight mornings' METARs, 22-29.10: 227 errors of 1,263 against
+        # 215, overcast drawn see-through 14 -> 38): the sea stays in.
+        cloudy = (alpha > 0.5).astype(np.float32)
+        whole = float(np.percentile(v[alpha < 0.5], 50)) if (alpha < 0.5).sum() > v.size / 50 else float(np.percentile(v, 20))
+        ground_v = local_ground(v, cloudy, local_ground(v, cloudy, whole, block=256))
         # With the sun low everything in the visible is darker, a deck's lead over the ground too: the thresholds scaled
         # by sin(sun) / sin(20 deg), at least half (28.10.2026, seven days' daytime METARs where we draw cloud: overcast
         # drawn see-through 37 of 848 -> 15, clear drawn solid 146 of 219 -> 158; 15 deg as the reference only 29).
