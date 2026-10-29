@@ -364,6 +364,9 @@ def sat_box():
     return box, width, height, lats, lons
 
 
+NEVER = "the fog picture never came (EUMETSAT's gap), not tried again"
+
+
 def sat_pack(when, incomplete=True, again=False):
     """One quarter hour's Europe tiles as a pack (MGT1, LA PNGs) and how it was made: (pack, "complete"),
     (pack, "without the visible" / "the fog picture") or (None, why). The pictures that say how thick (by day the
@@ -411,6 +414,10 @@ def sat_pack(when, incomplete=True, again=False):
         for keys in (["fog", "height"], ["visible"]):
             fetch(keys)
             fetch([k for k in keys if k != "height"], back=10)
+            # The fog picture missing though EUMETSAT lists ones 20 minutes later: its daytime gap, never filled (the
+            # owner, 29.10.2026: "second"): the frame stays as it was and isn't tried again (make_tiles).
+            if "fog" in keys and missing(["fog"]) and FOG in LISTED and LISTED[FOG] >= ten + timedelta(minutes=20):
+                return None, NEVER
             if missing(keys):
                 return None, "not in yet: " + " or ".join(missing(keys))
     fetch(list(jobs))
@@ -626,7 +633,10 @@ def make_tiles(wanted, token, remake=None):
     tries = load_tries()
 
     def due(t):
-        return time.time() - t.timestamp() < RETRY_LATE or time.time() - tries.get(t.strftime("%Y%m%d%H%M"), 0) > 3600
+        tried = tries.get(t.strftime("%Y%m%d%H%M"), 0)
+        if tried > time.time():
+            return False
+        return time.time() - t.timestamp() < RETRY_LATE or time.time() - tried > 3600
     if remake is None:
         missing = [t for t in wanted if t.strftime("%Y%m%d%H%M") not in have and due(t)][:TILES_PER_RUN]
         again = [t for t in wanted if have.get(t.strftime("%Y%m%d%H%M"), {}).get("visible") is False and due(t)][:1]
@@ -647,7 +657,8 @@ def make_tiles(wanted, token, remake=None):
         before = have.get(stamp)
         pack, how = sat_pack(when, incomplete=before is None and now - when.timestamp() > WAIT_VISIBLE, again=before is not None)
         if pack is None:
-            tries[stamp] = time.time()
+            # Never coming: not due again while the frame is in the last day (a try "two days ahead").
+            tries[stamp] = time.time() + (2 * 86400 if how == NEVER else 0)
             print(f"  {when:%H:%M}: {how}" + (", kept as it was" if before else ", tried again next run" if how != "no picture" else ""))
             continue
         held = jump(when, pack, have)
