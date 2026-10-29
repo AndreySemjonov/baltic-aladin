@@ -98,8 +98,7 @@ def picture(layer, when, box, size):
     south, north, west, east = box
     x0, y0 = mercator(south, west)
     x1, y1 = mercator(north, east)
-    query = (f"service=WMS&version=1.3.0&request=GetMap&layers={layer}&styles=&format=image/png&crs=EPSG:3857"
-             f"&bbox={x0},{y0},{x1},{y1}&width={size[0]}&height={size[1]}&time={when.strftime('%Y-%m-%dT%H:%M:%SZ')}")
+    query = wms_query(layer, when, (x0, y0, x1, y1), size)
     # Small pictures already listed kept on disk for a few hours: the morning memory asks for six fog pictures of the
     # last three hours a frame, one after another, the frame before asked for the same ones (29.10.2026: frames out
     # 45-60 min after their time, 6-9 min a build, nearly all of it waiting on EUMETSAT). Never one not listed yet:
@@ -111,6 +110,41 @@ def picture(layer, when, box, size):
             return np.load(kept).astype(np.float32)
         except (OSError, ValueError):
             pass
+    if size[0] * size[1] > 4_000_000 and size[0] % 2 == 0 and size[1] % 2 == 0:
+        # The big ones (the infrared and the visible, 3328 px) as four quarters side by side, put together: EUMETSAT's
+        # server is slow a picture, not a pixel (29.10.2026, its slow afternoon: the full infrared 62 s, its four
+        # quarters at once 24 s). The blank test on the whole: a quarter may be mostly past the Earth's edge.
+        mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+        half = (size[0] // 2, size[1] // 2)
+        parts = [(x0, my, mx, y1), (mx, my, x1, y1), (x0, y0, mx, my), (mx, y0, x1, my)]   # NW, NE, SW, SE
+        with ThreadPoolExecutor(4) as pool:
+            got = list(pool.map(lambda b: wms_png(wms_query(layer, when, b, half)), parts))
+        if any(g is None for g in got):
+            return None
+        rgba = np.concatenate([np.concatenate(got[:2], axis=1), np.concatenate(got[2:], axis=1)], axis=0)
+    else:
+        rgba = wms_png(query)
+    if rgba is None or blank(layer, rgba):
+        return None
+    if kept is not None:
+        try:
+            PICTURES.mkdir(parents=True, exist_ok=True)
+            part = kept.with_suffix(".part.npy")
+            np.save(part, rgba[..., :3])
+            os.replace(part, kept)
+        except OSError:
+            pass
+    return rgba[..., :3].astype(np.float32)
+
+
+def wms_query(layer, when, bbox, size):
+    x0, y0, x1, y1 = bbox
+    return (f"service=WMS&version=1.3.0&request=GetMap&layers={layer}&styles=&format=image/png&crs=EPSG:3857"
+            f"&bbox={x0},{y0},{x1},{y1}&width={size[0]}&height={size[1]}&time={when.strftime('%Y-%m-%dT%H:%M:%SZ')}")
+
+
+def wms_png(query):
+    """One GetMap as an RGBA array, or None (an error comes back as XML)."""
     for attempt in range(3):
         try:
             request = urllib.request.Request(WMS + "?" + query, headers={"User-Agent": AGENT})
@@ -118,18 +152,7 @@ def picture(layer, when, box, size):
                 data = reply.read()
             if data[:4] != b"\x89PNG":
                 return None
-            rgba = np.asarray(Image.open(io.BytesIO(data)).convert("RGBA"))
-            if blank(layer, rgba):
-                return None
-            if kept is not None:
-                try:
-                    PICTURES.mkdir(parents=True, exist_ok=True)
-                    part = kept.with_suffix(".part.npy")
-                    np.save(part, rgba[..., :3])
-                    os.replace(part, kept)
-                except OSError:
-                    pass
-            return rgba[..., :3].astype(np.float32)
+            return np.asarray(Image.open(io.BytesIO(data)).convert("RGBA"))
         # A reply cut off half way (http.client.IncompleteRead, not an OSError: EUMETSAT's slow afternoon, 26.10.2026)
         # tried again too, not the whole quarter hour lost.
         except (urllib.error.URLError, OSError, http.client.HTTPException):
