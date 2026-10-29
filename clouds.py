@@ -401,6 +401,19 @@ def sat_pack(when, incomplete=True):
 
     sun_now = sun_height(lats[:, None], lons[None, :], when)
     rising = (sun_now >= -6) & (sun_now < 15) & (sun_now > sun_height(lats[:, None], lons[None, :], when - timedelta(minutes=30)))
+    # With the sun up, the memory's deck only where the visible is still that bright: brighter than 23 + 2 a degree of
+    # sun (of 255), bare ground under it (the owner's photos, 29.10.2026: blue sky by Riga airport at 08:20-09:05 Riga,
+    # the app grey; a deck at 750-950 m the mask never saw broke up after sunrise, the visible showed the clearing,
+    # Weather & Radar too). Eight mornings' METARs (22-29.10, 20 airports) where only the memory draws cloud, 76
+    # overcast and 14 clear, each morning scored with the line fitted on the other seven: 3 overcast dropped and 3
+    # clear kept, against 0 and 14 (the line 21-25 + 1.5-2.5 a degree whichever morning was left out). Brighter than
+    # the ground (the thinning below) didn't tell them apart: the ground there is spoilt by decks the mask can't see.
+    deck = np.ones(mask.shape[:2], dtype=bool)
+    if visible is not None:
+        size = (mask.shape[1], mask.shape[0])
+        v = np.asarray(Image.fromarray(visible.mean(axis=2).astype(np.float32)).resize(size, Image.BILINEAR))
+        sun_m = np.asarray(Image.fromarray(sun_now.astype(np.float32)).resize(size, Image.BILINEAR))
+        deck = (sun_m < 0) | (v > 23 + 2 * sun_m)
     if rising.any():
         for minutes in (30, 60, 90, 120, 150, 180):
             then = ten - timedelta(minutes=minutes)
@@ -409,7 +422,7 @@ def sat_pack(when, incomplete=True):
                 continue
             earlier = picture(FOG, then, box, (width // 4, height // 4))
             if earlier is not None and earlier.shape == mask.shape:
-                mask[low_water(earlier) & grid(dark)] = 255
+                mask[low_water(earlier) & grid(dark) & deck] = 255
     mask = np.asarray(Image.fromarray(mask.astype(np.uint8)).resize((width, height), Image.NEAREST), dtype=np.float32)
     try:
         heights = None if cth is None else cloud_heights(cth)
