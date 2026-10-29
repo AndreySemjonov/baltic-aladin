@@ -67,10 +67,14 @@ IMAGE = os.environ.get("MG_IMAGE", "meteogust-helper")
 MAX_TOTAL, MAX_HEAVY = int(os.environ.get("MG_MAX", "4")), int(os.environ.get("MG_MAX_HEAVY", "5"))
 # Outside WRF the slots follow the machine (the owner, 22.10.2026, from the Pipeline's machine band: with WRF off jobs
 # waited 314 of 342 minutes while CPU was under 50% and over 6 GB free): beyond MAX_TOTAL, up to MAX_FLEX at once
-# while the machine's CPU over the last minute is under FLEX_CPU %, one more a minute (a new job's load shows the
-# minute after); the memory budget still decides. While WRF runs: MAX_TOTAL as before.
+# while the machine's CPU over the last minute is under FLEX_CPU %, as many more a minute as that room holds (FLEX_START;
+# a new job's load shows the minute after); the memory budget still decides. While WRF runs: MAX_TOTAL as before.
 MAX_FLEX = int(os.environ.get("MG_MAX_FLEX", "8"))
 FLEX_CPU = float(os.environ.get("MG_FLEX_CPU", "75"))
+# Starts beyond MAX_TOTAL a minute by the CPU room left under FLEX_CPU, a new job counted at FLEX_START % (3 of the
+# Tower's 20 threads), at least one (the owner, 29.10.2026, the 07:45-08:00 Riga crunch: up to 8 jobs waited with 5-6
+# of 8 slots busy and 3-7 threads working, most of them re-checks that found nothing new, one start a minute).
+FLEX_START = 15
 # A priority-3 job due this long counts as a 2 (the same day: the world weather mix had never run, the waves and the
 # ensembles not in a day).
 AGE_AFTER = 60 * 60
@@ -107,8 +111,16 @@ WRF_MB = int(os.environ.get("MG_WRF_MB", "9000"))
 # its whole peak (WRF must never swap).
 # A failed run tried again after RETRY_S, up to RETRIES in a row (the same model run for a watching job), then its
 # usual rhythm (22.10.2026: the waves' first run, killed out of memory at 02:35 UTC, would have waited 12 h; a
-# watching job marked its failed run seen and never made it).
-RETRY_S, RETRIES = 45 * 60, 3
+# watching job marked its failed run seen and never made it). The first retry after FIRST_RETRY_S (the owner,
+# 29.10.2026: World GFS 00Z failed on a passing NOMADS error at 07:27 Riga and was tried again only at 08:06; a run
+# killed out of memory (137) would most likely meet the same full machine, so it waits RETRY_S as before).
+RETRY_S, FIRST_RETRY_S, RETRIES = 45 * 60, 10 * 60, 3
+
+
+def retry_after(mine):
+    """How long after a failed run's start it is tried again (mine: the job's state)."""
+    return FIRST_RETRY_S if mine.get("fails") == 1 and mine.get("exit") != 137 else RETRY_S
+
 # Our own map packs kept on D: for the jobs (packcache.py; the owner, 23.10.2026: "Build on D"): mounted at /cache in
 # every job's container, trimmed to CACHE_GB every 10 minutes, least recently used first (a read touches a file). The
 # jobs read each run's newest packs, so more room mostly keeps packs nobody asks for again: the hit rate in
@@ -367,7 +379,7 @@ def expected(job, state, cache, now, lags):
     """When a job not due now should be next (unix), and why, for the panel."""
     mine = state.get(job.name, {})
     if 0 < mine.get("fails", 0) <= RETRIES and mine.get("started"):
-        return mine["started"] + RETRY_S, f"tried again after a failed run ({mine['fails']} of {RETRIES})"
+        return mine["started"] + retry_after(mine), f"tried again after a failed run ({mine['fails']} of {RETRIES})"
     if job.watch:
         best = None
         for model, every in job.watch:
@@ -454,7 +466,7 @@ def due(job, state, cache, now, live=False):
         return None
     mine = state.get(job.name, {})
     since = now - mine.get("started", 0)
-    retry = 0 < mine.get("fails", 0) <= RETRIES and since >= RETRY_S
+    retry = 0 < mine.get("fails", 0) <= RETRIES and since >= retry_after(mine)
     # Live now, its last run in shadow (published nothing): due at once, its newest run (the owner, 23.10.2026: "Europe's
     # seas show late. why": the seas' last run was shadow at 05:52 UTC, live from 07:00, GitHub's 09:20 run stood aside,
     # and the 12 h timer from the shadow run left the map at 00:31 UTC until 17:52). A run published already (GitHub's)
@@ -1088,7 +1100,7 @@ def main():
         cpu_now = cpu_busy()
         flex = not wrf and cpu_now is not None and cpu_now < FLEX_CPU
         total_max, heavy_max = (MAX_TOTAL, 1) if wrf else (MAX_FLEX if flex else MAX_TOTAL, MAX_HEAVY)
-        flex_left = 1  # starts beyond MAX_TOTAL this minute
+        flex_left = max(1, int((FLEX_CPU - cpu_now) // FLEX_START)) if flex else 1  # starts beyond MAX_TOTAL this minute
         names, live, cache = env_names(), live_jobs(), {}
         by_name = {j.name: j for j in JOBS}
         # A job in the live file whose variables are missing (jobs.py needs, live_needs) stays in shadow and off the
@@ -1144,7 +1156,7 @@ def main():
                 waiting_why[job.name] = f"all {total_max} slots busy"
                 continue
             if busy >= MAX_TOTAL and flex_left <= 0:
-                waiting_why[job.name] = f"one more start a minute beyond {MAX_TOTAL} (a new job's load shows the minute after)"
+                waiting_why[job.name] = f"this minute's starts beyond {MAX_TOTAL} used (by the CPU room: a new job's load shows the minute after)"
                 continue
             # A slot kept for a 1 or 2 that comes in next minute.
             if prio(job) >= 3 and busy >= total_max - 1:

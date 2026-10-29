@@ -51,16 +51,32 @@ def newest_run():
     raise SystemExit("No complete GFS run found")
 
 
+# NOMADS' passing troubles (the owner, 29.10.2026: World GFS 00Z failed on a "302 Moved Temporarily" that outlasted four
+# tries in 60 s, then waited 45 min for the runner's retry): a redirect, a 429, a 5xx or a dropped connection is tried
+# again for ~8 min, longer each time, and what NOMADS said is logged; any other answer (a 404) four times as before.
+NOMADS_WAITS = [10, 30, 60, 120, 240]
+
+
+def nomads_get(url, timeout=120):
+    """The answer's bytes from NOMADS, its passing troubles tried again (NOMADS_WAITS)."""
+    for attempt in range(len(NOMADS_WAITS) + 1):
+        try:
+            with urllib.request.urlopen(request(url), timeout=timeout) as reply:
+                return reply.read()
+        except (urllib.error.URLError, OSError) as error:
+            code = getattr(error, "code", None)
+            passing = code is None or code == 429 or 300 <= code < 400 or code >= 500
+            if attempt == len(NOMADS_WAITS) or not passing and attempt == 3:
+                raise
+            wait = NOMADS_WAITS[attempt] if passing else 10 * (attempt + 1)
+            said = f"{code}, Location {error.headers.get('Location')}" if code else str(error)
+            print(f"  NOMADS: {said} ({url.split('&')[1] if '&' in url else url}), again in {wait} s", flush=True)
+            time.sleep(wait)
+
+
 def fetch(run, step):
     url = FILTER.format(day=run.strftime("%Y%m%d"), hour=run.strftime("%H"), step=step)
-    for attempt in range(4):
-        try:
-            with urllib.request.urlopen(request(url), timeout=120) as reply:
-                return reply.read()
-        except urllib.error.URLError:
-            if attempt == 3:
-                raise
-            time.sleep(10 * (attempt + 1))
+    return nomads_get(url)
 
 
 def decode(data):

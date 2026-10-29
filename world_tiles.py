@@ -110,14 +110,7 @@ def gfs_steps(run, steps):
     """(step, {"10u", "10v", "gust", "lsm"}: values, grid) for each step, downloaded ahead."""
     def fetch(step):
         url = GFS_FILTER.format(day=run.strftime("%Y%m%d"), hour=run.strftime("%H"), step=step)
-        for attempt in range(4):
-            try:
-                with urllib.request.urlopen(gfs_map.request(url), timeout=180) as reply:
-                    return step, reply.read()
-            except (urllib.error.URLError, OSError):
-                if attempt == 3:
-                    raise
-                time.sleep(10 * (attempt + 1))
+        return step, gfs_map.nomads_get(url, timeout=180)
     with ThreadPoolExecutor(max_workers=3) as pool:
         for step, data in pool.map(fetch, steps):
             fields, grid = gfs_map.decode(data)
