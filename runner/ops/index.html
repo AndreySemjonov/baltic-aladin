@@ -1001,7 +1001,10 @@ function warningsList({ f, fr, ad, spots, now }) {
     const crash = ((o.crashes || {}).groups || []).filter((g) => now - g.last < 3 * 3600).sort((a, b) => b.last - a.last)[0];
     if (crash) out.push(["warn", "Crash", `${crash.kind || crash.summary || ""} · ${crash.platform} · ${hrs(now - crash.last)} ago`, "#app"]);
     const failed = ((o.alerts || {}).sent || []).reduce((a, s) => a + (s.failed || 0), 0);
-    if (failed) out.push(["warn", "Alerts", `${failed} pushes failed today`, "#app"]);
+    if (failed) out.push(["warn", "Alerts", `${failed} push${failed > 1 ? "es" : ""} failed in 24 h`, "#app"]);
+    // Admin alerts with no admin phone to go to (no push failed; the owner, 29.10.2026: "59 pushes failed today" were these).
+    const nobody = (o.alerts || {}).noAdminPhone;
+    if (nobody) out.push(["warn", "Alerts", `no admin phone registered · last ${hrs(now - nobody.last)} ago`, "#app"]);
     const st = o.stations || {};
     if (st.total && st.fresh < st.total * 0.8) out.push(["warn", "Stations", `${st.fresh} of ${st.total} fresh`, "#stations"]);
   }
