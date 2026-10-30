@@ -379,6 +379,50 @@ label.row { display: inline-flex !important; gap: 6px; align-items: center; colo
 .form.four { grid-template-columns: repeat(4, minmax(0, 1fr)) }
 @media (max-width: 760px) { .form.four { grid-template-columns: 1fr 1fr } }
 .avatar { width: 22px; height: 22px; border-radius: 50%; vertical-align: middle; object-fit: cover }
+
+/* Riders and spot sets (30.10.2026, mockup riders-and-sets-2026-10-30 in the app's repo) */
+.rtiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px }
+@media (max-width: 700px) { .rtiles { grid-template-columns: repeat(2, minmax(0, 1fr)) } }
+.rchart { display: block; width: 100%; height: auto; overflow: visible }
+.rchart text { font: 500 11.5px var(--body); fill: var(--muted) } .rchart text.ink { fill: var(--ink) }
+.legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px }
+.rbar { display: grid; grid-template-columns: 74px 1fr 34px; gap: 8px; align-items: center; font-size: 13px; margin: 6px 0 }
+.rbar .hb { height: 14px; border-radius: 3px; background: var(--line); overflow: hidden; display: flex }
+.rbar .hb i { display: block; height: 100%; cursor: pointer } .rbar .n { font-size: 12.5px; text-align: right }
+.flagcode { font: 500 11px/1 var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 2px 4px; margin-right: 5px }
+.rfilters { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 12px }
+.rfilters .grp { display: flex; gap: 4px; align-items: center; flex-wrap: wrap }
+.rfilters .lab { font: 600 11.5px var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-right: 4px }
+.rfilters input { width: 220px; max-width: 100% }
+th.sortable { cursor: pointer; white-space: nowrap } th.sorted { color: var(--ink) } th .ar { color: var(--accent) }
+table.riders tbody tr { cursor: pointer }
+.who { display: flex; gap: 8px; align-items: flex-start } .who .avatar { width: 26px; height: 26px; flex: none }
+.avatar.ph { display: inline-grid; place-items: center; background: var(--line); color: var(--muted); font: 600 11.5px var(--display) }
+.plat { display: inline-flex; gap: 5px; align-items: center } .picon { width: 14px; height: 14px; flex: none }
+.bld { font: 500 13px var(--mono) } .bld.latest { color: var(--ok) } .bld.older { color: var(--warn) }
+.week { display: inline-flex; gap: 2px; vertical-align: middle } .week i { width: 8px; height: 14px; border-radius: 2px; background: var(--line) } .week i.on { background: var(--accent) }
+table.riders tr.open td, table.riders tr.rdetail td { background: var(--accent-soft) } table.riders tr.open td { border-bottom: none }
+.dgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 20px; font-size: 13.5px; cursor: default }
+.dgrid h4 { font: 600 11.5px var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 4px }
+.more { font: 600 15px var(--body); color: var(--muted) }
+@media (max-width: 760px) {
+  .dgrid { grid-template-columns: 1fr 1fr }
+  table.riders thead { display: none }
+  table.riders tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 10px 0; border-bottom: 1px solid var(--line) }
+  table.riders td { border: none; padding: 0 } table.riders .hide-s { display: none }
+  table.riders tr.open { background: var(--accent-soft); border-bottom: none; padding-inline: 8px }
+  table.riders tr.rdetail { display: block } table.riders tr.rdetail td { display: block; padding: 10px }
+  table.sets .hide-s { display: none } table.sets th { white-space: normal }
+}
+.prow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 16px; align-items: start; padding: 12px 0; border-top: 1px solid var(--line) }
+.prow:first-of-type { border-top: none }
+.suggest { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end }
+.suglab { font-size: 13.5px; color: var(--muted) } .suglab b { color: var(--ink) }
+.setform { grid-column: 1 / -1; display: grid; grid-template-columns: 1.4fr .5fr 1fr auto; gap: 10px; align-items: end; padding: 12px; border: 1px dashed var(--accent); border-radius: 8px }
+.setform label { font-size: 12.5px; color: var(--muted); display: grid; gap: 4px } .setform .full { grid-column: 1 / -1 }
+.btn.mini { padding: 2px 7px } td.order { white-space: nowrap }
+@media (max-width: 760px) { .prow { grid-template-columns: minmax(0, 1fr) } .suggest { justify-content: flex-start }
+  .setform { grid-template-columns: minmax(0, 1fr) } .setform input, .setform select { width: 100% } }
 .st.unknown { background: var(--line); color: var(--muted) }
 /* The spot editor and riders' suggestions, ported from admin.meteogust.com's own page (tools/admin/worker.js in the app's
    repo; the owner, 23.10.2026: "spots missing a lot of from original admin ... so we can retire admin.meteogust.com").
@@ -2236,7 +2280,7 @@ function AppRiders({ ad, spots, roles, builds, refresh, now, goTab }) {
       <div class="tablewrap" style="margin-top:10px"><table><thead><tr><th>Rider</th><th>Role</th><th>Signed in with</th><th class="r">Last seen</th></tr></thead><tbody>
         ${accounts.slice().sort((a, b) => b.last_seen - a.last_seen).map((a) => html`<tr><td>${a.nickname || [a.first, a.last].filter(Boolean).join(" ") || "–"}</td><td>${a.role}</td>
           <td class="whytxt">${[a.apple ? "Apple" : null, a.google ? "Google" : null].filter(Boolean).join(", ") || "email"}</td><td class="r num">${a.last_seen ? hrs(now - a.last_seen) + " ago" : "–"}</td></tr>`)}</tbody></table></div>
-      <p class="whytxt">Roles and emails: <a href="/admin/#users" style="color:var(--accent)">full admin, Users</a>.</p></div>
+      <p class="whytxt">Every rider with builds, phones, days active and charts: <a href="#" onClick=${(e) => { e.preventDefault(); goTab("roles"); }} style="color:var(--accent)">Riders &amp; roles</a>.</p></div>
     <div class="panel s6"><h2>Features</h2><div class="tablewrap"><table><tbody>
       ${((roles && roles.features) || []).map((x) => html`<tr><td>${x.name}</td><td class="whytxt">${x.grp || ""}</td><td class="whytxt">${(x.roles || []).join(", ") || "nobody"}</td><td class="whytxt">${x.release || ""}</td></tr>`)}</tbody></table></div>
       <p class="whytxt">Change who sees a feature: <a href="/admin/#features" style="color:var(--accent)">full admin, Features</a>.</p></div>
@@ -3349,7 +3393,139 @@ function SpotEditBox({ code, onClose, onSaved }) {
 
 const osmLink = (o) => `https://www.openstreetmap.org/?mlat=${(+o.lat).toFixed(5)}&mlon=${(+o.lon).toFixed(5)}#map=14/${(+o.lat).toFixed(5)}/${(+o.lon).toFixed(5)}`;
 
-function SpotsEditor({ spots, refresh, now }) {
+// Spot sets (the owner, 30.10.2026: "in spots I need to have possibility to define set, now not possible (or its should
+// suggest set automatically after new spot added)"). A public rider spot gets the set whose spots are nearest (within
+// 150 km), else a new set named from its country (the spot's time zone) and sea; nothing joins a set without a click.
+const kmBetween = (a, b) => {
+  const r = Math.PI / 180, dLat = (b.lat - a.lat) * r, dLon = (b.lon - a.lon) * r;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+};
+// Time zone -> [country code, name]; a zone not here leaves both for the owner to type.
+const ZONE_COUNTRY = Object.fromEntries(Object.entries({
+  LV: ["Latvia", "Europe/Riga"], EE: ["Estonia", "Europe/Tallinn"], LT: ["Lithuania", "Europe/Vilnius"], FI: ["Finland", "Europe/Helsinki"],
+  SE: ["Sweden", "Europe/Stockholm"], NO: ["Norway", "Europe/Oslo"], DK: ["Denmark", "Europe/Copenhagen"], DE: ["Germany", "Europe/Berlin Europe/Busingen"],
+  PL: ["Poland", "Europe/Warsaw"], NL: ["Netherlands", "Europe/Amsterdam"], BE: ["Belgium", "Europe/Brussels"], FR: ["France", "Europe/Paris"],
+  GB: ["United Kingdom", "Europe/London"], IE: ["Ireland", "Europe/Dublin"], PT: ["Portugal", "Europe/Lisbon Atlantic/Madeira Atlantic/Azores"],
+  ES: ["Spain", "Europe/Madrid Atlantic/Canary Africa/Ceuta"], IT: ["Italy", "Europe/Rome"], GR: ["Greece", "Europe/Athens"], TR: ["Türkiye", "Europe/Istanbul"],
+  HR: ["Croatia", "Europe/Zagreb"], SI: ["Slovenia", "Europe/Ljubljana"], ME: ["Montenegro", "Europe/Podgorica"], AL: ["Albania", "Europe/Tirane"],
+  BG: ["Bulgaria", "Europe/Sofia"], RO: ["Romania", "Europe/Bucharest"], UA: ["Ukraine", "Europe/Kyiv Europe/Kiev"], MT: ["Malta", "Europe/Malta"],
+  MC: ["Monaco", "Europe/Monaco"], GI: ["Gibraltar", "Europe/Gibraltar"], AT: ["Austria", "Europe/Vienna"], CH: ["Switzerland", "Europe/Zurich"],
+  CZ: ["Czechia", "Europe/Prague"], HU: ["Hungary", "Europe/Budapest"], SK: ["Slovakia", "Europe/Bratislava"], RS: ["Serbia", "Europe/Belgrade"],
+  LU: ["Luxembourg", "Europe/Luxembourg"], IS: ["Iceland", "Atlantic/Reykjavik"], FO: ["Faroe Islands", "Atlantic/Faroe"], CV: ["Cape Verde", "Atlantic/Cape_Verde"],
+  CY: ["Cyprus", "Asia/Nicosia Europe/Nicosia Asia/Famagusta"], MA: ["Morocco", "Africa/Casablanca"], EG: ["Egypt", "Africa/Cairo"], TN: ["Tunisia", "Africa/Tunis"],
+  ZA: ["South Africa", "Africa/Johannesburg"], SN: ["Senegal", "Africa/Dakar"], KE: ["Kenya", "Africa/Nairobi"], TZ: ["Tanzania", "Africa/Dar_es_Salaam"],
+  MU: ["Mauritius", "Indian/Mauritius"], MV: ["Maldives", "Indian/Maldives"], IL: ["Israel", "Asia/Jerusalem"], AE: ["United Arab Emirates", "Asia/Dubai"],
+  OM: ["Oman", "Asia/Muscat"], LK: ["Sri Lanka", "Asia/Colombo"], VN: ["Vietnam", "Asia/Ho_Chi_Minh"], TH: ["Thailand", "Asia/Bangkok"],
+  PH: ["Philippines", "Asia/Manila"], ID: ["Indonesia", "Asia/Makassar Asia/Jakarta"], BR: ["Brazil", "America/Fortaleza America/Recife America/Bahia America/Sao_Paulo America/Belem"],
+  MX: ["Mexico", "America/Mexico_City America/Cancun America/Mazatlan America/Tijuana"], DO: ["Dominican Republic", "America/Santo_Domingo"],
+  CW: ["Curaçao", "America/Curacao"], AW: ["Aruba", "America/Aruba"], PR: ["Puerto Rico", "America/Puerto_Rico"], PE: ["Peru", "America/Lima"],
+  CL: ["Chile", "America/Santiago"], CO: ["Colombia", "America/Bogota"], US: ["United States", "America/New_York America/Chicago America/Denver America/Los_Angeles Pacific/Honolulu"],
+  AU: ["Australia", "Australia/Perth Australia/Sydney Australia/Brisbane Australia/Melbourne Australia/Adelaide"], NZ: ["New Zealand", "Pacific/Auckland"],
+}).flatMap(([code, [name, zones]]) => zones.split(" ").map((z) => [z, [code, name]])));
+// The sea by rough boxes, first match (the owner edits the name anyway).
+const seaOf = (lat, lon) => lat > 53.5 && lat < 66 && lon > 9.5 && lon < 30.5 ? "Baltic"
+  : lat > 50.8 && lat < 61 && lon > -4 && lon < 9.5 ? "North Sea"
+  : lat > 40.8 && lat < 47 && lon > 27.3 && lon < 42 ? "Black Sea"
+  : lat > 12 && lat < 30 && lon > 32 && lon < 44 ? "Red Sea"
+  : lat > 43 && lat < 48.5 && lon > -10 && lon < -1 ? "Atlantic"
+  : lat > 30 && lat < 46 && lon > -5.6 && lon < 36.5 ? "Mediterranean"
+  : lat > 20 && lat < 60 && lon > -30 && lon < -1 ? "Atlantic" : "";
+const flagLetters = (flag) => [...String(flag || "")].map((c) => c.codePointAt(0)).every((n) => n >= 0x1f1e6 && n <= 0x1f1ff)
+  ? [...flag].map((c) => String.fromCharCode(c.codePointAt(0) - 0x1f1e6 + 65)).join("") : String(flag || "");
+const setLabel = (st) => html`<span class="flagcode">${flagLetters(st.flag) || "–"}</span>${st.name}`;
+const zoneCache = {};
+async function zoneOf(p) {
+  const k = (+p.lat).toFixed(3) + "," + (+p.lon).toFixed(3);
+  if (!(k in zoneCache)) zoneCache[k] = fetch(`https://data.meteogust.com/timezone?lat=${(+p.lat).toFixed(4)}&lon=${(+p.lon).toFixed(4)}`)
+    .then((r) => r.json()).then((z) => typeof z.timezone === "string" ? z.timezone : "").catch(() => "");
+  return zoneCache[k];
+}
+
+// The sets with their distance from this spot (its nearest spot in each), nearest first.
+function setsNear(p, sets, official) {
+  return sets.map((st) => {
+    const inSet = official.filter((o) => (o.sets || []).includes(st.id));
+    const near = inSet.reduce((best, o) => { const km = kmBetween(p, o); return !best || km < best.km ? { km, spot: o.name } : best; }, null);
+    return { ...st, km: near ? near.km : Infinity, spot: near ? near.spot : "" };
+  }).sort((a, b) => a.km - b.km);
+}
+
+function PublicSpotRow({ p, sets, official, links, refresh }) {
+  const ranked = setsNear(p, sets, official);
+  const near = ranked[0] && ranked[0].km <= 150 ? ranked[0] : null;
+  const [pick, setPick] = useState(near ? near.id : "");
+  const [form, setForm] = useState(null);
+  const [zone, setZone] = useState(null);
+  const [msg, setMsg] = useState("");
+  useEffect(() => { if (!near) zoneOf(p).then(setZone); }, [p.code]);
+  const [cc, country] = (zone && ZONE_COUNTRY[zone]) || ["", ""];
+  const sea = seaOf(+p.lat, +p.lon);
+  const guess = { name: [country, sea].filter(Boolean).join(" · "), flag: cc, after: sets.length ? sets[sets.length - 1].id : "" };
+  const official_ = async (set) => { const d = await adminPost("spots", { code: p.code, action: "official", set }); refresh(); return d; };
+  const create = async () => {
+    const { data } = await adminPostRaw("spots", { action: "set-new", name: form.name, flag: form.flag, after: form.after });
+    if (data.error) { setMsg(data.error); return; }
+    const { data: d2 } = await adminPostRaw("spots", { code: p.code, action: "official", set: data.id });
+    if (d2.error) { setMsg(d2.error); return; }
+    setForm(null); refresh();
+  };
+  return html`<div class="prow">
+    <div><b>${p.name}</b><div class="whytxt">by ${p.author || "a rider"} · ${links(p)}${zone ? " · " + zone : ""}</div></div>
+    <div class="suggest">
+      ${near ? html`<span class="suglab">Suggested: <b>${setLabel(near)}</b> · its nearest spot ${Math.round(near.km)} km</span>`
+        : html`<span class="suglab">No set within 150 km${guess.name ? html` · a new one: <b><span class="flagcode">${guess.flag || "–"}</span>${guess.name}</b>` : ""}</span>`}
+      <select value=${form ? "+new" : pick} onChange=${(e) => { if (e.target.value === "+new") setForm(guess); else { setForm(null); setPick(e.target.value); } }}>
+        <option value="">${near ? "other set…" : "set…"}</option>
+        ${ranked.map((st) => html`<option value=${st.id}>${flagLetters(st.flag)} ${st.name}${Number.isFinite(st.km) ? ` · ${Math.round(st.km).toLocaleString("en")} km` : ""}</option>`)}
+        <option value="+new">+ New set…</option></select>
+      ${form ? null : pick ? html`<${ActButton} label="Make official" primary=${true} run=${() => official_(pick)} />`
+        : html`<button class="btn primary" onClick=${() => setForm(guess)}>New set…</button>`}
+      <${ActButton} label="Unpublish" danger=${true} run=${async () => { const d = await adminPost("spots", { code: p.code, action: "unpublish" }); refresh(); return d; }} />
+    </div>
+    ${form ? html`<div class="setform">
+      <label>Name<input maxlength="60" value=${form.name} onInput=${(e) => setForm({ ...form, name: e.target.value })} placeholder="Country · sea"/></label>
+      <label>Flag<input maxlength="8" value=${form.flag} onInput=${(e) => setForm({ ...form, flag: e.target.value })} placeholder="FR"/></label>
+      <label>Place in the list<select value=${form.after} onChange=${(e) => setForm({ ...form, after: e.target.value })}>
+        <option value="">first</option>${sets.map((st) => html`<option value=${st.id}>after ${st.name}</option>`)}</select></label>
+      <span class="btns"><button class="btn primary" disabled=${!form.name.trim()} onClick=${create}>Create and make official</button><button class="btn" onClick=${() => setForm(null)}>Cancel</button></span>
+      <div class="whytxt full">${zone ? `The flag from the spot's time zone (${zone}${cc ? " → " + cc : ", not in the panel's list"}), the sea from where it is.` : "Looking up the spot's time zone…"}
+        Two letters make the flag. New riders are offered the set at first launch from their next app start.${msg ? html` <b style="color:var(--bad)">${msg}</b>` : null}</div>
+    </div>` : null}
+  </div>`;
+}
+
+function SetsPanel({ spots, refresh, riders }) {
+  const sets = spots.sets || [];
+  const official = (spots.official || []).filter((o) => !String(o.spot_id).startsWith("w-"));
+  const [edit, setEdit] = useState(null);
+  const [msg, setMsg] = useState("");
+  const post = async (body) => { const { data } = await adminPostRaw("spots", body); setMsg(data.error ? data.error : "✓ saved"); if (!data.error) refresh(); return data; };
+  const move = (i, by) => { const ids = sets.map((s) => s.id); const [x] = ids.splice(i, 1); ids.splice(i + by, 0, x); post({ action: "set-order", ids }); };
+  // Phones that chose each set at first launch (sent by builds from 30.10.2026).
+  const chose = {};
+  for (const d of (riders && riders.devices) || []) for (const id of String(d.sets || "").split(",").filter(Boolean)) chose[id] = (chose[id] || 0) + 1;
+  const anyChoice = Object.keys(chose).length > 0;
+  return html`<div class="panel s12"><h2>Spot sets · ${sets.length}</h2><div class="tablewrap"><table class="sets"><thead><tr><th></th><th>Set</th><th class="r">Spots</th><th class="hide-s">In it</th><th class="r">Riders who chose it</th><th></th></tr></thead><tbody>
+    ${sets.map((st, i) => {
+      const list = official.filter((o) => (o.sets || []).includes(st.id));
+      const builtIn = list.filter((o) => (o.sets || []).length === 1 && !String(o.spot_id).startsWith("rider-")).length;
+      return html`<tr><td class="order"><button class="btn mini" disabled=${i === 0} onClick=${() => move(i, -1)} title="up">↑</button><button class="btn mini" disabled=${i === sets.length - 1} onClick=${() => move(i, 1)} title="down">↓</button></td>
+        <td>${edit && edit.id === st.id ? html`<span class="btns"><input style="width:56px" maxlength="8" value=${edit.flag} onInput=${(e) => setEdit({ ...edit, flag: e.target.value })}/>
+            <input maxlength="60" value=${edit.name} onInput=${(e) => setEdit({ ...edit, name: e.target.value })}/></span>` : html`<b>${setLabel(st)}</b>`}</td>
+        <td class="r num">${list.length}</td><td class="whytxt hide-s">${list.slice(0, 4).map((o) => o.name).join(", ")}${list.length > 4 ? "…" : ""}</td>
+        <td class="r num">${anyChoice ? chose[st.id] || 0 : "–"}</td>
+        <td class="r"><span class="btns" style="justify-content:flex-end">${edit && edit.id === st.id
+          ? html`<button class="btn primary" onClick=${async () => { const d = await post({ action: "set-edit", set: st.id, name: edit.name, flag: edit.flag }); if (!d.error) setEdit(null); }}>Save</button><button class="btn" onClick=${() => setEdit(null)}>Cancel</button>`
+          : html`<button class="btn" onClick=${() => setEdit({ id: st.id, name: st.name, flag: flagLetters(st.flag) })}>Rename</button>
+            ${builtIn ? null : html`<${ActButton} label="Remove" danger=${true} ask=${list.length ? `Remove? Its ${list.length} spot${list.length > 1 ? "s go" : " goes"} back to Public rider spots. Click again` : "Remove? Click again"}
+              run=${() => post({ action: "set-remove", set: st.id })} />`}`}</span></td></tr>`;
+    })}</tbody></table></div>
+    <p class="whytxt" style="margin:10px 0 0">↑ ↓ change the order new riders see at first launch; a change reaches phones within a few hours, no build needed. A set with built-in spots can't be removed until they're moved to another set (their set menu below); riders' spots go back to Public rider spots.
+      Riders who chose it: phones on builds from 30.10.2026 that picked the set at first launch.${msg ? html` <${Saved} msg=${msg} />` : null}</p></div>`;
+}
+
+function SpotsEditor({ spots, roles, refresh, now }) {
   const [edit, setEdit] = useState(null);
   const [waiting, setWaiting] = useState(null);
   if (!spots) return html`<p class="empty">Reading the spots…</p>`;
@@ -3374,12 +3550,11 @@ function SpotsEditor({ spots, refresh, now }) {
           <${ActButton} label="Reject" ask="Reject? Its link stops working. Click again" danger=${true} run=${async () => { const d = await adminPost("spots", { code: p.code, action: "reject" }); refresh(); return d; }} /></span></td></tr>`)}</tbody></table></div>`
         : html`<p class="whytxt">Nothing waiting.</p>`}
       <p class="note">A rider suggested these as public. Approve: everyone finds them in Add spots. Reject: they stay private and their link stops working.</p></div>
-    <div class="panel s12"><h2>Public rider spots · ${(spots.published || []).length}</h2><div class="tablewrap"><table><tbody>
-      ${(spots.published || []).map((p) => html`<tr><td><b>${p.name}</b><div class="whytxt">by ${p.author || "a rider"} · ${riderLinks(p)}</div></td>
-        <td class="r"><span class="btns"><select id=${"set-" + p.code}><option value="">set…</option>${sets.map((st) => html`<option value=${st.id}>${st.flag} ${st.name}</option>`)}</select>
-          <${ActButton} label="Make official" run=${async () => { const v = document.getElementById("set-" + p.code).value; if (!v) throw new Error("Pick a set first"); const d = await adminPost("spots", { code: p.code, action: "official", set: v }); refresh(); return d; }} />
-          <${ActButton} label="Unpublish" danger=${true} run=${async () => { const d = await adminPost("spots", { code: p.code, action: "unpublish" }); refresh(); return d; }} /></span></td></tr>`)}</tbody></table></div>
-      <p class="note">Make official: the spot joins the chosen set as a MeteoGust spot (offered on first launch).</p></div>
+    <div class="panel s12"><h2>Public rider spots · ${(spots.published || []).length}</h2>
+      ${(spots.published || []).map((p) => html`<${PublicSpotRow} key=${p.code} p=${p} sets=${sets} official=${official} links=${riderLinks} refresh=${refresh} />`)}
+      ${!(spots.published || []).length ? html`<p class="whytxt">None waiting for a set.</p>` : null}
+      <p class="note">Make official: the spot joins the set as a MeteoGust spot (offered on first launch). The suggestion is the set whose spots are nearest, or a new set when none is within 150 km.</p></div>
+    <${SetsPanel} spots=${spots} refresh=${refresh} riders=${roles} />
     ${groups.filter(([, list]) => list.length).map(([st, list]) => html`<div class="panel s12"><h2>${st.flag} ${st.name} · ${list.length}</h2><div class="tablewrap"><table><tbody>
       ${list.slice().sort((a, b) => a.position - b.position).map((o) => html`<tr><td><b>${o.name}</b>${o.hidden ? html` <span class="st unknown">hidden</span>` : null}<div class="whytxt">${o.spot_id} · info ${o.score}/13${o.draft ? " · draft" : ""} · <a href=${osmLink(o)} target="_blank" style="color:var(--accent)">map</a></div></td>
         <td class="r"><span class="btns"><button class="btn primary" onClick=${() => setEdit(o.code)}>Edit</button>
@@ -3418,28 +3593,219 @@ function WeightPoints({ spots, refresh }) {
   </div>`;
 }
 
+// Riders (the owner, 30.10.2026: "In riders need much more info. Now its only sorting last seen. Not see what app version
+// everyone use, can't sort on versions etc. Need more graphs"; mockup docs/mockups/riders-and-sets-2026-10-30.html in the
+// app's repo). One row per rider: an account with all its phones, or a phone without an account (a guest). Days active
+// come from station-history's device_days (from 30.10.2026), the OS and chosen sets from the check-in of new builds.
+const IPHONES = {
+  "iPhone12,1": "iPhone 11", "iPhone12,3": "iPhone 11 Pro", "iPhone12,5": "iPhone 11 Pro Max", "iPhone12,8": "iPhone SE 2",
+  "iPhone13,1": "iPhone 12 mini", "iPhone13,2": "iPhone 12", "iPhone13,3": "iPhone 12 Pro", "iPhone13,4": "iPhone 12 Pro Max",
+  "iPhone14,2": "iPhone 13 Pro", "iPhone14,3": "iPhone 13 Pro Max", "iPhone14,4": "iPhone 13 mini", "iPhone14,5": "iPhone 13",
+  "iPhone14,6": "iPhone SE 3", "iPhone14,7": "iPhone 14", "iPhone14,8": "iPhone 14 Plus", "iPhone15,2": "iPhone 14 Pro",
+  "iPhone15,3": "iPhone 14 Pro Max", "iPhone15,4": "iPhone 15", "iPhone15,5": "iPhone 15 Plus", "iPhone16,1": "iPhone 15 Pro",
+  "iPhone16,2": "iPhone 15 Pro Max", "iPhone17,1": "iPhone 16 Pro", "iPhone17,2": "iPhone 16 Pro Max", "iPhone17,3": "iPhone 16",
+  "iPhone17,4": "iPhone 16 Plus", "iPhone17,5": "iPhone 16e", "iPhone18,1": "iPhone 17 Pro", "iPhone18,2": "iPhone 17 Pro Max",
+  "iPhone18,3": "iPhone 17", "iPhone18,4": "iPhone Air",
+};
+const phoneName = (d) => { const m = d.model || ""; return IPHONES[m] || m.replace(/^Android /, "") || "iPhone"; };
+const platformOf = (d) => /^Android/.test(d.model || "") ? "android" : "ios";
+// Not riders: our emulator, the Mac's Simulator, Apple's reviewers (as admin's Users tab).
+const testKind = (d) => /sdk_gphone|emulator/i.test(d.model || "") ? "emulator"
+  : /simulator|^(arm64|x86_64|i386)$/i.test(d.model || "") ? "simulator"
+  : !d.account && d.country === "US" && /^iPhone/.test(d.model || "") && (d.last_seen || 0) - (d.first_seen || 0) < 3600 ? "Apple review" : "";
+const dayNo = (t) => Math.floor(t / 86400);
+// The build's number: iPhone "391", Android "android-18".
+const buildNo = (d) => +String(d.build || "").replace(/\D+/g, "") || 0;
+const ddmm = (t) => { const d = new Date(t * 1000); return d.getUTCDate() + "." + (d.getUTCMonth() + 1); };
+const agoShort = (s) => s < 3600 ? Math.max(1, Math.round(s / 60)) + " min" : s < 86400 ? (s / 3600).toFixed(1) + " h" : Math.round(s / 86400) + (s < 172800 ? " day" : " days");
+const PLATFORM_ICON = {
+  ios: html`<svg viewBox="0 0 24 24" fill="currentColor" class="picon"><path d="M16.4 12.6c0-2.4 2-3.6 2.1-3.7-1.1-1.7-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.2-.8-1.6 0-3.1 1-4 2.4-1.7 3-.4 7.4 1.2 9.8.8 1.2 1.8 2.5 3 2.4 1.2 0 1.7-.8 3.1-.8 1.5 0 1.9.8 3.2.8 1.3 0 2.2-1.2 3-2.4.9-1.4 1.3-2.7 1.3-2.8 0 0-2.5-1-2.5-3.9zM14 5.5c.7-.8 1.1-1.9 1-3-1 0-2.1.7-2.8 1.5-.6.7-1.2 1.8-1 2.9 1 .1 2.1-.6 2.8-1.4z"/></svg>`,
+  android: html`<svg viewBox="0 0 24 24" fill="currentColor" class="picon"><path d="M6 9h12v8a1 1 0 0 1-1 1h-1v3h-2v-3h-4v3H8v-3H7a1 1 0 0 1-1-1zM3.5 9.5a1 1 0 0 1 2 0v5a1 1 0 0 1-2 0zm15 0a1 1 0 0 1 2 0v5a1 1 0 0 1-2 0zM7.6 4.2 6.5 2.6l.6-.4 1.2 1.7A6.5 6.5 0 0 1 12 3c1.3 0 2.6.3 3.7.9l1.2-1.7.6.4-1.1 1.6A5.4 5.4 0 0 1 18 8H6a5.4 5.4 0 0 1 1.6-3.8z"/></svg>`,
+};
+
+// Riders from the roles answer: accounts with their phones, then phones without an account.
+function ridersOf(roles, now) {
+  const devices = roles.devices || [];
+  const today = dayNo(now);
+  // Each platform's builds on riders' phones this week, newest first: latest, one behind, older. Admins' phones
+  // don't count, and a build only once two phones have it (an internal TestFlight build on our own phones is ahead
+  // of everyone's).
+  const admins = new Set((roles.accounts || []).filter((a) => a.role === "admin").map((a) => a.id));
+  const ranks = {};
+  for (const p of ["ios", "android"]) {
+    const n = {};
+    for (const d of devices) if (platformOf(d) === p && !testKind(d) && now - d.last_seen < 7 * 86400 && buildNo(d) && !admins.has(d.account) && d.role !== "admin") n[buildNo(d)] = (n[buildNo(d)] || 0) + 1;
+    const all = Object.keys(n).map(Number).sort((a, b) => b - a);
+    ranks[p] = all.filter((b) => n[b] >= 2).length ? all.filter((b) => n[b] >= 2) : all;
+  }
+  const buildKind = (d) => { const i = (ranks[platformOf(d)] || []).indexOf(buildNo(d)); return i === 0 ? "latest" : i === 1 ? "behind" : i < 0 && buildNo(d) > ((ranks[platformOf(d)] || [])[0] || 0) ? "latest" : "older"; };
+  const person = (phones, account) => {
+    // Newest first, real phones before the emulator and Simulator.
+    phones = phones.slice().sort((a, b) => (testKind(a) ? 1 : 0) - (testKind(b) ? 1 : 0) || b.last_seen - a.last_seen);
+    const main = phones[0] || {};
+    const days = [...new Set(phones.flatMap((d) => d.days || []))];
+    const last = Math.max(account?.last_seen || 0, ...phones.map((d) => d.last_seen || 0));
+    const joined = Math.min(...[account?.created, ...phones.map((d) => d.first_seen)].filter(Boolean));
+    return {
+      key: account ? "a:" + account.id : "d:" + main.device, account, phones, main,
+      name: account ? (account.nickname || [account.first, account.last].filter(Boolean).join(" ") || "–") : (main.nickname || "Guest " + String(main.device || "").slice(0, 6)),
+      mail: account ? (account.email || account.apple_email || "") : "",
+      platform: platformOf(main), phone: phones.length ? phoneName(main) : "no phone yet", os: main.os || "",
+      build: buildNo(main) ? String(buildNo(main)) : main.build || "", buildNo: buildNo(main), buildKind: phones.length ? buildKind(main) : "", country: main.country || "",
+      week: [6, 5, 4, 3, 2, 1, 0].map((k) => days.includes(today - k)), days30: days.filter((d) => d > today - 30).length,
+      joined: Number.isFinite(joined) ? joined : 0, last, role: account ? account.role : main.role,
+      test: !account && testKind(main), sets: [...new Set(phones.flatMap((d) => String(d.sets || "").split(",").filter(Boolean)))],
+      shared: phones.reduce((n, d) => n + (d.shared || 0), 0),
+    };
+  };
+  const accounts = (roles.accounts || []).map((a) => person(devices.filter((d) => d.account === a.id), a));
+  const guests = devices.filter((d) => !d.account).map((d) => person([d], null));
+  return { accounts, guests, ranks };
+}
+
+function DayBars({ series }) {
+  const rows = (series || []).slice(-30);
+  if (!rows.length) return html`<p class="whytxt">The daily count starts after the first UTC midnight.</p>`;
+  const W = 600, H = 140, bw = W / 30;
+  const max = Math.max(5, ...rows.map((r) => (r.d1?.ios || 0) + (r.d1?.android || 0)));
+  const step = max > 40 ? 20 : max > 20 ? 10 : 5;
+  const at = (i) => (30 - rows.length + i) * bw;
+  return html`<svg viewBox=${`0 0 ${W} ${H + 18}`} class="rchart">
+    ${Array.from({ length: Math.floor(max / step) }, (_, k) => (k + 1) * step).map((v) => html`<line x1="0" x2=${W} y1=${H - v / max * H} y2=${H - v / max * H} stroke="var(--line)"/><text x=${W} y=${H - v / max * H - 3} text-anchor="end">${v}</text>`)}
+    ${rows.map((r, i) => { const hi = (r.d1?.ios || 0) / max * H, ha = (r.d1?.android || 0) / max * H;
+      return html`<g><title>${ddmm(r.day * 86400)}: iPhone ${r.d1?.ios || 0}, Android ${r.d1?.android || 0}</title>
+        <rect x=${at(i) + 2} y=${H - hi} width=${bw - 4} height=${hi} fill="var(--accent)" rx="1.5"/>
+        ${ha ? html`<rect x=${at(i) + 2} y=${H - hi - ha} width=${bw - 4} height=${ha} fill="var(--home)" rx="1.5"/>` : null}</g>`; })}
+    ${rows.map((r, i) => i % 7 === (rows.length - 1) % 7 ? html`<text x=${at(i) + bw / 2} y=${H + 15} text-anchor="middle">${ddmm(r.day * 86400)}</text>` : null)}
+  </svg>`;
+}
+
+function WeekBars({ people, now }) {
+  // Weeks from Monday (UTC), the last 8; signed in and guests.
+  const monday = (t) => { const d = dayNo(t); return d - ((d + 3) % 7); };
+  const thisWeek = monday(now);
+  const weeks = Array.from({ length: 8 }, (_, k) => ({ start: thisWeek - (7 - k) * 7, acc: 0, guest: 0 }));
+  for (const p of people) {
+    if (!p.joined) continue;
+    const w = weeks.find((x) => x.start === monday(p.joined));
+    if (w) w[p.account ? "acc" : "guest"]++;
+  }
+  const W = 600, H = 140, ww = W / weeks.length, max = Math.max(5, ...weeks.map((w) => w.acc + w.guest));
+  return html`<svg viewBox=${`0 0 ${W} ${H + 18}`} class="rchart">
+    ${weeks.map((w, i) => { const ha = w.acc / max * H, hg = w.guest / max * H, x = i * ww + 10, bw = ww - 20, last = i === weeks.length - 1;
+      return html`<g><rect x=${x} y=${H - ha} width=${bw} height=${ha} fill="var(--accent)" rx="2" opacity=${last ? 0.55 : 1}/>
+        <rect x=${x} y=${H - ha - hg} width=${bw} height=${hg} fill="var(--line)" rx="2"/>
+        ${w.acc + w.guest ? html`<text x=${x + bw / 2} y=${H - ha - hg - 5} text-anchor="middle" class="ink">${w.acc + w.guest}</text>` : null}
+        <text x=${x + bw / 2} y=${H + 15} text-anchor="middle">${ddmm(w.start * 86400)}</text></g>`; })}
+  </svg>`;
+}
+
+const RIDER_COLUMNS = [
+  ["name", "Rider", (p) => p.name.toLowerCase()], ["phone", "Phone", (p) => p.platform + p.phone], ["build", "Build", (p) => (p.platform === "ios" ? 1e6 : 0) + p.buildNo],
+  ["country", "Country", (p) => p.country], ["week", "Last 7 days", (p) => p.week.filter(Boolean).length], ["days30", "Days in 30", (p) => p.days30, "r"],
+  ["joined", "Joined", (p) => p.joined], ["last", "Last seen", (p) => p.last, "r"], ["role", "Role", (p) => p.role],
+];
+
 function RolesEditor({ roles, refresh, now }) {
   const [msg, setMsg] = useState("");
+  const [sort, setSort] = useState({ key: "last", dir: -1 });
+  const [f, setF] = useState({ who: "accounts", platform: "", build: "", role: "", active: "week", q: "" });
+  const [open, setOpen] = useState(null);
   if (!roles) return html`<p class="empty">Reading riders and roles…</p>`;
   const post = async (body, what) => { const { data, status } = await adminPostRaw("roles", body); setMsg(data.error ? data.error : `✓ ${what}`); if (!data.error && status < 400) refresh(); };
-  const accounts = (roles.accounts || []).slice().sort((a, b) => b.last_seen - a.last_seen);
-  const devices = (roles.devices || []).slice().sort((a, b) => b.last_seen - a.last_seen);
+  const { accounts, guests, ranks } = ridersOf(roles, now);
+  const riders = [...accounts, ...guests.filter((p) => !p.test)];
+  const within = (p, days) => now - p.last < days * 86400;
+  const active7 = riders.filter((p) => within(p, 7) && p.phones.length);
+  const latestShare = active7.length ? Math.round(100 * active7.filter((p) => p.buildKind === "latest").length / active7.length) : 0;
+  const newWeek = riders.filter((p) => p.joined && now - p.joined < 7 * 86400).length;
+  // Builds in use among this week's riders: latest / one behind / older, per platform.
+  const builds = ["ios", "android"].map((pl) => {
+    const list = active7.filter((p) => p.platform === pl);
+    const n = (k) => list.filter((p) => p.buildKind === k).length;
+    const older = list.filter((p) => p.buildKind === "older").map((p) => p.buildNo).filter(Boolean);
+    const pre = pl === "android" ? "A" : "";
+    return { pl, total: list.length, latest: n("latest"), behind: n("behind"), older: n("older"), top: ranks[pl][0], olderRange: older.length ? pre + Math.min(...older) + (Math.max(...older) > Math.min(...older) ? "–" + pre + Math.max(...older) : "") : "" };
+  }).filter((b) => b.total);
+  const countries = Object.entries(riders.filter((p) => within(p, 30) && p.country).reduce((o, p) => (o[p.country] = (o[p.country] || 0) + 1, o), {}))
+    .sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const cMax = Math.max(1, ...countries.map((c) => c[1]));
+  // The table.
+  const q = f.q.trim().toLowerCase();
+  const pool = f.who === "accounts" ? accounts : guests;
+  const shown = pool.filter((p) => (!f.platform || p.platform === f.platform) && (!f.build || (f.build === "latest" ? p.buildKind === "latest" : p.buildKind && p.buildKind !== "latest"))
+    && (!f.role || p.role === f.role) && (f.active === "any" || within(p, { today: 1, week: 7, month: 30 }[f.active]))
+    && (!q || [p.name, p.mail, p.phone, p.os, p.build, p.country, ...p.phones.map((d) => d.device)].join(" ").toLowerCase().includes(q)));
+  const col = RIDER_COLUMNS.find((c) => c[0] === sort.key) || RIDER_COLUMNS[7];
+  shown.sort((a, b) => { const x = col[2](a), y = col[2](b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir || b.last - a.last; });
+  const chip = (key, value, label) => html`<button class=${"chip" + (f[key] === value ? " on" : "")} onClick=${() => setF({ ...f, [key]: value })}>${label}</button>`;
+  const head = (c) => html`<th class=${(c[3] || "") + (sort.key === c[0] ? " sorted" : "") + " sortable"} onClick=${() => setSort({ key: c[0], dir: sort.key === c[0] ? -sort.dir : (c[0] === "name" || c[0] === "country" ? 1 : -1) })}>
+    ${c[1]}${sort.key === c[0] ? html` <span class="ar">${sort.dir < 0 ? "▾" : "▴"}</span>` : null}</th>`;
+  const roleSelect = (p) => p.account
+    ? html`<select value=${p.role} onChange=${(e) => post({ action: "accountRole", account: p.account.id, role: e.target.value }, p.name + " is " + e.target.value)}>${ROLES.map((r) => html`<option value=${r}>${r}</option>`)}</select>`
+    : html`<select value=${p.role} onChange=${(e) => post({ action: "role", device: p.main.device, role: e.target.value }, "phone is " + e.target.value)}>${ROLES.map((r) => html`<option value=${r}>${r}</option>`)}</select>`;
+  const a = (p) => p.account;
   return html`<div class="grid">
-    <div class="panel s12"><div class="btns" style="align-items:center"><b>New riders get</b>
-      <select value=${roles.defaultRole} onChange=${(e) => post({ action: "default", role: e.target.value }, "default role " + e.target.value)}>${ROLES.map((r) => html`<option value=${r}>${r}</option>`)}</select>
-      <${Saved} msg=${msg} /></div></div>
-    <div class="panel s12"><h2>Accounts · ${accounts.length}</h2><div class="tablewrap"><table><thead><tr><th>Rider</th><th>Email</th><th>Signed in with</th><th>Role</th><th class="r">Last seen</th><th></th></tr></thead><tbody>
-      ${accounts.map((a) => html`<tr><td>${a.photo && !a.photo_blocked ? html`<img src=${a.photo} alt="" class="avatar"/>` : null} ${a.nickname || [a.first, a.last].filter(Boolean).join(" ") || "–"}</td>
-        <td class="whytxt">${a.email || a.apple_email || "–"}</td><td class="whytxt">${[a.apple ? "Apple" : null, a.google ? "Google" : null].filter(Boolean).join(", ") || "email"}</td>
-        <td><select value=${a.role} onChange=${(e) => post({ action: "accountRole", account: a.id, role: e.target.value }, (a.nickname || a.first || "rider") + " is " + e.target.value)}>${ROLES.map((r) => html`<option value=${r}>${r}</option>`)}</select></td>
-        <td class="r num">${a.last_seen ? hrs(now - a.last_seen) + " ago" : "–"}</td>
-        <td class="r">${a.photo ? html`<span class="btns"><button class="btn" onClick=${() => post({ action: "photo", account: a.id, remove: true }, "photo removed")}>Remove photo</button>
-          <button class="btn danger" onClick=${() => post({ action: "photo", account: a.id, block: !a.photo_blocked }, a.photo_blocked ? "photos allowed" : "photos blocked")}>${a.photo_blocked ? "Allow photos" : "Block photos"}</button></span>` : null}</td></tr>`)}</tbody></table></div></div>
-    <div class="panel s12"><h2>Devices · ${devices.length}</h2><div class="tablewrap"><table><thead><tr><th>Device</th><th>Build</th><th>Country</th><th>Account</th><th>Role</th><th class="r">Last seen</th></tr></thead><tbody>
-      ${devices.map((d) => html`<tr><td>${d.nickname || d.model || d.device.slice(0, 8)}<div class="whytxt">${d.model || ""}</div></td><td class="num whytxt">${d.build || "–"}</td><td class="whytxt">${d.country || "–"}</td>
-        <td class="whytxt">${(accounts.find((a) => a.id === d.account) || {}).nickname || (d.account ? "signed in" : "–")}</td>
-        <td><select value=${d.role} onChange=${(e) => post({ action: "role", device: d.device, role: e.target.value }, "device is " + e.target.value)}>${ROLES.map((r) => html`<option value=${r}>${r}</option>`)}</select></td>
-        <td class="r num">${d.last_seen ? hrs(now - d.last_seen) + " ago" : "–"}</td></tr>`)}</tbody></table></div></div>
+    <div class="panel s12"><div class="rtiles">
+      <div class="ftile"><div class="v num">${riders.filter((p) => within(p, 1)).length}</div><div class="l">active today</div></div>
+      <div class="ftile"><div class="v num">${active7.length}</div><div class="l">active this week</div></div>
+      <div class="ftile"><div class="v num">${riders.filter((p) => within(p, 30)).length}</div><div class="l">active in 30 days</div></div>
+      <div class="ftile"><div class="v num">${newWeek}</div><div class="l">new this week</div></div>
+      <div class="ftile"><div class="v num">${latestShare} %</div><div class="l">on the latest build</div></div>
+    </div></div>
+    <div class="panel s6"><h2>Active riders a day · 30 days</h2><${DayBars} series=${roles.riders && roles.riders.series} />
+      <div class="legend"><span><i class="sw" style="background:var(--accent)"></i>iPhone</span><span><i class="sw" style="background:var(--home)"></i>Android</span><span>phones that opened the app that UTC day</span></div></div>
+    <div class="panel s6"><h2>New riders a week</h2><${WeekBars} people=${riders} now=${now} />
+      <div class="legend"><span><i class="sw" style="background:var(--accent)"></i>with an account</span><span><i class="sw" style="background:var(--line)"></i>guests</span><span>this week so far, paler</span></div></div>
+    <div class="panel s6"><h2>Builds in use · active this week</h2>
+      ${builds.map((b) => html`<div class="rbar"><span>${b.pl === "ios" ? "iPhone" : "Android"}</span><div class="hb">
+        ${[["latest", "var(--ok)"], ["behind", "var(--accent-soft)"], ["older", "var(--warn)"]].map(([k, c]) => b[k] ? html`<i style=${`width:${100 * b[k] / b.total}%;background:${c}`} title=${`${b[k]} ${k}`}
+          onClick=${() => setF({ ...f, who: "accounts", platform: b.pl, build: k === "latest" ? "latest" : "behind", active: "week" })}></i>` : null)}</div><span class="num n">${b.total}</span></div>`)}
+      <div class="legend"><span><i class="sw" style="background:var(--ok)"></i>latest (${builds.map((b) => (b.pl === "ios" ? "iPhone " : "Android A") + b.top).join(", ")})</span>
+        <span><i class="sw" style="background:var(--accent-soft)"></i>one behind</span>
+        ${builds.some((b) => b.older) ? html`<span><i class="sw" style="background:var(--warn)"></i>older: ${builds.filter((b) => b.older).map((b) => `${b.older} on ${b.olderRange}`).join(", ")}</span>` : null}</div>
+      <p class="whytxt" style="margin:8px 0 0">Click a bar to list those riders below.</p></div>
+    <div class="panel s6"><h2>Countries · active in 30 days</h2>
+      ${countries.map(([c, n]) => html`<div class="rbar"><span><span class="flagcode">${c}</span></span><div class="hb"><i style=${`width:${100 * n / cMax}%;background:var(--accent)`}></i></div><span class="num n">${n}</span></div>`)}
+      ${!countries.length ? html`<p class="whytxt">No countries yet.</p>` : null}</div>
+    <div class="panel s12">
+      <h2>Riders · ${accounts.length} accounts · ${guests.filter((p) => !p.test).length} guests${guests.some((p) => p.test) ? ` · ${guests.filter((p) => p.test).length} test phones` : ""}</h2>
+      <div class="rfilters">
+        <input placeholder="Find a name, email, phone, build…" value=${f.q} onInput=${(e) => setF({ ...f, q: e.target.value })}/>
+        <span class="grp"><span class="lab">Phone</span>${chip("platform", "", "All")}${chip("platform", "ios", "iPhone")}${chip("platform", "android", "Android")}</span>
+        <span class="grp"><span class="lab">Build</span>${chip("build", "", "All")}${chip("build", "latest", "Latest")}${chip("build", "behind", "Behind")}</span>
+        <span class="grp"><span class="lab">Role</span>${chip("role", "", "All")}${ROLES.map((r) => chip("role", r, r[0].toUpperCase() + r.slice(1)))}</span>
+        <span class="grp"><span class="lab">Active</span>${chip("active", "today", "Today")}${chip("active", "week", "This week")}${chip("active", "month", "30 days")}${chip("active", "any", "Any")}</span>
+        <span class="grp">${chip("who", "accounts", "Accounts")}${chip("who", "guests", "Guests")}</span>
+        <span class="grp"><b class="s13">New riders get</b> <select value=${roles.defaultRole} onChange=${(e) => post({ action: "default", role: e.target.value }, "default role " + e.target.value)}>${ROLES.map((r) => html`<option value=${r}>${r}</option>`)}</select></span>
+        <${Saved} msg=${msg} />
+      </div>
+      <div class="tablewrap"><table class="riders"><thead><tr>${RIDER_COLUMNS.map(head)}<th></th></tr></thead><tbody>
+        ${shown.map((p) => html`<tr class=${open === p.key ? "open" : ""} onClick=${(e) => { if (!/SELECT|BUTTON|OPTION|A/.test(e.target.tagName)) setOpen(open === p.key ? null : p.key); }}>
+          <td><div class="who">${a(p) && a(p).photo && !a(p).photo_blocked ? html`<img src=${a(p).photo} alt="" class="avatar"/>` : html`<span class="avatar ph">${(p.name.replace("@", "")[0] || "?").toUpperCase()}</span>`}
+            <div><b>${p.name}</b>${p.test ? html` <span class="tag">${p.test}</span>` : null}<span class="sub">${p.mail || (p.account ? "" : "no account")}</span></div></div></td>
+          <td><span class="plat">${PLATFORM_ICON[p.platform]}${p.phone}${p.phones.length > 1 ? html` <span class="whytxt">+${p.phones.length - 1}</span>` : null}</span><span class="sub">${p.os || "OS from the next build"}</span></td>
+          <td><span class=${"bld " + p.buildKind}>${p.platform === "android" && p.build ? "A" : ""}${p.build || "–"}</span><span class="sub">${{ latest: "latest", behind: "one behind", older: "older" }[p.buildKind] || ""}</span></td>
+          <td class="hide-s">${p.country ? html`<span class="flagcode">${p.country}</span>` : "–"}</td>
+          <td><span class="week" title="the last 7 UTC days, today on the right">${p.week.map((on) => html`<i class=${on ? "on" : ""}></i>`)}</span></td>
+          <td class="r num hide-s">${p.days30}</td>
+          <td class="hide-s">${p.joined ? ddmm(p.joined) : "–"}</td>
+          <td class="r num">${p.last ? agoShort(now - p.last) : "–"}</td>
+          <td>${roleSelect(p)}</td><td class="hide-s"><span class="more">${open === p.key ? "▴" : "▾"}</span></td></tr>
+          ${open === p.key ? html`<tr class="rdetail"><td colspan="10"><div class="dgrid">
+            <div><h4>Phones · ${p.phones.length}</h4>${p.phones.map((d) => html`<div>${phoneName(d)}${d.os ? " · " + d.os : ""} · <span class="bld">${platformOf(d) === "android" && buildNo(d) ? "A" + buildNo(d) : d.build || "?"}</span> · ${d.country || "?"} · ${agoShort(now - d.last_seen)}
+              <span class="whytxt mono">${String(d.device).slice(0, 8)}</span></div>`)}${!p.phones.length ? html`<div class="whytxt">none yet</div>` : null}</div>
+            <div><h4>${p.account ? "Signed in with" : "Account"}</h4>${p.account ? html`${[a(p).apple ? "Apple" : null, a(p).google ? "Google" : null].filter(Boolean).join(", ") || "email code"}
+              ${a(p).created ? ` · since ${ddmm(a(p).created)}` : ""}<span class="sub">${[a(p).first, a(p).last].filter(Boolean).join(" ") || ""}${a(p).first || a(p).last ? " (team only)" : ""}</span>` : html`<span class="whytxt">none: a guest on this phone</span>`}</div>
+            <div><h4>Spots</h4>shared ${p.shared} · days active in 30: ${p.days30}<span class="sub">first-launch sets: ${p.sets.length ? p.sets.join(", ") : "not known (from the next build)"}</span></div>
+            <div><h4>Photo</h4>${p.account && a(p).photo ? html`<span class="btns"><button class="btn" onClick=${() => post({ action: "photo", account: a(p).id, remove: true }, "photo removed")}>Remove photo</button>
+              <button class="btn danger" onClick=${() => post({ action: "photo", account: a(p).id, block: !a(p).photo_blocked }, a(p).photo_blocked ? "photos allowed" : "photos blocked")}>${a(p).photo_blocked ? "Allow photos" : "Block photos"}</button></span>` : html`<span class="whytxt">no photo</span>`}</div>
+          </div></td></tr>` : null}`)}
+        ${!shown.length ? html`<tr><td colspan="10" class="whytxt">Nobody matches these filters.</td></tr>` : null}
+      </tbody></table></div>
+      <p class="whytxt" style="margin:10px 0 0">Showing ${shown.length} of ${pool.length}. Click a column to sort, a row for its phones. Joined: the first time any of the rider's phones opened the app, or the account's start.
+        Last 7 days and Days in 30 count from 30.10.2026 (one mark a day a phone opens the app); the OS and first-launch sets come with the next app build. Test phones (emulator, Simulator, Apple's review) are left out of the numbers and charts.</p>
+    </div>
   </div>`;
 }
 
@@ -3536,7 +3902,7 @@ const APP_TABS = [["overview", "Overview"], ["spots", "Spots"], ["points", "Weig
 function AppSection(props) {
   const [tab, setTab] = useState("overview");
   return html`<div class="subtabs">${APP_TABS.map(([k, label]) => html`<button class=${"chip" + (tab === k ? " on" : "")} onClick=${() => setTab(k)}>${label}</button>`)}</div>
-    ${tab === "overview" ? html`<${AppRiders} ...${props} goTab=${setTab} />` : tab === "spots" ? html`<${SpotsEditor} spots=${props.spots} refresh=${props.reloadSpots} now=${props.now} />`
+    ${tab === "overview" ? html`<${AppRiders} ...${props} goTab=${setTab} />` : tab === "spots" ? html`<${SpotsEditor} spots=${props.spots} roles=${props.roles} refresh=${props.reloadSpots} now=${props.now} />`
       : tab === "points" ? html`<${WeightPoints} spots=${props.spots} refresh=${props.reloadSpots} />`
       : tab === "roles" ? html`<${RolesEditor} roles=${props.roles} refresh=${props.reloadRoles} now=${props.now} />`
       : html`<${FeaturesEditor} roles=${props.roles} refresh=${props.reloadRoles} />`}`;
