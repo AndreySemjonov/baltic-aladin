@@ -3,10 +3,10 @@ OPERA and these where they reach (station-history radar.js; the owner, 31.10.202
 lost Estonia on 30.10 between 16:00 and 19:55 UTC while the radars and their open files went on; Latvia's radar has
 been off since 24.09.2026, so Riga's rain then came only from the Lithuanian radars far off, then from none.
 
-Reads Keskkonnaagentuur's open data (KAIA, https://avaandmed.keskkonnaportaal.ee, no key): every 5 minutes the two
-radars' composite CAPPI (comp.<time>.CAP.<n>.h5, ODIM HDF5, Mercator ~800 m, 720 x 720). Each new one is put on
-OPERA's LAEA grid (nearest pixel) for the box it covers and uploaded as radar-ee/YYYY/MM/DD/HHMM.bin (HHMM its 5-minute
-step): zlib of a header (4 little-endian uint32: first column, first row, width, height on OPERA's grid) and one byte a
+Reads Keskkonnaagentuur's open data (KAIA, https://avaandmed.keskkonnaportaal.ee, no key): every 5 minutes each
+radar's reflectivity CAPPI (eesyr.<time>.CAP.<n>.h5, eehar..., ODIM HDF5, DBZH, 720 x 720 round the radar; their
+comp.*.CAP is rain rate, not used). Each step's two are put on OPERA's LAEA grid (nearest pixel), the stronger of them
+kept, and uploaded as radar-ee/YYYY/MM/DD/HHMM.bin (HHMM its 5-minute step): zlib of a header (4 little-endian uint32: first column, first row, width, height on OPERA's grid) and one byte a
 pixel: 0 outside the radars, 1 seen and dry, else round(dBZ x 2) + 64 (dBZ = (byte - 64) / 2).
 
     python estonia_radar.py [--minutes 30] [--local DIR]
@@ -38,14 +38,35 @@ def request(url, body=None, method="GET", headers=None):
 
 
 def listed(minutes):
-    """The composite CAPPI files of the last `minutes`: [(id, file name)], oldest first."""
+    """The two radars' reflectivity CAPPI files of the last `minutes` by 5-minute step: {step: [(id, name)]}, oldest
+    first. Not the composite (comp.*.CAP): that one is rain rate, not dBZ (31.10.2026: read as dBZ, Riga's shower lost)."""
     since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
     query = {"filter": {"and": {"children": [{"greaterThan": {"field": "Timestamp", "value": since}},
-                                             {"contains": {"field": "RMFileName", "value": "comp."}},
                                              {"contains": {"field": "RMFileName", "value": ".CAP."}}]}},
-             "pageSize": 100, "fields": ["RMFileName"]}
+             "pageSize": 200, "fields": ["RMFileName"]}
     found = json.loads(request(API + "/query", json.dumps(query).encode(), "POST", {"Content-Type": "application/json"}))
-    return sorted((d["id"], d["metadata"]["RMFileName"]) for d in found.get("documents", []))
+    steps = {}
+    for d in found.get("documents", []):
+        name = d["metadata"]["RMFileName"]
+        if not name.startswith(("eesyr.", "eehar.")):
+            continue
+        stamp = datetime.strptime(name.split(".")[1][:12], "%Y%m%d%H%M")
+        steps.setdefault(stamp - timedelta(minutes=stamp.minute % 5), []).append((d["id"], name))
+    return dict(sorted(steps.items()))
+
+
+def combined(grids):
+    """Several radars' (first column, first row, width, height, bytes) as one over their joint box, the stronger byte
+    of each pixel (0 outside < 1 dry < echo)."""
+    import numpy as np
+
+    c0, r0 = min(g[0] for g in grids), min(g[1] for g in grids)
+    c1, r1 = max(g[0] + g[2] for g in grids), max(g[1] + g[3] for g in grids)
+    out = np.zeros((r1 - r0, c1 - c0), dtype=np.uint8)
+    for gc, gr, w, h, pixels in grids:
+        part = out[gr - r0:gr - r0 + h, gc - c0:gc - c0 + w]
+        np.maximum(part, np.frombuffer(pixels, dtype=np.uint8).reshape(h, w), out=part)
+    return c0, r0, c1 - c0, r1 - r0, out.tobytes()
 
 
 def regrid(data):
@@ -62,6 +83,8 @@ def regrid(data):
         where = attrs("where")
         what = {**attrs("dataset1/what"), **attrs("dataset1/data1/what")}
         raw = f["dataset1/data1/data"][()]
+    if what.get("quantity") != "DBZH":
+        raise ValueError(f"not reflectivity: {what.get('quantity')}")
     proj = where["projdef"]
     to_opera = Transformer.from_crs("EPSG:4326", OPERA, always_xy=True)
     # The box on OPERA's grid round its four corners.
@@ -98,9 +121,9 @@ def main(args):
         raise SystemExit("INGEST_TOKEN is not set")
     files = listed(minutes)
     made = 0
-    for doc, name in files:
-        stamp = datetime.strptime(name.split(".")[1][:12], "%Y%m%d%H%M")
-        stamp -= timedelta(minutes=stamp.minute % 5)
+    for stamp, docs in files.items():
+        if len(docs) < 2 and stamp > datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=12):
+            continue  # the other radar's may still come
         key = stamp.strftime("%Y/%m/%d/%H%M") + ".bin"
         if local and (local / "radar-ee" / key).exists():
             continue
@@ -112,7 +135,7 @@ def main(args):
                 if error.code != 404:
                     raise
         started = time.time()
-        c0, r0, w, h, pixels = regrid(request(f"{API}/{doc}/files/1"))
+        c0, r0, w, h, pixels = combined([regrid(request(f"{API}/{doc}/files/1")) for doc, _ in docs])
         body = zlib.compress(struct.pack("<4I", c0, r0, w, h) + pixels, 6)
         if local:
             path = local / "radar-ee" / key
@@ -122,7 +145,7 @@ def main(args):
             request(UPLOAD + key, body, "PUT", {"Authorization": "Bearer " + token, "Content-Type": "application/octet-stream"})
         made += 1
         print(f"{key}: {w} x {h} from column {c0}, row {r0}, {len(body) // 1024} KB in {time.time() - started:.1f} s", flush=True)
-    print(f"made {made} of {len(files)} composites in the last {minutes} min", flush=True)
+    print(f"made {made} of {len(files)} steps in the last {minutes} min", flush=True)
 
 
 if __name__ == "__main__":
