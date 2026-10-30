@@ -2,8 +2,8 @@
 and our air warmer than Open-Meteo's for the same models, by 0.2-0.4 m/s and 0.3-1 °C: our map
 pixels blend a cell with its neighbours, at the coast land into the sea's wind and sea into the land's
 air; Open-Meteo reads the model's own cell): while a model's run is made into tiles, each spot's wind
-from the cell nearest its point for that model (its csPoints: Open-Meteo's cell_selection=nearest)
-and its air, rain and clouds from the nearest cell whose centre is on land (cell_selection=land; our
+from the cell nearest its point for that model (its csPoints: Open-Meteo's cell_selection=nearest;
+the regional models' sea points blended between the 4 cells round them since 31.10.2026) and its air, rain and clouds from the nearest cell whose centre is on land (cell_selection=land; our
 coastline tiles say where land is; the model's own ground where we have it, as Open-Meteo), the air
 moved from the cell's ground to the spot's (our terrain; 6.5 °C a km, as Open-Meteo), written as spot_points.py's files (points/<set>.json: [east,
 north, gust] m/s; points/<set>-wx.json: [air °C, rain mm an hour, cloud %, low, mid, high]).
@@ -33,6 +33,8 @@ LAND_RINGS = 3
 # Rain within NEAR_KM of a spot counts half in the spot page's chance (weather_mix.py's rule; the
 # owner, 19.10.2026): each model's heaviest rain over a lattice round the spot, every NEAR_STEP km.
 NEAR_KM, NEAR_STEP = 10, 5
+# The world's models: their sea points stay the nearest cell (admin spots.js GLOBAL_MODELS).
+GLOBAL_KEYS = {"ecmwf_ifs", "gfs_global", "icon_global", "gem_global"}
 
 
 def near_lattice(lat, lon):
@@ -141,13 +143,19 @@ class SpotCells:
         # Wind at each spot's point for this model and at the spot itself ("Sea wind" off); the
         # weather at the spot.
         self.wind_points, self.air_points = {}, {}
+        sea = set()
         for s in spots:
             lat, lon = float(s["lat"]), float(s["lon"])
             self.wind_points[spot_points.key(lat, lon)] = (lat, lon)
             point = (s.get("csPoints") or {}).get(model_key)
             if isinstance(point, list) and len(point) == 2:
                 self.wind_points[spot_points.key(*point)] = (float(point[0]), float(point[1]))
+                sea.add(spot_points.key(*point))
             self.air_points[spot_points.key(lat, lon)] = (lat, lon)
+        # The regional models' sea points ("Sea wind") blended between the 4 cells round them, the spots
+        # themselves still their own cell (the owner, 31.10.2026: "Yes, do A"; Bērzciems Sat 31.10 against
+        # Windguru's CS+: ICON-EU's first sea cell -0.96, the next one out +0.85, Windguru between them).
+        self.blend = set() if model_key in GLOBAL_KEYS else sea - set(self.air_points)
         self.coast = None
         self.cells = None
         self.wind, self.air = {}, {}
@@ -216,7 +224,17 @@ class SpotCells:
         def centre(j, i):
             return lat0 + j * dlat, ((lon0 + i * dlon + 180) % 360) - 180
 
-        wind = {k: nearest(*p) for k, p in self.wind_points.items()}
+        def blended(lat, lon):
+            """The 4 cells round a place with their bilinear weights; the nearest alone at the grid's edge."""
+            y = (lat - lat0) / dlat
+            x = ((lon - lon0) % 360 if wraps else lon - lon0) / dlon
+            j, i = int(math.floor(y)), int(math.floor(x))
+            fy, fx = y - j, x - i
+            if not (0 <= j < rows - 1 and (wraps or 0 <= i < cols - 1)):
+                return nearest(lat, lon)
+            return [((j + a, (i + b) % cols), (fy if a else 1 - fy) * (fx if b else 1 - fx)) for a in (0, 1) for b in (0, 1)]
+
+        wind = {k: blended(*p) if k in self.blend else nearest(*p) for k, p in self.wind_points.items()}
         air = {}
         if self.weather_name:
             self.coast = self.coast or Coast()
@@ -256,14 +274,19 @@ class SpotCells:
         wind_cells, air_cells = self.cells
         u, v = fields["10u"], fields["10v"]
         gust = fields.get("gust")
+        def at(values, cell):
+            """A cell's value, or the weighted 4 of a blended point (blended in _regular_cells)."""
+            value = sum(float(values[c]) * w for c, w in cell) if isinstance(cell, list) else float(values[cell])
+            return value if math.isfinite(value) else None
         row = {}
         for k, cell in wind_cells.items():
-            if cell is None or not np.isfinite(u[cell]) or not np.isfinite(v[cell]):
+            e, n = (None, None) if cell is None else (at(u, cell), at(v, cell))
+            if e is None or n is None:
                 row[k] = None
                 continue
-            speed = math.hypot(float(u[cell]), float(v[cell]))
-            g = float(gust[cell]) if gust is not None and np.isfinite(gust[cell]) else speed
-            row[k] = [round(float(u[cell]), 2), round(float(v[cell]), 2), round(max(g, speed), 2)]
+            speed = math.hypot(e, n)
+            g = at(gust, cell) if gust is not None else None
+            row[k] = [round(e, 2), round(n, 2), round(max(g if g is not None else speed, speed), 2)]
         self.wind[int(t)] = row
         if not self.weather_name or "2t" not in fields:
             return
@@ -382,15 +405,18 @@ class SpotCells:
         """One hour on a model's own grid: `place(lon, lat)` -> its column, row (and weight), `sample(
         values, col, row)` its value there; the spot's nearest cell, the air at the spot's own."""
         if self.cells is None:
-            def cell_of(points):
+            def cell_of(points, blend=()):
                 out = {}
                 for k, (lat, lon) in points.items():
                     found = place(np.array([lon]), np.array([lat]))
                     col, row = float(np.ravel(found[0])[0]), float(np.ravel(found[1])[0])
                     inside = len(found) < 3 or float(np.ravel(found[2])[0]) > 0
-                    out[k] = (np.array([round(col)], dtype=float), np.array([round(row)], dtype=float)) if inside else None
+                    # A blended point keeps its place between cells: `sample` is bilinear there.
+                    if k not in blend:
+                        col, row = round(col), round(row)
+                    out[k] = (np.array([col], dtype=float), np.array([row], dtype=float)) if inside else None
                 return out
-            self.cells = (cell_of(self.wind_points), cell_of(self.air_points))
+            self.cells = (cell_of(self.wind_points, self.blend), cell_of(self.air_points))
             if self.weather_name:
                 for k, (lat, lon) in self.air_points.items():
                     lattice = cell_of({i: p for i, p in enumerate(near_lattice(lat, lon))})
