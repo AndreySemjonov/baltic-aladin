@@ -174,17 +174,27 @@ def blank(layer, rgba):
     return layer != MASK and int(np.ptp(rgba[..., :3])) < 3
 
 
-def with_low_cloud(mask, fog):
+def with_low_cloud(mask, fog, night=None):
     """The Cloud Mask (RGB, cloud white) with the low water cloud it misses: where the Fog / Low Clouds RGB's green is
     well above its red (low water cloud and fog; clear ground and higher, colder cloud are red to blue there), cloudy.
     Checked on four days of the airports' METARs round the Baltic (21-25.10.2026, 1,420 reports, BKN/OVC as cloudy):
     overcast caught at night 74 -> 92 %, at dawn and dusk 69 -> 80 %; of 318 clear night reports 3 called cloud, of
     the dawn and day ones none. By day it adds nothing (the 3.9 um channel's sunlight), and the mask catches 89 %
-    there. Without the fog picture (it comes a little later than the infrared) the mask alone."""
+    there. Without the fog picture (it comes a little later than the infrared) the mask alone.
+
+    `night` (where the sun is under -6 deg): also water cloud with its red as high, a deck the mask calls clear land in
+    strips along the coasts (the owner, 01.11.2026 00:21 Riga, "Those cloud gaps not looking realistic": 21:00 UTC, the
+    mask clear 10-20 km in from every Latvian coast, the infrared and the fog picture one deck across them, Riga and
+    Ventspils OVC030-038). Clear ground at night is dark green there (median 54, g - r -102 over Europe's clear land);
+    green over 120 and not 10 under red, cloudy: ten nights' METARs (22-31.10, 20 airports, sun under -6): 130 of the
+    233 overcast reports still missed caught, 6 of 687 clear called cloud (three of them fog); green over 150 caught 87
+    and 2."""
     if fog is None or fog.shape != mask.shape:
         return mask
     out = mask.copy()
     out[low_water(fog)] = 255
+    if night is not None:
+        out[night & (fog[..., 1] > 120) & (fog[..., 1] - fog[..., 0] > -10)] = 255
     return out
 
 
@@ -440,7 +450,6 @@ def sat_pack(when, incomplete=True, again=False):
     if waiting and not incomplete:
         return None, "not in yet: " + " or ".join(waiting)
     how = "without " + " and ".join(lacking) if lacking else "complete"
-    mask = with_low_cloud(mask, got.get("fog"))
     # The morning: as the sun comes up the fog picture loses the low deck (its 3.9 um channel sees sunlight; Riga
     # 25.10.2026, OVC004 all morning: seen until 05:20 UTC, lost from 05:50) and the mask is still blind to it. Where
     # the sun is rising and under 12 deg, the fog pictures of the last two hours count too, each where the sun was
@@ -455,7 +464,8 @@ def sat_pack(when, incomplete=True, again=False):
         return np.asarray(Image.fromarray(a.astype(np.uint8) * 255).resize((mask.shape[1], mask.shape[0]), Image.NEAREST)) > 127
 
     sun_now = sun_height(lats[:, None], lons[None, :], when)
-    rising = (sun_now >= -6) & (sun_now < 15) & (sun_now > sun_height(lats[:, None], lons[None, :], when - timedelta(minutes=30)))
+    mask = with_low_cloud(mask, got.get("fog"), grid(sun_now < -6))
+    rising =(sun_now >= -6) & (sun_now < 15) & (sun_now > sun_height(lats[:, None], lons[None, :], when - timedelta(minutes=30)))
     # With the sun up, the memory's deck only where the visible is still that bright: brighter than 23 + 2 a degree of
     # sun (of 255), bare ground under it (the owner's photos, 29.10.2026: blue sky by Riga airport at 08:20-09:05 Riga,
     # the app grey; a deck at 750-950 m the mask never saw broke up after sunrise, the visible showed the clearing,
