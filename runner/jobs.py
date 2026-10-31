@@ -170,6 +170,9 @@ JOBS = [
     # takes the stronger of OPERA and these, so Riga's rain stays when OPERA loses Estonia (30.10) and Latvia is off. A new
     # composite every 5 minutes, about a second each; every 2 so it's in before the Worker makes that image's tiles.
     Job("estonia-radar", ["estonia_radar.py"], every=2, timeout=5, priority=1, mem_mb=300, tiny=True, mac=True),
+    # Estonia's stations' present weather kept for the radar's reality check (estonia_obs.py; the owner, 31.10.2026:
+    # "Estonian feed is open, write it. make next"): the feed shows only its newest (every ~20 min), kept on the Mac.
+    Job("estonia-obs", ["estonia_obs.py"], every=10, timeout=2, priority=2, mem_mb=100, tiny=True, mac=True),
     # update.yml's last riders' parts (the owner, 26.10.2026: "move the satellite clouds, the ALADIN spots file and the
     # gauges file from GitHub's update.yml to the Tower, shadow first, then live"): the rain map's satellite clouds
     # (EUMETSAT's every 15 minutes, made 30 minutes after; GitHub looked every 15), ALADIN's spots (aladin_home.py: a new
