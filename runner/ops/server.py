@@ -90,6 +90,12 @@ def read(path, default=None):
         return default
 
 
+def page():
+    # index.html plus its code, split per tab into parts/*.js and joined in name order at /*PARTS*/ (one module scope).
+    parts = "".join(read(p, "") or "" for p in sorted(glob.glob(f"{HERE}/parts/*.js")))
+    return (read(f"{HERE}/index.html", "") or "").replace("/*PARTS*/", parts, 1)
+
+
 def jsonl(path, last=500):
     try:
         with open(path) as f:
@@ -1153,7 +1159,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         url = urllib.parse.urlsplit(self.path)
         try:
             if url.path in ("/", "/index.html"):
-                self.reply(200, "text/html; charset=utf-8", (read(f"{HERE}/index.html", "") or "").encode())
+                self.reply(200, "text/html; charset=utf-8", page().encode())
             elif url.path in ("/admin", "/admin/"):
                 self.reply(*adminproxy.page())
             elif url.path == "/admin/check":
