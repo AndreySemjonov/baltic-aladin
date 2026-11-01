@@ -13,9 +13,12 @@ offset from the header's end and its length) and the tiles (PNG); the app reads 
 The packs and tiles/<model>/index.json (the run's hours) go to the file store through our
 service (station-history /tiles/upload, the INGEST_TOKEN secret), the index last.
 
-    python world_tiles.py gfs|ecmwf|icon|gdps              build and upload the newest run, if new
-    python world_tiles.py gfs|ecmwf|icon|gdps --force      even if it's the published one
-    python world_tiles.py gfs|ecmwf|icon|gdps --local DIR  write to DIR, no upload (a test; --steps 0,24)
+Since 1.11.2026 also the Met Office's global model (10 km; the owner: "Yes, add it", Cape Town had only the
+four above): ukmo-global, from Open-Meteo's open data on AWS as ICON.
+
+    python world_tiles.py gfs|ecmwf|icon|gdps|ukmo-global              build and upload the newest run, if new
+    python world_tiles.py gfs|ecmwf|icon|gdps|ukmo-global --force      even if it's the published one
+    python world_tiles.py gfs|ecmwf|icon|gdps|ukmo-global --local DIR  write to DIR, no upload (a test; --steps 0,24)
     python world_tiles.py ecmwf --workers 3                ECMWF 9 km's hours on 3 processes (the same packs)
 """
 import bz2
@@ -47,8 +50,9 @@ ZOOMS = range(0, 4)
 # Pixels a tile side at each zoom: 256, except zoom 3 at the models' own detail (1440 columns
 # round the world, 0.25°): more pixels there only made the packs bigger (5 MB an hour).
 SIZES = {0: 256, 1: 256, 2: 256, 3: 180}
-# ICON's 0.125° and GDPS's 0.15°: zoom 3 at their own detail too (2880 and 2400 columns).
+# ICON's 0.125°, GDPS's 0.15° and the Met Office's 0.14°: zoom 3 at their own detail too (2880, 2400 and 2560 columns).
 MODEL_SIZES = {"icon": {0: 256, 1: 256, 2: 256, 3: 360}, "gdps": {0: 256, 1: 256, 2: 256, 3: 300},
+               "ukmo-global": {0: 256, 1: 256, 2: 256, 3: 320},
                # ECMWF at 9 km (0.1°: 3600 columns round the world, zoom 4 at 225 pixels) since 18.10.2026;
                # zooms 0-3 at the usual 256 for the map's wide views.
                "ecmwf": {0: 256, 1: 256, 2: 256, 3: 256, 4: 225}}
@@ -86,6 +90,8 @@ MODELS = {
     "icon": {"name": "ICON 13 km", "credit": "ICON, Deutscher Wetterdienst", "gust": "maximum since the previous output hour"},
     "gdps": {"name": "GDPS 15 km", "credit": "GDPS, Environment and Climate Change Canada (Open Government Licence - Canada)",
              "gust": "maximum in the hour before"},
+    "ukmo-global": {"name": "UKMO 10 km", "credit": "Met Office global model, British Crown copyright (CC BY-SA 4.0), via Open-Meteo's open data on AWS",
+                    "gust": "maximum in the hour before"},
 }
 # ICON hourly to 78 hours, then 3-hourly to 180 (as DWD gives it); GDPS hourly to 3.5 days, then
 # 3-hourly to 10 days (the owner, 18.10.2026: it has the mix's smallest share; hourly all the way was
@@ -377,6 +383,32 @@ ICON_OM_FIELDS = (("10u", "wind_u_component_10m", 0, 1), ("10v", "wind_v_compone
                   ("2t", "temperature_2m", 273.15, 1), ("rh", "relative_humidity_2m", 0, 1), ("msl", "pressure_msl", 0, 100),
                   ("rain", "precipitation", 0, 1), ("tcc", "cloud_cover", 0, 1), ("low", "cloud_cover_low", 0, 1),
                   ("mid", "cloud_cover_mid", 0, 1), ("high", "cloud_cover_high", 0, 1))
+# The Met Office's global model in the same open data: 2560 x 1920 points from 90 S, 180 W; its wind as speed and
+# the direction it blows from (m/s, as Open-Meteo's answers), made east and north parts in om_steps. No cloud layers:
+# no map or place reads them, and their packs were 9.5 MB an hour (wind, air and rain 17, as GDPS's 16).
+UKMO_RUNS = "data_spatial/ukmo_global_deterministic_10km/"
+UKMO_GRID = {"Ni": 2560, "Nj": 1920, "latitudeOfFirstGridPointInDegrees": -90.0, "longitudeOfFirstGridPointInDegrees": -180.0,
+             "iDirectionIncrementInDegrees": 0.140625, "jDirectionIncrementInDegrees": 0.09375, "jScansPositively": 1}
+UKMO_FIELDS = (("_speed", "wind_speed_10m", 0, 1), ("_dir", "wind_direction_10m", 0, 1)) + ICON_OM_FIELDS[2:8]
+
+
+def ukmo_newest_run():
+    """The newest complete 00/12 UTC Met Office global run in the open data (its meta.json says completed and lists
+    every hour's file)."""
+    # shortcut: the 06/18 runs (to about 60 h) are skipped, as GDPS's; take them with ECMWF's with_tail if its runs look late.
+    now = datetime.now(timezone.utc)
+    start = now.replace(hour=now.hour // 12 * 12, minute=0, second=0, microsecond=0)
+    for back in range(4):
+        run = start - timedelta(hours=12 * back)
+        prefix = UKMO_RUNS + run.strftime("%Y/%m/%d/%H%MZ/")
+        keys = [k for k in s3_list(prefix) if k.endswith(".om")]
+        try:
+            meta = json.loads(fetch_bytes(ECMWF9 + prefix + "meta.json") or b"{}")
+        except (urllib.error.URLError, OSError, ValueError):
+            continue
+        if meta.get("completed") and len(keys) >= len(meta.get("valid_times") or [None]):
+            return run, sorted(keys)
+    raise SystemExit("No complete Met Office global run in the open data")
 
 
 def icon_om_newest_run():
@@ -391,15 +423,16 @@ def icon_om_newest_run():
     raise SystemExit("No complete ICON run in the open data")
 
 
-def icon_om_steps(run, keys):
-    """ICON's fields at each hour of the run from the open data's files, on ICON_OM_GRID."""
+def om_steps(run, keys, spec=ICON_OM_FIELDS, grid=ICON_OM_GRID):
+    """A model's fields at each hour of the run from the open data's files (ICON's, or the Met Office's with
+    UKMO_FIELDS and UKMO_GRID)."""
     import tempfile
     import omfiles
 
     def fetch(key):
         # At home only the variables used, read in part (omremote.py; the owner, 21.10.2026: Oregon ~17 MB/s from home).
         if omremote.PARTIAL:
-            return key, omremote.Prefetched(sources.om_url(key), [t for _, t, _, _ in ICON_OM_FIELDS])
+            return key, omremote.Prefetched(sources.om_url(key), [t for _, t, _, _ in spec])
         handle = tempfile.NamedTemporaryFile(suffix=".om", delete=False)
         handle.close()
         for attempt in range(4):
@@ -424,7 +457,7 @@ def icon_om_steps(run, keys):
             step = int((valid - run).total_seconds() // 3600)
             reader = omremote.reader(path)
             fields = {}
-            for ours, theirs, add, scale in ICON_OM_FIELDS:
+            for ours, theirs, add, scale in spec:
                 try:
                     values = reader.get_child_by_name(theirs).read_array((slice(None), slice(None)))
                 except Exception:
@@ -432,6 +465,9 @@ def icon_om_steps(run, keys):
                 fields[ours] = np.nan_to_num(values.astype(np.float32)) * scale + add
             reader.close()
             omremote.done(path)
+            if "_speed" in fields and "_dir" in fields:
+                speed, towards = fields.pop("_speed"), np.radians(fields.pop("_dir") + 180)
+                fields["10u"], fields["10v"] = speed * np.sin(towards), speed * np.cos(towards)
             # The dew point from the humidity (temp_pack's feels-like), the rain over the step an hour.
             if "rh" in fields and "2t" in fields:
                 c = fields["2t"] - 273.15
@@ -440,7 +476,7 @@ def icon_om_steps(run, keys):
             if "rain" in fields:
                 fields["rate"] = np.maximum(fields.pop("rain"), 0) / max(step - before, 1) if step > 0 else np.zeros_like(fields["10u"])
             before = step
-            yield step, fields, ICON_OM_GRID
+            yield step, fields, grid
 
 
 def gdps_url(run, name, step, host=None):
@@ -828,6 +864,8 @@ def main():
             run, icon_om = icon_om_newest_run()
         except BaseException as error:
             print(f"ICON open data: {error}; DWD's own files instead", flush=True)
+    if model == "ukmo-global":
+        run, icon_om = ukmo_newest_run()
     if own9:
         info = {"name": "ECMWF 9 km", "credit": "ECMWF open data (CC BY 4.0)", "gust": "maximum since the previous step"}
     elif not nine and icon_om is None:
@@ -842,7 +880,7 @@ def main():
     if local is None and "--force" not in args and published(model) == run_name:
         print(f"{model}: {run_name} is published already")
         return
-    steps = {"gfs": GFS_STEPS, "ecmwf": ecmwf_map.STEPS, "icon": ICON_STEPS, "gdps": GDPS_STEPS}[model]
+    steps = {"gfs": GFS_STEPS, "ecmwf": ecmwf_map.STEPS, "icon": ICON_STEPS, "gdps": GDPS_STEPS}.get(model)
     if nine:
         steps = None
     if "--steps" in args:
@@ -852,7 +890,7 @@ def main():
         if "--steps" in args:
             keys = [k for k in keys if int((datetime.strptime(k.rsplit("/", 1)[-1][:-3], "%Y-%m-%dT%H%M").replace(tzinfo=timezone.utc)
                                             - run).total_seconds() // 3600) in steps]
-        source = icon_om_steps(run, keys)
+        source = om_steps(run, keys, UKMO_FIELDS, UKMO_GRID) if model == "ukmo-global" else om_steps(run, keys)
     else:
         source = (ecmwf9_steps if nine else (lambda r, s: ecmwf_steps(r, s, "0p1")) if own9
                   else {"gfs": gfs_steps, "ecmwf": ecmwf_steps, "icon": icon_steps, "gdps": gdps_steps}[model])(run, steps)
@@ -872,7 +910,8 @@ def main():
         # GFS's spots' wind from its 0.13° grid (gfs013_points.py), as Open-Meteo's; here its weather
         # and the 0.25° wind as points/gfs-025.json, whose gusts that takes (the 0.13° files have none).
         cells = spot_cells.SpotCells("gfs-025" if model == "gfs" else model, {"gfs": "gfs_global", "ecmwf": "ecmwf_ifs", "icon": "icon_global",
-                                             "gdps": "gem_global"}[model], weather=f"{model}-wx")
+                                             "gdps": "gem_global", "ukmo-global": "ukmo_global_deterministic_10km"}[model],
+                                     weather=f"{model}-wx")
     except Exception as error:
         print(f"{model}: the spots' cells left out ({error})", flush=True)
         cells = None

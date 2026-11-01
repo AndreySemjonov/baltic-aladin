@@ -34,7 +34,7 @@ LAND_RINGS = 3
 # owner, 19.10.2026): each model's heaviest rain over a lattice round the spot, every NEAR_STEP km.
 NEAR_KM, NEAR_STEP = 10, 5
 # The world's models: their sea points stay the nearest cell (admin spots.js GLOBAL_MODELS).
-GLOBAL_KEYS = {"ecmwf_ifs", "gfs_global", "icon_global", "gem_global"}
+GLOBAL_KEYS = {"ecmwf_ifs", "gfs_global", "icon_global", "gem_global", "ukmo_global_deterministic_10km"}
 
 
 def near_lattice(lat, lon):

@@ -16,7 +16,7 @@ on:
         type: boolean
         default: false
       only:
-        description: "Only this model (gfs, ecmwf, icon-eu, ecmwf-waves, ewam, icon, gdps); empty: all"
+        description: "Only this model (gfs, ecmwf, icon-eu, ecmwf-waves, ewam, icon, gdps, ukmo-global); empty: all"
         type: string
         default: ""
 
@@ -33,7 +33,7 @@ jobs:
         # ICON-EU over Europe (iconeu_tiles.py, docs/TILES_PLAN.md phase 2) beside the world's two; the
         # waves (waves_tiles.py, docs/WAVES_PLAN.md W1): ECMWF's for the world, EWAM over Europe.
         # ICON (DWD's 13 km) and GDPS (Canada's 15 km) for the world mix (mix_world.py, 18.10.2026).
-        model: [gfs, ecmwf, icon-eu, ecmwf-waves, ewam, icon, gdps]
+        model: [gfs, ecmwf, icon-eu, ecmwf-waves, ewam, icon, gdps, ukmo-global]
     concurrency:
       group: world-${{ matrix.model }}
       cancel-in-progress: false
@@ -46,7 +46,7 @@ jobs:
         run: |
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json, time, urllib.request
-          job = {"gfs": "world-gfs", "ecmwf": "world-ecmwf", "icon": "world-icon", "gdps": "world-gdps"}.get("${{ matrix.model }}", "${{ matrix.model }}")
+          job = {"gfs": "world-gfs", "ecmwf": "world-ecmwf", "icon": "world-icon", "gdps": "world-gdps", "ukmo-global": "world-ukmo-global"}.get("${{ matrix.model }}", "${{ matrix.model }}")
           try:
               request = urllib.request.Request(f"https://files.meteogust.com/runner/heartbeat.json?t={int(time.time())}",
                                                headers={"User-Agent": "baltic-aladin world.yml"})

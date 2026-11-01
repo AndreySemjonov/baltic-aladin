@@ -38,6 +38,7 @@ MODELS = {
     "ncep_gfs013": {"kind": "latlon", "zooms": range(0, 5)},
     "dwd_icon": {"kind": "latlon", "zooms": range(0, 6)},
     "cmc_gem_gdps": {"kind": "latlon", "zooms": range(0, 5)},
+    "ukmo_global_deterministic_10km": {"kind": "latlon", "zooms": range(0, 5)},
     "dwd_icon_eu": {"kind": "latlon", "zooms": range(2, 7)},
     "metno_nordic_pp": {"kind": "wkt", "zooms": range(3, 7)},
     "dmi_harmonie_arome_europe": {"kind": "wkt", "zooms": range(3, 7)},
