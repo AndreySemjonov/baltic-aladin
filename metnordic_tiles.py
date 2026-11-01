@@ -127,8 +127,12 @@ def main():
                 if out.kept_far(t):
                     continue
                 valid = lambda at: np.isfinite(at(raw))  # noqa: E731
-                out.put(t, tiler.pack(placement, sample, lambda at: tiler.temp_rgb(at(np.nan_to_num(air)), at(feels), at(hpa)), valid), "temp")
-                out.put(t, tiler.pack(placement, sample, lambda at: tiler.rain_rgb(at(rain), at(cloud)), valid), "rain")
+                # Zoomed out, the cells under each pixel averaged (the rain and clouds' shape kept between zooms).
+                air0 = np.nan_to_num(air)
+                out.put(t, tiler.pack(placement, sample, lambda at: tiler.temp_rgb(at(air0), at(feels), at(hpa)), valid,
+                                      km=mn.STEP / 1000), "temp")
+                out.put(t, tiler.pack(placement, sample, lambda at: tiler.rain_rgb(at(rain), at(cloud)), valid,
+                                      km=mn.STEP / 1000), "rain")
             print(f"  {len(out.frames)} hours, {out.bytes / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
             continue
         for s in chunk:

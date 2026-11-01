@@ -126,13 +126,31 @@ def rain_rgb(mm, cloud):
                      np.zeros(mm.shape)], axis=-1)
 
 
-def pack(placement, sample, encode, valid=None):
+def cells_across(z, km):
+    """How many of a `km` grid's cells a zoom-`z` pixel spans at 60 N (at least 1)."""
+    return max(1, round(40075 * math.cos(math.radians(60)) / (SIZE * 2 ** z) / km))
+
+
+def pack(placement, sample, encode, valid=None, km=None):
     """One hour's pack: each tile's RGB from `encode(at)` (`at(grid)`: the grid sampled at the
-    tile's pixels) and the weight as alpha (0 where `valid(at)` says no)."""
+    tile's pixels) and the weight as alpha (0 where `valid(at)` says no). With `km` (the grid's
+    spacing), a zoom whose pixel spans several cells samples their average, not one point of them
+    (the owner, 01.11.2026, the dev map: "when zoom in/out clouds change its shape too")."""
     tiles = {}
+    averaged = {}
+
+    def smooth(grid, z):
+        n = cells_across(z, km) if km else 1
+        if n == 1 or getattr(grid, "ndim", 0) != 2:
+            return grid
+        if (id(grid), n) not in averaged:
+            from scipy.ndimage import uniform_filter
+            averaged[(id(grid), n)] = (grid, uniform_filter(grid, n, mode="nearest"))
+        return averaged[(id(grid), n)][1]
+
     for key, (col, row, weight) in placement.parts.items():
-        def at(grid):
-            return sample(grid, col, row)
+        def at(grid, z=key[0]):
+            return sample(smooth(grid, z), col, row)
         rgb = encode(at)
         w = weight if valid is None else np.where(valid(at), weight, 0)
         alpha = np.rint(np.clip(np.nan_to_num(w), 0, 1) * 255)
@@ -243,3 +261,15 @@ class Run:
             world_tiles.upload(f"{self.name}/index.json", body)
         self.publish_check(True)
         print(f"{self.name} {self.folder}: {len(self.frames)} hours, {self.bytes / 1e6:.0f} MB", flush=True)
+
+
+if __name__ == "__main__":
+    # Self-check of pack's km: a 1 km checkerboard reads ~0.5 at zoom 4 (5 cells a pixel), 0 or 1 at zoom 7.
+    board = (np.indices((400, 400)).sum(axis=0) % 2).astype(np.float32)
+    grid = Placement([(4, 0, 0), (7, 0, 0)], lambda lon, lat: (np.full(lon.shape, 200.3), np.full(lon.shape, 200.0),
+                                                              np.ones(lon.shape)))
+    seen = {}
+    pick = lambda values, col, row: values[row.astype(int), col.astype(int)]  # noqa: E731
+    pack(grid, pick, lambda at: (seen.setdefault(len(seen), at(board)), np.zeros(at(board).shape + (3,)))[1], km=1)
+    assert abs(float(seen[0].mean()) - 0.5) < 0.1 and float(seen[1].mean()) in (0.0, 1.0), (seen[0].mean(), seen[1].mean())
+    print("tiler: ok")
