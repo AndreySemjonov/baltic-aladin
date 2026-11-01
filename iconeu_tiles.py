@@ -11,9 +11,11 @@ hour: 57 hours a run, about 0.5 GB). Two sets through the shared tiler:
   only (about 12 km a pixel; a few hundred KB a run): the app moves the forecast's rain along it
   between the hours (the owner, 13.10.2026: matched hour to hour, the showers went down, sideways,
   down again).
+- tiles/icon-eu-steer-850, tiles/icon-eu-steer-300: the same at 850 hPa (about 1.5 km) and 300 hPa (about 9 km),
+  each forecast cloud layer's texture carried by its own wind (low, high; mid by 700).
 Its weight fades over the last 150 km to its area's edge.
 
-    python iconeu_tiles.py [--force] [--local DIR] [--hours N]
+    python iconeu_tiles.py [--force] [--local DIR] [--hours N] [--only steer]
 """
 import sys
 import time
@@ -36,8 +38,12 @@ WIND = ("U_10M", "V_10M", "VMAX_10M")
 # The clouds low (under about 2 km), mid (2-6 km) and high (over 6 km) too: the app's forecast clouds in
 # layers (the owner, 15.10.2026).
 WEATHER = ("U_10M", "V_10M", "T_2M", "TD_2M", "PMSL", "TOT_PREC", "CLCT", "CLCL", "CLCM", "CLCH")
-# The wind aloft: (name in the fields, variable, level in hPa).
-STEER = (("U_700", "U", 700), ("V_700", "V", 700))
+# The wind aloft, a tile set a level: 700 hPa (about 3 km) carries the showers; 850 (about 1.5 km) and 300 (about
+# 9 km) carry the forecast's low and high clouds' texture, each layer its own way (the owner, 01.11.2026: "clear
+# difference between low/mid/high clouds and when they move with different speed").
+STEER_SETS = (("icon-eu-steer", 700), ("icon-eu-steer-850", 850), ("icon-eu-steer-300", 300))
+# (name in the fields, variable, level in hPa).
+STEER = tuple((f"{c}_{hpa}", c, hpa) for _, hpa in STEER_SETS for c in ("U", "V"))
 STEER_ZOOMS = range(3, 4)
 CREDIT = "ICON-EU, DWD (CC BY 4.0)"
 
@@ -94,15 +100,18 @@ def main():
     short = run_time.hour % 6 != 0
     wind = tiler.Run("icon-eu", run_time, ZOOMS, "ICON-EU 7 km", CREDIT, force, local and local + "/icon-eu")
     weather = tiler.Run("icon-eu-wx", run_time, ZOOMS, "ICON-EU 7 km (air and rain)", CREDIT, force, local and local + "/icon-eu-wx")
-    steer = tiler.Run("icon-eu-steer", run_time, STEER_ZOOMS, "ICON-EU 7 km (wind at 700 hPa)", CREDIT, force,
-                      local and local + "/icon-eu-steer")
-    if not wind.wanted and not weather.wanted and not steer.wanted:
+    steers = {hpa: tiler.Run(name, run_time, STEER_ZOOMS, f"ICON-EU 7 km (wind at {hpa} hPa)", CREDIT, force,
+                             local and f"{local}/{name}") for name, hpa in STEER_SETS}
+    # --only steer: the winds aloft alone (the dev map's lab), nothing else downloaded.
+    if "--only" in args and args[args.index("--only") + 1] == "steer":
+        wind.wanted = weather.wanted = False
+    if not wind.wanted and not weather.wanted and not any(s.wanted for s in steers.values()):
         print(f"ICON-EU {run} already published")
         return
     steps = [s for s in STEPS if not short or s <= iconeu_map.SHORT_LAST]
     steps = steps[:limit] if limit else steps
     variables = sorted(set(WIND if wind.wanted else ()) | set(WEATHER if weather.wanted else ())
-                       | set(key for key, _, _ in STEER if steer.wanted))
+                       | set(key for key, _, hpa in STEER if steers[hpa].wanted))
     start, started = int(run_time.timestamp()), time.time()
     placement = sample = box = steer_placement = None
     # The spots' values from ICON-EU's own cells (spot_cells.py; the owner, 18.10.2026).
@@ -110,6 +119,8 @@ def main():
     try:
         if short:
             raise RuntimeError("a 03/09/15/21 UTC run: the spots are iconeu_short_points.py's")
+        if not wind.wanted and not weather.wanted:
+            raise RuntimeError("the winds aloft alone")
         cells = spot_cells.SpotCells("icon-eu", "icon_eu", weather="icon-eu-wx")
     except Exception as error:
         print(f"ICON-EU: the spots' cells left out ({error})", flush=True)
@@ -134,10 +145,11 @@ def main():
                 steer_placement = grid_tools(grid, next(iter(fields.values())).shape, STEER_ZOOMS)[0]
                 print(f"ICON-EU {run}: {len(placement.parts)} tiles over {box}", flush=True)
             t = start + step * 3600
-            east, north = fields.get("U_700"), fields.get("V_700")
-            if steer.wanted and east is not None and north is not None:
-                if steer.checked("ICON-EU", t, quality.steering(east, north)):
-                    steer.put(t, tiler.pack(steer_placement, sample, lambda at: tiler.steer_rgb(at(east), at(north))))
+            for hpa, steer in steers.items():
+                east, north = fields.get(f"U_{hpa}"), fields.get(f"V_{hpa}")
+                if steer.wanted and east is not None and north is not None:
+                    if steer.checked("ICON-EU", t, quality.steering(east, north)):
+                        steer.put(t, tiler.pack(steer_placement, sample, lambda at: tiler.steer_rgb(at(east), at(north))))
             u, v = fields.get("U_10M"), fields.get("V_10M")
             if wind.wanted and u is not None and v is not None:
                 gust = fields.get("VMAX_10M", np.hypot(u, v))
@@ -182,8 +194,9 @@ def main():
         wind.finish(tail=short, area=area)
     if weather.wanted and weather.frames:
         weather.finish(tail=short, area=area)
-    if steer.wanted and steer.frames:
-        steer.finish(tail=short, area=area)
+    for steer in steers.values():
+        if steer.wanted and steer.frames:
+            steer.finish(tail=short, area=area)
     if cells is not None:
         try:
             cells.publish((wind if wind.wanted else weather).folder, local and local + "/points")
