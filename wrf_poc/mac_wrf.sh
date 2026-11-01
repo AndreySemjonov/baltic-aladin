@@ -12,6 +12,14 @@
 set -uo pipefail
 REGION=${1:-tarifa}
 HOURS=${2:-48}
+# Cape Town after the night's Tarifa (the owner, 1.11.2026: "option A for now, but later we will need to go with B"):
+# the evening start runs both, one after the other; for B, drop the hour's test. All inside one if, read by bash before
+# it runs, so the git pull in the runs can't change what this script reads next.
+if [ "$REGION" = tarifa ] && [ -z "${CHAINED:-}" ] && [ "$(date +%H)" -ge 18 ]; then
+  CHAINED=1 bash "$0" tarifa "$HOURS"
+  CHAINED=1 bash "$0" capetown "$HOURS"
+  exit
+fi
 HERE=$HOME/baltic-aladin
 PY=$HERE/.venv/bin/python
 # GNU date for run_wrf.sh (date -d), Homebrew's MPI, compilers and NetCDF.

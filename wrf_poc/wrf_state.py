@@ -19,7 +19,7 @@ READ = "https://files.meteogust.com/runner/wrf-{region}.json"
 AGENT = {"User-Agent": "baltic-aladin wrf_state (https://github.com/AndreySemjonov/baltic-aladin)"}
 STALE = 20 * 60        # no word for this long: the Mac is down or its run died
 DONE_FOR = 5 * 3600    # a "done" this recent is the cycle the Tower is about to run (the runs are 12 h apart)
-STUCK = 4 * 3600       # working this long: stuck (a 48 h run takes ~2.5 h on the Mac, 23.10.2026)
+STUCK = 5 * 3600       # working this long: stuck (Tarifa 2-2.5 h on the Mac, Cape Town about 3-3.5 h, 1.11.2026)
 # The run's start, kept between the puts of one run (a new "waiting" starts a new run).
 LOCAL = os.path.expanduser("~/wrf-logs/.state-{region}.json")
 # The Mac's last runs, for the ops panel (the owner, 23.10.2026: the Mac's runs in it; mac_beat.py uploads them):

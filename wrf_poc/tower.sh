@@ -9,6 +9,13 @@
 set -uo pipefail
 REGION=${1:-tarifa}
 HOURS=${2:-48}
+# Cape Town after the night's Tarifa, as on the Mac (mac_wrf.sh; the owner, 1.11.2026, option A): each region waits for
+# the Mac's own state and runs only when the Mac doesn't make it.
+if [ "$REGION" = tarifa ] && [ -z "${CHAINED:-}" ] && [ "$(date +%H)" -ge 18 ]; then
+  CHAINED=1 bash "$0" tarifa "$HOURS"
+  CHAINED=1 bash "$0" capetown "$HOURS"
+  exit
+fi
 HERE=/root/baltic-aladin
 REPO=AndreySemjonov/baltic-aladin
 mkdir -p /root/wrf-logs
