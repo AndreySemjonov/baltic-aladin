@@ -8,6 +8,8 @@ edge), zooms 3-5: the app's and the dev map's cloud layers, MEPS first, ICON-EU 
 cloud tops (<time>-sky.pack, red: the brightness temperature of MEPS's outgoing infrared at the top of the atmosphere,
 (K - 180) x 2, a forecast infrared satellite picture; the owner, 01.11.2026, the overcast "Too flat, no shapes", "A, and
 B too"): the cover says how much cloud, the tops what it looks like inside a deck (low grey, high and frontal tops cold).
+Green: the cloud's thickness (top less base altitude), sqrt(m / 4000) x 255: a low deck's tops are all one temperature,
+its thick and thin parts are what a daylight satellite shows as its shapes (the owner, 01.11.2026, "Thickness (option 1)").
 
     python meps_clouds.py [--force] [--local DIR] [--hours N]
 """
@@ -28,11 +30,13 @@ CREDIT = "MEPS, MET Norway (CC BY 4.0)"
 OLR = "integral_of_toa_outgoing_longwave_flux_wrt_time"
 
 
-def tops_rgb(olr):
-    """The hour's mean outgoing longwave (W/m2) as its brightness temperature, (K - 180) x 2 in red."""
+def tops_rgb(olr, thick):
+    """The hour's mean outgoing longwave (W/m2) as its brightness temperature, (K - 180) x 2 in red; the cloud's
+    thickness (m) as sqrt(m / 4000) x 255 in green (a deck's typical few hundred metres ~70, 3 km ~220)."""
     kelvin = (np.maximum(np.nan_to_num(olr), 1.0) / 5.670374e-8) ** 0.25
     red = np.clip(np.rint((kelvin - 180) * 2), 0, 255)
-    return np.stack([red, np.zeros_like(red), np.zeros_like(red)], axis=-1)
+    green = np.rint(np.sqrt(np.clip(np.nan_to_num(thick), 0, 4000) / 4000) * 255)
+    return np.stack([red, green, np.zeros_like(red)], axis=-1)
 
 
 def runs():
@@ -105,7 +109,9 @@ def main():
         if out.checked("MEPS", t, None if max(low.max(), mid.max(), high.max()) <= 1.01 else "cloud over 100 %"):
             out.put(t, tiler.pack(placement, sample, lambda at: tiler.cloud_rgb(at(low), at(mid), at(high)), km=km), "cloud")
             if olr is not None and np.nanmedian(olr) > 50:
-                out.put(t, tiler.pack(placement, sample, lambda at: tops_rgb(at(olr)), km=km), "sky")
+                thick = (np.nan_to_num(data["cloud_top_altitude"].isel(time=k).values.squeeze())
+                         - np.nan_to_num(data["cloud_base_altitude"].isel(time=k).values.squeeze()))
+                out.put(t, tiler.pack(placement, sample, lambda at: tops_rgb(at(olr), at(thick)), km=km), "sky")
     out.finish(area={"south": box[0], "north": box[1], "west": box[2], "east": box[3]})
     print(f"MEPS {stamp}: done")
 
