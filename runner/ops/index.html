@@ -953,7 +953,7 @@ function Admin({ ad, now }) {
   return html`<p class="note" style="margin:0 0 12px">admin.meteogust.com's data, read-only, every minute while open. Changes (approve a spot, add a station, start a build) stay on <a href="https://admin.meteogust.com/" style="color:var(--accent)">admin.meteogust.com</a>, which also keeps working when home is down.</p>
     <div class="cards">
       <div class="panel"><h2>Feeds and alerts · ${late ? late + " late" : "all fine"}</h2>
-        ${ad.feeds.map((f) => html`<div class="feed"><span>${f.name}<span class="sub">${f.usual}</span>${f.frames ? html`<span class="sub">${satNote(f.frames)}</span>` : ""}</span><span class="num">${f.age != null ? hrs(f.age) + " ago" : "not found"}</span>
+        ${ad.feeds.map((f) => html`<div class="feed"><span>${f.name}<span class="sub">${f.usual}</span>${f.frames ? html`<span class="sub">${satNote(f.frames)}</span>` : ""}${f.score ? html`<span class="sub">${scoreNote(f.score)}</span>` : ""}</span><span class="num">${f.age != null ? hrs(f.age) + " ago" : "not found"}</span>
           <span class=${"st " + (f.late ? "bad" : "ok")}>${f.late ? "late" : "fine"}</span></div>`)}
         <a class="btn" href="https://admin.meteogust.com/">Alert settings in admin ↗</a></div>
       ${ad.error === "token" ? html`<div class="panel"><h2>The rest of admin's overview</h2>
@@ -1034,6 +1034,17 @@ function Nav({ sec }) {
 // picture, a run lost) and its frames off every neighbour (made from broken pictures).
 const satNote = (s) => `${s.frames} of 96 frames` + (s.missing.length ? ` · missing ${s.missing.slice(-4).map((t) => clock(t)).join(", ")}${s.missing.length > 4 ? " and " + (s.missing.length - 4) + " more" : ""}` : "")
   + (s.broken.length ? ` · broken ${s.broken.map((t) => clock(t)).join(", ")}` : "");
+// Their scorecard against 20 airports' METARs (clouds_score.py, 01.11.2026): yesterday's (else today's) share of overcast
+// reports drawn clear and of clear ones drawn cloud, by the sun: night (under -6), low sun (-6 to 15), day.
+const scoreNote = (s) => {
+  const days = Object.keys(s.days || {}).sort();
+  const day = days.length > 1 ? days[days.length - 2] : days[0];
+  if (!day) return "";
+  const share = (bad, n) => (n ? Math.round((100 * bad) / n) + "%" : "–");
+  const parts = [["night", "night"], ["low", "low sun"], ["day", "day"]].filter(([k]) => s.days[day][k])
+    .map(([k, name]) => { const c = s.days[day][k]; return `${name} ${share(c[1], c[0])} of ${c[0]} / ${share(c[3], c[2])} of ${c[2]}`; });
+  return `vs airports ${day.slice(8)}.${day.slice(5, 7)}: overcast drawn clear / clear drawn cloud: ${parts.join(" · ")}`;
+};
 
 function warningsList({ f, fr, ad, spots, now }) {
   const out = [];
@@ -1041,6 +1052,9 @@ function warningsList({ f, fr, ad, spots, now }) {
   if (sat && sat.frames.broken.length) out.push(["bad", "Satellite clouds", "broken frame " + sat.frames.broken.map((t) => clock(t)).join(", "), "#pipeline"]);
   else if (sat && sat.frames.missing.some((t) => now - t < 6 * 3600))
     out.push(["warn", "Satellite clouds", sat.frames.missing.filter((t) => now - t < 6 * 3600).map((t) => clock(t)).join(", ") + " missing", "#pipeline"]);
+  const scored = ((ad && ad.feeds) || []).find((x) => x.key === "sat" && x.score);
+  for (const g of (scored && scored.score.flags) || [])
+    out.push(["warn", "Satellite clouds vs airports", `${g.day.slice(8)}.${g.day.slice(5, 7)} ${g.band === "low" ? "low sun" : g.band}: ${g.what} ${Math.round(100 * g.share)}% (usual ${Math.round(100 * g.usual)}%)`, "#pipeline"]);
   for (const r of (fr && fr.rows) || []) if (r.status === "bad") out.push(["bad", r.label, `${r.behind_runs} run${r.behind_runs > 1 ? "s" : ""} behind${r.waited ? " · " + hrs(r.waited) : ""}`, "#pipeline"]);
   for (const x of (ad && ad.feeds) || []) if (x.late) out.push(["bad", x.name, x.age != null ? "late · " + hrs(x.age) : "not found", "#pipeline"]);
   const o = ad && ad.overview;

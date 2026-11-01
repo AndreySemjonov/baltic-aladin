@@ -640,6 +640,14 @@ class Admin:
         except Exception:
             pass
         try:
+            # Their scorecard against the airports' METARs (clouds_score.py, the owner, 01.11.2026).
+            score = fetch(f"{FILES}runner/clouds-score.json?t={int(now)}")
+            for f in feeds:
+                if f["key"] == "sat":
+                    f["score"] = score
+        except Exception:
+            pass
+        try:
             beat = fetch(f"{FILES}runner/heartbeat.json?t={int(now)}")
             age = now - beat["t"]
             feeds.append({"key": "runner", "name": "Home runner (heartbeat)", "usual": "5 min", "age": round(age), "late": age > 1200})

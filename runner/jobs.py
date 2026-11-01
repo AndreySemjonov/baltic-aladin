@@ -179,6 +179,8 @@ JOBS = [
     # ČHMÚ run about 4 hours after 00/06/12/18 UTC), the Estonian and Latvian gauges (gauges_home.py, hourly by
     # ee_gauges.py's own check). update.yml leaves each to home while it's live here (home_live.py).
     Job("clouds", ["clouds.py"], every=5, timeout=30, priority=1, mac=True),
+    # Their scorecard against the airports' METARs (the owner, 01.11.2026: "Yes, build it"), for the ops panel.
+    Job("clouds-score", ["clouds_score.py"], every=360, timeout=20, priority=3, mem_mb=300, mac=True),
     Job("aladin-spots", ["aladin_home.py"], every=15, timeout=30, priority=1),
     Job("gauges", ["gauges_home.py"], every=20, timeout=20, priority=2),
 ]
