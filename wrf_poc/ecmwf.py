@@ -137,6 +137,9 @@ def reshape(raw, out, step):
                 t, d = by_name["2t"] - 273.15, v - 273.15
                 v = np.clip(100 * np.exp(17.625 * d / (243.04 + d) - 17.625 * t / (243.04 + t)), 0, 100)
                 ec.codes_set(handle, "paramId", 260242)
+            # Plain packing: ECMWF's CCSDS one isn't read by WPS's GRIB2 library (the Tower's ungrib, 1.11.2026: "ERROR
+            # extracting field gf_getfld = 12" on most fields, then "The mandatory field TT was not found").
+            ec.codes_set(handle, "packingType", "grid_simple")
             ec.codes_set_values(handle, np.ascontiguousarray(v, dtype=float).ravel())
             f.write(ec.codes_get_message(handle))
             ec.codes_release(handle)
