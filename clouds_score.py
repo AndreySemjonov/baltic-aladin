@@ -7,7 +7,10 @@ the ones drawn cloud. A frame's cloud at an airport is its zoom-6 tile's alpha (
 (about 4 km), cloud from CUT. Only the tiles the airports are in are read (Range requests), not the 7 MB packs.
 
 Kept in runner/clouds-score.json (the last 30 days; each frame scored once, 90 minutes after its time, as published
-then) with `flags`: yesterday's bands off their last two weeks (at least 20 reports each), read by the ops panel.
+then) with `flags`: yesterday's bands off their last two weeks (at least 20 reports each), and the last 48 hours' frames
+airport by airport (`frames`: time, the band at Riga, one letter an airport in `stations`' order, CELLS), read by the ops
+panel's Rain & clouds tab (the owner, 01.11.2026: "make same in ops, but in separate tab - rain and clouds. For clouds
+lets make also graphical representation how our clouds correct").
 
     python clouds_score.py              # score the frames since the last run, upload (INGEST_TOKEN)
     python clouds_score.py --local DIR  # the runner's shadow: DIR/clouds-score.json, nothing uploaded
@@ -36,7 +39,15 @@ UPLOAD = os.environ.get("SCORE_UPLOAD", "https://data.meteogust.com/tiles/upload
 AGENT = {"User-Agent": "meteogust-helper"}
 STATIONS = ["EVRA", "EVLA", "EVVA", "EYSA", "EYKA", "EYVI", "EYPA", "EETN", "EETU", "EEPU", "EEKE", "EFHK", "EFTU",
             "ESSA", "ESSV", "EPGD", "UMKK", "ESMQ", "EYPP", "EFHA"]
+NAMES = {"EVRA": "Riga", "EVLA": "Liepāja", "EVVA": "Ventspils", "EYSA": "Šiauliai", "EYKA": "Kaunas", "EYVI": "Vilnius",
+         "EYPA": "Palanga", "EETN": "Tallinn", "EETU": "Tartu", "EEPU": "Pärnu", "EEKE": "Kuressaare", "EFHK": "Helsinki",
+         "EFTU": "Turku", "ESSA": "Stockholm", "ESSV": "Visby", "EPGD": "Gdańsk", "UMKK": "Kaliningrad", "ESMQ": "Kalmar",
+         "EYPP": "Panevėžys", "EFHA": "Halli"}
 CUT = 108  # half a full deck's alpha
+BANDS = ("night", "low", "day")
+# A frame's letter at an airport: "." no verdict (no report, SCT); else "a" + 4 x its band + overcast drawn cloud 0,
+# overcast drawn clear 1, clear drawn clear 2, clear drawn cloud 3.
+CELLS = 48 * 3600
 ZOOM = 6
 KEEP_DAYS = 30
 
@@ -142,12 +153,23 @@ def score(state, now):
             r = next((reports[(st, t + timedelta(minutes=k))] for k in (5, 0, 10) if (st, t + timedelta(minutes=k)) in reports), None)
             if r and sky(r[2]):
                 found.append((r[0], r[1], sky(r[2]), band(float(sun_height(r[0], r[1], t)))))
-        cloud = covers(frame["file"], [(lat, lon) for lat, lon, _, _ in found]) if found else []
-        return t, [(kind, b, c >= CUT) for (_, _, kind, b), c in zip(found, cloud)]
+            else:
+                found.append(None)
+            if r:
+                places[st] = r[:2]
+        known = [x for x in found if x]
+        cloud = iter(covers(frame["file"], [(lat, lon) for lat, lon, _, _ in known]) if known else [])
+        rows = [None if x is None else (x[2], x[3], next(cloud) >= CUT) for x in found]
+        cells = "".join("." if r is None else chr(97 + 4 * BANDS.index(r[1]) + (0 if r[0] == "cloudy" else 2) + (r[2] != (r[0] == "cloudy")))
+                        for r in rows)
+        return t, [r for r in rows if r], cells
 
     days = state.setdefault("days", {})
+    kept = state.setdefault("frames", [])
+    places = {}
     with ThreadPoolExecutor(6) as pool:
-        for t, rows in pool.map(one, frames):
+        for t, rows, cells in pool.map(one, frames):
+            kept.append([round(t.timestamp()), band(float(sun_height(56.95, 24.1, t))), cells])
             day = days.setdefault(f"{t:%Y-%m-%d}", {})
             for kind, b, drawn in rows:
                 counts = day.setdefault(b, [0, 0, 0, 0])  # overcast, drawn clear, clear, drawn cloud
@@ -158,6 +180,9 @@ def score(state, now):
                     counts[2] += 1
                     counts[3] += drawn
     state["last"] = max(f["time"] for f in frames)
+    state["frames"] = [f for f in kept if f[0] > state["last"] - CELLS]
+    old = {s[0]: s for s in state.get("stations", [])}
+    state["stations"] = [[st, NAMES[st], round(places[st][0], 2) if st in places else (old.get(st) or [0, 0, None])[2]] for st in STATIONS]
     for old in sorted(days)[:-KEEP_DAYS]:
         del days[old]
     state["flags"] = flags(days)
@@ -185,6 +210,8 @@ if __name__ == "__main__":
         state = json.loads(get(f"{FILES}runner/clouds-score.json?t={int(time.time())}"))
     except Exception:
         state = {}
+    if state.get("version") != 2:
+        state = {"version": 2}  # 2: with the frames airport by airport (01.11.2026); the index's day scored again
     made = score(state, time.time())
     body = json.dumps(state, separators=(",", ":")).encode()
     print(f"{made} frames scored, {len(body)} bytes, flags: {state.get('flags', [])}")
