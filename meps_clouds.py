@@ -4,7 +4,10 @@ smooth 7 km layers kept looking invented, "Yes, option 2"). MET Norway's MEPS de
 countries and the Baltic; thredds mepslatest, OPeNDAP, CC BY 4.0) has low, medium and high cloud of its own: cloud
 streets, showery cells, the gaps behind fronts. Hourly to 66 hours, tiles/meps-cloud as ICON-EU's cloud layers
 (<time>-cloud.pack: tiler.cloud_rgb, low, mid, high x 255; alpha its weight, falling over the last 50 km to its
-edge), zooms 3-5: the app's and the dev map's cloud layers, MEPS first, ICON-EU where it isn't.
+edge), zooms 3-5: the app's and the dev map's cloud layers, MEPS first, ICON-EU where it isn't. With them each hour's
+cloud tops (<time>-sky.pack, red: the brightness temperature of MEPS's outgoing infrared at the top of the atmosphere,
+(K - 180) x 2, a forecast infrared satellite picture; the owner, 01.11.2026, the overcast "Too flat, no shapes", "A, and
+B too"): the cover says how much cloud, the tops what it looks like inside a deck (low grey, high and frontal tops cold).
 
     python meps_clouds.py [--force] [--local DIR] [--hours N]
 """
@@ -22,6 +25,14 @@ ZOOMS = range(3, 6)
 FADE_KM = 50
 NAMES = ("low_type_cloud_area_fraction", "medium_type_cloud_area_fraction", "high_type_cloud_area_fraction")
 CREDIT = "MEPS, MET Norway (CC BY 4.0)"
+OLR = "integral_of_toa_outgoing_longwave_flux_wrt_time"
+
+
+def tops_rgb(olr):
+    """The hour's mean outgoing longwave (W/m2) as its brightness temperature, (K - 180) x 2 in red."""
+    kelvin = (np.maximum(np.nan_to_num(olr), 1.0) / 5.670374e-8) ** 0.25
+    red = np.clip(np.rint((kelvin - 180) * 2), 0, 255)
+    return np.stack([red, np.zeros_like(red), np.zeros_like(red)], axis=-1)
 
 
 def runs():
@@ -83,11 +94,18 @@ def main():
     placement = tiler.Placement(tiler.tiles_in_box(box, ZOOMS), place)
     times = data["time"].values[:limit] if limit else data["time"].values
     print(f"MEPS {stamp}: {len(times)} hours, {len(placement.parts)} tiles over {tuple(round(v, 1) for v in box)}", flush=True)
+    before = None
     for k, when in enumerate(times):
         t = int(when.astype("datetime64[s]").astype(int))
         low, mid, high = (np.nan_to_num(data[n].isel(time=k).values.squeeze()) for n in NAMES)
+        # Accumulated since the run's start: the hour's mean is this hour's less the last's (none at the run's own hour).
+        total = np.abs(data[OLR].isel(time=k).values.squeeze().astype(np.float64))
+        olr = None if before is None else (total - before) / 3600
+        before = total
         if out.checked("MEPS", t, None if max(low.max(), mid.max(), high.max()) <= 1.01 else "cloud over 100 %"):
             out.put(t, tiler.pack(placement, sample, lambda at: tiler.cloud_rgb(at(low), at(mid), at(high)), km=km), "cloud")
+            if olr is not None and np.nanmedian(olr) > 50:
+                out.put(t, tiler.pack(placement, sample, lambda at: tops_rgb(at(olr)), km=km), "sky")
     out.finish(area={"south": box[0], "north": box[1], "west": box[2], "east": box[3]})
     print(f"MEPS {stamp}: done")
 
