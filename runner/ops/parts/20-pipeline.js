@@ -46,10 +46,11 @@ const FEED_ROWS = { radar: ["Mac · Tower · Cloudflare", 300, 1800], sat: ["Mac
 // Each feed's job (runner/jobs.py): its runs are the lane's bars (the tiny ones, Kolka and the radar's GeoTIFFs, keep
 // out of the runs' record: their lanes show the publishes only).
 const FEED_JOB = { radar: "opera", sat: "clouds", "rain-now": "rain-now", ens: "ens", "helper-aladin": "aladin-spots", "helper-gauges": "gauges" };
-const groupOf = (set) => set === "wrf-tarifa" ? "Our own"
+// Every WRF of ours together (the owner, 1.11.2026: "put WRF Capetown below WRF tarifa so its in one place").
+const groupOf = (set) => set.startsWith("wrf-") ? "Our own"
   : ["ewam", "ecmwf-waves", "waves", "sea", "water"].includes(set) ? "Waves and seas"
   : set.startsWith("mix") || set === "chance" ? "Mixes and products"
-  : ["icon-eu", "icon-eu-wx", "icon-eu-steer", "ecmwf", "gfs", "icon", "gdps"].includes(set) ? "World and Europe" : "Regional";
+  : ["icon-eu", "icon-eu-wx", "icon-eu-steer", "ecmwf", "gfs", "icon", "gdps", "ukmo-global"].includes(set) ? "World and Europe" : "Regional";
 const med = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
 const mins = (s) => s == null ? "–" : s >= 3600 ? (s / 3600).toFixed(1) + " h" : Math.max(0, Math.round(s / 60)) + " min";
 
