@@ -67,7 +67,21 @@ def main():
         cells = np.minimum(np.minimum(col, len(x) - 1 - col), np.minimum(row, len(y) - 1 - row))
         return col, row, np.where(inside, np.clip(cells * km / FADE_KM, 0, 1), 0)
 
+    # Each zoom from the cells under its pixels, not one point of them (the owner, 01.11.2026: "when zoom in/out clouds
+    # change its shape"; a pixel at zoom 3 is about 4 cells across at 60 N, at 4 two): averaged over that many first.
+    zoom_of = {}
+    averaged = {}
+
+    def cells_across(z):
+        return max(1, round(40075 * np.cos(np.radians(60)) / (tiler.SIZE * 2 ** z) / km))
+
     def sample(values, col, row):
+        n = cells_across(zoom_of[id(col)])
+        if n > 1:
+            if (id(values), n) not in averaged:
+                from scipy.ndimage import uniform_filter
+                averaged[(id(values), n)] = uniform_filter(values, n, mode="nearest")
+            values = averaged[(id(values), n)]
         c = np.clip(col, 0, len(x) - 1.001)
         r = np.clip(row, 0, len(y) - 1.001)
         c0, r0 = np.floor(c).astype(int), np.floor(r).astype(int)
@@ -79,11 +93,13 @@ def main():
     lat, lon = data["latitude"].values, data["longitude"].values
     box = (float(np.nanmin(lat)), float(np.nanmax(lat)), float(np.nanmin(lon)), float(np.nanmax(lon)))
     placement = tiler.Placement(tiler.tiles_in_box(box, ZOOMS), place)
+    zoom_of.update({id(col): key[0] for key, (col, _, _) in placement.parts.items()})
     times = data["time"].values[:limit] if limit else data["time"].values
     print(f"MEPS {stamp}: {len(times)} hours, {len(placement.parts)} tiles over {tuple(round(v, 1) for v in box)}", flush=True)
     for k, when in enumerate(times):
         t = int(when.astype("datetime64[s]").astype(int))
         low, mid, high = (np.nan_to_num(data[n].isel(time=k).values.squeeze()) for n in NAMES)
+        averaged.clear()
         if out.checked("MEPS", t, None if max(low.max(), mid.max(), high.max()) <= 1.01 else "cloud over 100 %"):
             out.put(t, tiler.pack(placement, sample, lambda at: tiler.cloud_rgb(at(low), at(mid), at(high))), "cloud")
     out.finish(area={"south": box[0], "north": box[1], "west": box[2], "east": box[3]})
