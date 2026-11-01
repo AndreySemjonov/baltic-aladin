@@ -186,15 +186,16 @@ def with_low_cloud(mask, fog, night=None):
     strips along the coasts (the owner, 01.11.2026 00:21 Riga, "Those cloud gaps not looking realistic": 21:00 UTC, the
     mask clear 10-20 km in from every Latvian coast, the infrared and the fog picture one deck across them, Riga and
     Ventspils OVC030-038). Clear ground at night is dark green there (median 54, g - r -102 over Europe's clear land);
-    green over 120 and not 10 under red, cloudy: ten nights' METARs (22-31.10, 20 airports, sun under -6): 130 of the
-    233 overcast reports still missed caught, 6 of 687 clear called cloud (three of them fog); green over 150 caught 87
-    and 2."""
+    green over 120 and not 40 under red, cloudy: ten nights' METARs (22-31.10, 20 airports, sun under -6): 145 of the
+    233 overcast reports still missed caught, 9 of 687 clear called cloud (three of them fog or mist); not 10 under red
+    caught 130 and 6 but left holes at Pärnu, Ainaži and north Kurzeme under the same deck (the owner, 01.11.2026 01:57
+    Riga, "There still appears some strange places": 20:30 UTC, green 129-170, 10-36 under red); past 40 nothing more."""
     if fog is None or fog.shape != mask.shape:
         return mask
     out = mask.copy()
     out[low_water(fog)] = 255
     if night is not None:
-        out[night & (fog[..., 1] > 120) & (fog[..., 1] - fog[..., 0] > -10)] = 255
+        out[night & (fog[..., 1] > 120) & (fog[..., 1] - fog[..., 0] > -40)] = 255
     return out
 
 
