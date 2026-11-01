@@ -42,7 +42,8 @@ def main():
     data = stamp = None
     for name in reversed(runs()[-3:]):
         d = xr.open_dataset(f"{THREDDS}dodsC/mepslatest/meps_det_2_5km_{name}Z.ncml")
-        if d.sizes["time"] >= (limit or 60):
+        # And its last hour written (not yet: NaN), so a half-made run's end isn't published as clear sky.
+        if d.sizes["time"] >= (limit or 60) and np.isfinite(d[NAMES[0]].isel(time=(limit or d.sizes["time"]) - 1).values).any():
             data, stamp = d, name
             break
     if data is None:

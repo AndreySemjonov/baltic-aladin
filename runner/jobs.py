@@ -148,6 +148,10 @@ JOBS = [
     # On each new MEPS run (hourly; the owner, 22.10.2026: "make chance of rain hourly at home, on each new MEPS
     # run"; ICON-EU-EPS under it every 6 h comes with them), every 3 h at the latest.
     Job("chance", ["chance_tiles.py"], every=180, inputs=[MEPS_LATEST], min_gap=30),
+    # MEPS's own clouds in layers (meps_clouds.py; the owner, 01.11.2026: "I think we should go for MEPS on full ... not
+    # limit it", "Yes, Tower job"): the newest run whose 67 hours are all written (every 3 h), all of them, ~180 MB; looked
+    # at on each new MEPS listing, a minute when it's published already. xarray comes with copernicusmarine.
+    Job("meps-cloud", ["meps_clouds.py"], every=180, inputs=[MEPS_LATEST], min_gap=30),
     Job("rain-now", ["rain_now.py"], every=60, priority=1, mac=True),
     Job("air", ["air_points.py"], every=180, priority=3),
     Job("sea", ["water_composite.py"], every=720, heavy=True, needs=COPERNICUS, priority=3),
