@@ -112,3 +112,9 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # Out without the libraries' clean-up, as metnordic_tiles.py: on the Tower the run was done and then Python died
+    # ("double free or corruption", exit 250, 01.11.2026), which the runner counts as failed.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    import os
+    os._exit(0)
