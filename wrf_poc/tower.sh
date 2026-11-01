@@ -11,9 +11,16 @@ REGION=${1:-tarifa}
 HOURS=${2:-48}
 # Cape Town after the night's Tarifa, as on the Mac (mac_wrf.sh; the owner, 1.11.2026, option A): each region waits for
 # the Mac's own state and runs only when the Mac doesn't make it.
-if [ "$REGION" = tarifa ] && [ -z "${CHAINED:-}" ] && [ "$(date +%H)" -ge 18 ]; then
+# Then the ECMWF-driven Tarifa test (the owner, 1.11.2026: "Let's run test on tower and compare with gfs wrf"): last,
+# so the GFS runs' fallbacks never wait for it, with the GFS run's start (06 or 18 UTC, three hours before this task)
+# and ECMWF's run that was out then (ecmwf.py), so the two compare as a rider would have them; its tiles as
+# wrf-tarifa-ec (not in the app), scored by the app repo's backend/lab/tarifa_check.py.
+if [ "$REGION" = tarifa ] && [ -z "${CHAINED:-}" ]; then
+  evening=$([ "$(date +%H)" -ge 18 ] && echo 1 || echo 0)
+  start=$(date -u -d "-3 hours" +%Y%m%d%H); start=${start:0:8}$(printf %02d $(( 10#${start:8:2} / 6 * 6 )))
   CHAINED=1 bash "$0" tarifa "$HOURS"
-  CHAINED=1 bash "$0" capetown "$HOURS"
+  [ "$evening" = 1 ] && CHAINED=1 bash "$0" capetown "$HOURS"
+  CHAINED=1 EC_START=$start bash "$0" tarifa-ec "$HOURS"
   exit
 fi
 HERE=/root/baltic-aladin
@@ -27,7 +34,10 @@ log() { echo "$(date -u +%H:%M:%S) $*"; }
 # Riga and the run begins as soon as NOAA has the cycle's hours, about 40 minutes sooner than the old fixed start;
 # the runner treats a held lock as WRF running).
 export GFS_BACK=2 GFS_WAIT=100 GFS_POLL=120
+# The ECMWF test is the Tower's alone: no GFS to wait for, no Mac to ask.
+if [ "$REGION" = tarifa-ec ]; then export MAC_FALLBACK=0 EC_START; else
 ( cd "$HERE" && HOURS="$HOURS" "$HERE/.venv/bin/python" wrf_poc/gfs.py --wait ) || log "the GFS wait failed: WRF picks its cycle itself"
+fi
 
 # The Mac mini makes the runs (the owner, 23.10.2026: "A: move both WRF runs to the Mac on 6 processes, the Tower's WRF
 # as the fallback"; mac_wrf.sh): this one goes on only when the Mac doesn't answer, failed or is stuck (wrf_state.py),

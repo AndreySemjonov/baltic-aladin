@@ -38,8 +38,13 @@ set -a
 source "wrf_poc/regions/$REGION.env"
 set +a
 export HOURS REGION
-log "GFS for $REGION, $HOURS hours"
-.venv/bin/python wrf_poc/gfs.py "$WORK"
+if [ "${SOURCE:-gfs}" = ecmwf ]; then
+  log "ECMWF for $REGION, $HOURS hours"
+  .venv/bin/python wrf_poc/ecmwf.py "$WORK"
+else
+  log "GFS for $REGION, $HOURS hours"
+  .venv/bin/python wrf_poc/gfs.py "$WORK"
+fi
 log "WPS"
 docker run --rm --entrypoint bash -u root -v "$WORK:/work" -v "$GEOG:/geog" -v "$HERE/wrf_poc:/poc" "$IMAGE" /poc/run_wps.sh
 docker run --rm --entrypoint bash -u root -v "$WORK:/work" "$IMAGE" -c "chmod -R a+rwX /work"

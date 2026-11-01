@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import tiler  # noqa: E402
 from wrf_poc import gust as gusts  # noqa: E402
 
-NAMES = {"tarifa": "Tarifa", "capetown": "Cape Town"}
+NAMES = {"tarifa": "Tarifa", "capetown": "Cape Town", "tarifa-ec": "Tarifa from ECMWF"}
 ZOOMS = range(6, 10)
 FADE_CELLS = 6
 EARTH_KM = 6371.0

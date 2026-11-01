@@ -1,0 +1,31 @@
+GRIB1| Level| From |  To  | metgrid  | metgrid | metgrid                                 |GRIB2|GRIB2|GRIB2|GRIB2|
+Param| Type |Level1|Level2| Name     | Units   | Description                             |Discp|Catgy|Param|Level|
+-----+------+------+------+----------+---------+-----------------------------------------+-----------------------+
+  11 | 100  |   *  |      | TT       | K       | Temperature                             |  0  |  0  |  0  | 100 |
+  33 | 100  |   *  |      | UU       | m s-1   | U                                       |  0  |  2  |  2  | 100 |
+  34 | 100  |   *  |      | VV       | m s-1   | V                                       |  0  |  2  |  3  | 100 |
+  52 | 100  |   *  |      | RH       | %       | Relative Humidity                       |  0  |  1  |  1  | 100 |
+   7 | 100  |   *  |      | HGT      | m       | Height                                  |  0  |  3  |  5  | 100 |
+  11 | 105  |   2  |      | TT       | K       | Temperature       at 2 m                |  0  |  0  |  0  | 103 |
+  52 | 105  |   2  |      | RH       | %       | Relative Humidity at 2 m                |  0  |  1  |  1  | 103 |
+  33 | 105  |  10  |      | UU       | m s-1   | U                 at 10 m               |  0  |  2  |  2  | 103 |
+  34 | 105  |  10  |      | VV       | m s-1   | V                 at 10 m               |  0  |  2  |  3  | 103 |
+   1 |   1  |   0  |      | PSFC     | Pa      | Surface Pressure                        |  0  |  3  |  0  |   1 |
+   2 | 102  |   0  |      | PMSL     | Pa      | Sea-level Pressure                      |  0  |  3  |  0  | 101 |
+  39 | 112  |   0  |   7  | SM000007 | fraction| Soil moisture of 0-7 cm ground layer    |  2  |  0  | 25  | 106 |
+  40 | 112  |   7  |  28  | SM007028 | fraction| Soil moisture of 7-28 cm ground layer   |  2  |  0  | 25  | 106 |
+  41 | 112  |  28  | 100  | SM028100 | fraction| Soil moisture of 28-100 cm ground layer |  2  |  0  | 25  | 106 |
+  42 | 112  | 100  | 289  | SM100289 | fraction| Soil moisture of 100-289 cm ground layer|  2  |  0  | 25  | 106 |
+ 139 | 112  |   0  |   7  | ST000007 | K       | T of 0-7 cm ground layer                |  2  |  3  | 18  | 106 |
+ 170 | 112  |   7  |  28  | ST007028 | K       | T of 7-28 cm ground layer               |  2  |  3  | 18  | 106 |
+ 183 | 112  |  28  | 100  | ST028100 | K       | T of 28-100 cm ground layer             |  2  |  3  | 18  | 106 |
+ 236 | 112  | 100  | 289  | ST100289 | K       | T of 100-289 cm ground layer            |  2  |  3  | 18  | 106 |
+  81 |   1  |   0  |      | LANDSEA  | proprtn | Land/Sea flag (1=land, 0=sea)           |  2  |  0  |  0  |   1 |
+   7 |   1  |   0  |      | SOILHGT  | m       | Terrain field of source analysis        |  0  |  3  |  5  |   1 |
+ 235 |   1  |   0  |      | SKINTEMP | K       | Skin temperature                        |  0  |  0  | 17  |   1 |
+-----+------+------+------+----------+---------+-----------------------------------------+-----------------------+
+#
+#  ECMWF's open data (0.25°, GRIB2) as wrf_poc/ecmwf.py leaves it (the owner, 1.11.2026: the ECMWF-driven test beside
+#  the GFS run): the GFS table's layout; the soil as depth layers, the ground's height, the 2 m humidity and the land
+#  flag made by ecmwf.py from ECMWF's sot/vsw levels 1-4, z, 2d and lsm. No SST or sea ice in the open data: WRF takes
+#  the sea's temperature from SKINTEMP.

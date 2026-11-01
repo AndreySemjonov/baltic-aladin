@@ -44,7 +44,12 @@ rm -f geogrid.exe ungrib.exe metgrid.exe GRIBFILE.* FILE:* met_em.* geo_em.* Vta
 for exe in geogrid ungrib metgrid; do
   ln -sf "$(find "$WPS" -name "$exe.exe" | head -1)" "$exe.exe"
 done
-ln -sf "$WPS/ungrib/Variable_Tables/Vtable.GFS" Vtable
+# The ECMWF-driven test (SOURCE=ecmwf in its region file; ecmwf.py's files) reads its own table; GFS otherwise.
+if [ "${SOURCE:-gfs}" = ecmwf ]; then
+  ln -sf "$POCDIR/Vtable.ECMWF_OD" Vtable; INPUT=("$WORK"/ecmwf/ec.*)
+else
+  ln -sf "$WPS/ungrib/Variable_Tables/Vtable.GFS" Vtable; INPUT=("$WORK"/gfs/gfs.*)
+fi
 
 cat > namelist.wps <<EOF
 &share
@@ -85,10 +90,10 @@ cat > namelist.wps <<EOF
 /
 EOF
 
-# The GFS files as GRIBFILE.AAA, .AAB, ... (link_grib.csh without csh).
+# The input files as GRIBFILE.AAA, .AAB, ... (link_grib.csh without csh).
 letters=({A..Z})
 i=0
-for f in "$WORK"/gfs/gfs.*; do
+for f in "${INPUT[@]}"; do
   a=${letters[$((i / 676 % 26))]}; b=${letters[$((i / 26 % 26))]}; c=${letters[$((i % 26))]}
   ln -sf "$f" "GRIBFILE.$a$b$c"
   i=$((i + 1))
