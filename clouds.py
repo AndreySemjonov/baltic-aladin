@@ -193,9 +193,15 @@ def with_low_cloud(mask, fog, night=None):
     if fog is None or fog.shape != mask.shape:
         return mask
     out = mask.copy()
-    out[low_water(fog)] = 255
+    out[water_cloud(fog, night)] = 255
+    return out
+
+
+def water_cloud(fog, night=None):
+    """with_low_cloud's cloud: low water, and where `night` also the deck with its red as high."""
+    out = low_water(fog)
     if night is not None:
-        out[night & (fog[..., 1] > 120) & (fog[..., 1] - fog[..., 0] > -40)] = 255
+        out |= night & (fog[..., 1] > 120) & (fog[..., 1] - fog[..., 0] > -40)
     return out
 
 
@@ -481,15 +487,17 @@ def sat_pack(when, incomplete=True, again=False):
         sun_m = np.asarray(Image.fromarray(sun_now.astype(np.float32)).resize(size, Image.BILINEAR))
         deck = (sun_m < 0) | (v > 23 + 2 * sun_m)
     if rising.any():
-        darks = [(ten - timedelta(minutes=m), rising & (sun_height(lats[:, None], lons[None, :], ten - timedelta(minutes=m)) < 0))
+        # Each picture's night rule too where the sun was under -6 then (the owner, 01.11.2026 09:09 Riga, "Now strange
+        # cloud behavior during day too": the night's deck the mask misses dropped out at dawn, Weather & Radar overcast).
+        darks = [(ten - timedelta(minutes=m), sun_height(lats[:, None], lons[None, :], ten - timedelta(minutes=m)))
                  for m in (30, 60, 90, 120, 150, 180)]
-        darks = [(then, dark) for then, dark in darks if dark.any()]
+        darks = [(then, rising & (sun < 0), rising & (sun < -6)) for then, sun in darks if (rising & (sun < 0)).any()]
         # Side by side (one after another before 29.10.2026; most are kept on disk from the frame before).
         with ThreadPoolExecutor(max(len(darks), 1)) as pool:
             earliers = list(pool.map(lambda d: picture(FOG, d[0], box, (width // 4, height // 4)), darks))
-        for (then, dark), earlier in zip(darks, earliers):
+        for (then, dark, night), earlier in zip(darks, earliers):
             if earlier is not None and earlier.shape == mask.shape:
-                mask[low_water(earlier) & grid(dark) & deck] = 255
+                mask[water_cloud(earlier, grid(night)) & grid(dark) & deck] = 255
     mask = np.asarray(Image.fromarray(mask.astype(np.uint8)).resize((width, height), Image.NEAREST), dtype=np.float32)
     try:
         heights = None if cth is None else cloud_heights(cth)
