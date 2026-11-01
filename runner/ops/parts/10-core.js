@@ -468,7 +468,7 @@ const JOB_SET = { "icon-eu": "icon-eu", "world-gfs": "gfs", "world-ecmwf": "ecmw
   "mix": "mix", "mix-world": "mix-world", "weather-mix-europe": "mix-wx", "weather-mix-world": "mix-world-wx", "bucket-knmi-eu": "knmi-eu",
   "bucket-arome25": "arome25", "bucket-icon-ch2": "icon-ch2", "ukmo": "ukmo", "ewam": "ewam", "ecmwf-waves": "ecmwf-waves", "chance": "chance",
   "harm-fi": "harm-fi", "aladin": "aladin", "regional-wind": "metnordic", "regional-weather": "metnordic-wx", "sea": "sea", "waves": "waves",
-  "water": "water" };
+  "water": "water", "meps-cloud": "meps-cloud" };
 
 // Each map's home jobs (regional_tiles.py's wind job makes the blend and each regional model's own set).
 const SET_JOBS = { metnordic: ["regional-wind"], "metnordic-wx": ["regional-weather"], dini: ["regional-dini"], arome: ["regional-arome"],
@@ -477,7 +477,10 @@ const SET_JOBS = { metnordic: ["regional-wind"], "metnordic-wx": ["regional-weat
   icon: ["world-icon"], gdps: ["world-gdps"], ewam: ["ewam"], "ecmwf-waves": ["ecmwf-waves"], "metnordic-1km": ["nordic-1km"],
   "harm-fi": ["harm-fi"], aladin: ["aladin"], mix: ["mix"], "mix-world": ["mix-world"], "mix-wx": ["weather-mix-europe"],
   "mix-world-wx": ["weather-mix-world"], ukmo: ["ukmo"], "icon-ch2": ["bucket-icon-ch2"], arome25: ["bucket-arome25"],
-  "knmi-eu": ["bucket-knmi-eu"], chance: ["chance"], sea: ["sea"], waves: ["waves"], water: ["water"] };
+  "knmi-eu": ["bucket-knmi-eu"], chance: ["chance"], sea: ["sea"], waves: ["waves"], water: ["water"],
+  // MEPS's clouds in layers: the Tower's only, no GitHub workflow (the owner, 01.11.2026: the lane said "GitHub" and
+  // showed only its publishes, no processing).
+  "meps-cloud": ["meps-cloud"] };
 
 async function adminGet(path) {
   const r = await fetch("/admin/api/" + path, { cache: "no-store" });
