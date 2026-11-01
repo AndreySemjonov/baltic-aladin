@@ -16,6 +16,8 @@ layout serve.py --local reads. Their light rain isn't limited to near real rain 
 need it, which is part of what the lab shows.
 
     python nordic_radar.py --local DIR [--hours 3] [--loop]   # the last hours; --loop: new times every 2 minutes
+        [--near 1]          # OPERA's echo kept where theirs is dry but has rain (byte 1+; 16: 0.1 mm/h) within ~5 km
+        [--minutes 20,50]   # only those minutes (the airports' reports), for scoring
 """
 import io
 import json
@@ -114,8 +116,11 @@ class Nordic:
         return {key: (rate[i, j], seen[i, j] & inside) for key, (i, j, inside) in self.where.items()}
 
 
-def merged(nordic, when):
-    """Our OPERA pack at `when` with their composite over it, or None when ours isn't there."""
+def merged(nordic, when, near=0):
+    """Our OPERA pack at `when` with their composite over it, or None when ours isn't there. `near` (a rate byte, 0 off):
+    where theirs is dry, OPERA's echo kept within 4 zoom-6 pixels (about 5 km) of theirs at `near` or more: the light
+    rain their cleaning drops next to real rain (the first score, 01.11: their drizzle caught 13 % against OPERA's 22 %),
+    OPERA's lone noise still out."""
     try:
         with urllib.request.urlopen(urllib.request.Request(f"{OURS}{when}.pack", headers=AGENT), timeout=60) as r:
             tiles = read_pack(r.read())
@@ -127,6 +132,11 @@ def merged(nordic, when):
         if not seen.any():
             continue
         px = tiles.get(key, np.zeros((SIZE, SIZE, 2), np.uint8))
+        if near:
+            from scipy.ndimage import maximum_filter
+            # shortcut: "near" looks within this tile only; an echo across a tile's edge may be left out.
+            close = maximum_filter((rate >= near) & seen, size=9) & (px[..., 1] > 0)
+            rate = np.where((rate == 0) & close, px[..., 0], rate)
         px[..., 0] = np.where(seen, rate, px[..., 0])
         px[..., 1] = np.where(seen, 255, px[..., 1])
         tiles[key] = px
@@ -152,7 +162,7 @@ def merged(nordic, when):
     return write_pack(tiles)
 
 
-def run(local, hours):
+def run(local, hours, near=0, minutes=None):
     folder = local / "radar"
     folder.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
@@ -163,8 +173,10 @@ def run(local, hours):
         for when in nordic.times():
             if when < now.timestamp() - hours * 3600 or (folder / f"{when}.pack").exists():
                 continue
+            if minutes and datetime.fromtimestamp(when, timezone.utc).minute not in minutes:
+                continue
             started = time.time()
-            pack = merged(nordic, when)
+            pack = merged(nordic, when, near)
             if pack:
                 (folder / f"{when}.pack").write_bytes(pack)
                 made += 1
@@ -195,8 +207,10 @@ if __name__ == "__main__":
     args = sys.argv[1:]
     local = Path(args[args.index("--local") + 1])
     hours = float(args[args.index("--hours") + 1]) if "--hours" in args else 3
+    near = int(args[args.index("--near") + 1]) if "--near" in args else 0
+    minutes = {int(m) for m in args[args.index("--minutes") + 1].split(",")} if "--minutes" in args else None
     while True:
-        print(f"{run(local, hours)} new", flush=True)
+        print(f"{run(local, hours, near, minutes)} new", flush=True)
         if "--loop" not in args:
             break
         time.sleep(120)
