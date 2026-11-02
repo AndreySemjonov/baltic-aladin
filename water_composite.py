@@ -137,7 +137,7 @@ class Grid:
 
     def at(self, lon, lat):
         """Level, temperature, east and north current and the weight at the pixels (weight 0 where
-        it has nothing)."""
+        it has no level; the others NaN where it has none of them: their datasets' land differs)."""
         place, sample, level = self.layers["level"]
         col, row, inside = place(lon, lat)
         weight = inside * tiler.edge_weight(lon, lat, self.box, FADE_KM)
@@ -151,7 +151,7 @@ class Grid:
         for field in FIELDS[1:]:
             place, sample, values = self.layers[field]
             c, r, _ = place(lon, lat)
-            out.append(np.nan_to_num(sample(values, c, r)))
+            out.append(sample(values, c, r))
         return (*out, weight)
 
 
@@ -196,7 +196,10 @@ def composite(grids, keys):
         lon, lat = tiler.tile_lonlat(*key)
         shape = lon.shape
         acc = [np.zeros(shape, np.float32) for _ in range(4)]
-        remaining = np.ones(shape, np.float32)
+        # Each field blended by itself: where a model has a level but no temperature or current (the North-West
+        # Shelf's three datasets' land differs), those come from the grids under it, not as 0 (02.11.2026: 0 C
+        # water along the coasts, every water temperature range from 0).
+        remaining = [np.ones(shape, np.float32) for _ in range(4)]
         for grid in grids:
             if not grid.touches(lon, lat):
                 continue
@@ -204,18 +207,26 @@ def composite(grids, keys):
             if got is None:
                 continue
             *values, weight = got
-            share = weight * remaining
             for i, value in enumerate(values):
-                acc[i] += share * value
-            remaining *= 1 - weight
-            if not np.any(remaining > 0.002):
+                known = np.isfinite(value)
+                w = np.where(known, weight, 0)
+                acc[i] += w * remaining[i] * np.where(known, value, 0)
+                remaining[i] *= 1 - w
+            if not any(np.any(r > 0.002) for r in remaining):
                 break
-        total = 1 - remaining
-        sea = total > 0.004
+        sea = 1 - remaining[0] > 0.004
         if not np.any(sea):
             continue
-        safe = np.maximum(total, 1e-6)
-        rgba = sea_rgba(acc[0] / safe, acc[1] / safe, acc[2] / safe, acc[3] / safe)
+        fields = []
+        for i in range(4):
+            total = 1 - remaining[i]
+            value = acc[i] / np.maximum(total, 1e-6)
+            # A sea pixel no grid gives this field: the nearest pixel's that has it (not the land's 0 beside it).
+            known = total > 0.004
+            if i and (sea & ~known).any() and known.any():
+                value = filled(np.where(known, value, np.nan), ~known, reach=np.inf)
+            fields.append(value)
+        rgba = sea_rgba(*fields)
         rgba[~sea] = 0
         tiles[key] = world_tiles.png(rgba.astype(np.uint8), "RGBA")
     return world_tiles.encode(tiles, {z: tiler.SIZE for z in ZOOMS})
