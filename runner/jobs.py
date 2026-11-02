@@ -176,6 +176,10 @@ JOBS = [
     # takes the stronger of OPERA and these, so Riga's rain stays when OPERA loses Estonia (30.10) and Latvia is off. A new
     # composite every 5 minutes, about a second each; every 2 so it's in before the Worker makes that image's tiles.
     Job("estonia-radar", ["estonia_radar.py"], every=2, timeout=5, priority=1, mem_mb=300, tiny=True, mac=True),
+    # MET Norway's composite over Norway and Finland onto OPERA's grid (metno_radar.py; the owner, 02.11.2026,
+    # "Norway+Finland only"): the radar Worker waits for each image's (until 9 minutes after it) and takes it there. Theirs
+    # come ~6 minutes after their time, OPERA's ~5, so every minute; ~10 s each.
+    Job("metno-radar", ["metno_radar.py"], every=1, timeout=3, priority=1, mem_mb=400, tiny=True, mac=True),
     # Estonia's stations' present weather kept for the radar's reality check (estonia_obs.py; the owner, 31.10.2026:
     # "Estonian feed is open, write it. make next"): the feed shows only its newest (every ~20 min), kept on the Mac.
     Job("estonia-obs", ["estonia_obs.py"], every=10, timeout=2, priority=2, mem_mb=100, tiny=True, mac=True),
