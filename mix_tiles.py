@@ -339,6 +339,8 @@ class Model:
 
     def __init__(self, name, label, weight, coast_km):
         self.name, self.label, self.weight, self.coast_km = name, label, weight, coast_km
+        # A box (south, north, west, east) the model stays out of, as the app's ModelAreas (the world mix's UKMO).
+        self.outside = None
         index = json.loads(get(FILES + f"{name}/index.json"))
         self.run = run_unix(index.get("run"))
         self.files = {f["time"]: f["file"] for f in index["frames"] if not f["file"].endswith(("-temp.pack", "-rain.pack"))}
@@ -429,7 +431,8 @@ KEYS = {"dmi_harmonie_arome_europe": "HARM-DK", "metno_nordic": "MET Nordic", "f
         "knmi_harmonie_arome_netherlands": "HARM-NL", "icon_eu": "ICON-EU", "ecmwf_ifs": "ECMWF", "gfs_global": "GFS",
         "wrf_tarifa": "WRF",
         # The world mix's (mix_world.py; not in this one).
-        "icon_global": "ICON", "gem_global": "GDPS", "ukmo_uk_deterministic_2km": "UKV", "knmi_harmonie_arome_europe": "HARM-EU"}
+        "icon_global": "ICON", "gem_global": "GDPS", "ukmo_uk_deterministic_2km": "UKV", "knmi_harmonie_arome_europe": "HARM-EU",
+        "ukmo_global_deterministic_10km": "UKMO"}
 # Copied weights (a rider's spot took its nearest spot's) aren't a place's own: left out.
 COPIED = ("nearest built-in spot", "default", "map's weights")
 
@@ -479,6 +482,14 @@ def weight_points():
     return _points
 
 
+def block_latlon(z, px0, py0, w, h):
+    """The latitude and longitude of each pixel's centre in a block of zoom-z pixels (arrays h x w)."""
+    n = 2 ** z * SIZE
+    lon = (px0 + np.arange(w) + 0.5) / n * 360 - 180
+    lat = np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * (py0 + np.arange(h) + 0.5) / n))))
+    return np.meshgrid(lat, lon, indexing="ij")
+
+
 def tile_weights(models, z, px0, py0, w, h):
     """Each model's weight over a block of pixels (an array; its number when no point is near)."""
     points = weight_points()
@@ -488,10 +499,7 @@ def tile_weights(models, z, px0, py0, w, h):
     plain = {m.label: m.weight for m in models}
     if not points:
         return plain
-    n = 2 ** z * SIZE
-    lon = (px0 + np.arange(w) + 0.5) / n * 360 - 180
-    lat = np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * (py0 + np.arange(h) + 0.5) / n))))
-    lat, lon = np.meshgrid(lat, lon, indexing="ij")
+    lat, lon = block_latlon(z, px0, py0, w, h)
     strengths = []
     for plat, plon, radius, _ in points:
         dy = (lat - plat) * 111.2
@@ -534,6 +542,12 @@ def mix_tile(models, hours, coast, z, x, y):
         if got is None:
             continue
         u, v, g, a = got
+        if model.outside:
+            box_s, box_n, box_w, box_e = model.outside
+            lat, lon = block_latlon(z, px0, py0, w, h)
+            a = np.where((lat >= box_s) & (lat <= box_n) & (lon >= box_w) & (lon <= box_e), 0, a).astype(np.float32)
+            if not a.any():
+                continue
         if land is None:
             land = coast.cached(z, px0, py0, w, h)
         s = np.hypot(u, v)

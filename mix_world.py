@@ -4,7 +4,8 @@ everywhere and to 14 days, under the Baltic and Europe Mix (which has the region
 for its first 2-3 days):
 
 - the models: ICON-EU over Europe (to 5 days), ECMWF, GFS, ICON and GDPS everywhere (our world
-  tiles, world_tiles.py); each place's mix is whichever of them reach it;
+  tiles, world_tiles.py), the Met Office's global 10 km outside ICON-EU's area (ukmo_tiles.py; the owner,
+  2.11.2026, "Yes, A": as the spots' mix, SpotWeights); each place's mix is whichever of them reach it;
 - the weights: near the app's catalog spots their own, elsewhere the WG formula (1 / the model's
   grid in km, as the app's SpotWeights; the owner, 18.10.2026: the formula everywhere else);
 - a coarse model's land pulled back to the coastline (our coastline tiles), the direction a
@@ -36,13 +37,17 @@ WORLD_MODELS = [
     ("gfs", "GFS", 13.0, 25.0),
     ("icon", "ICON", 13 / 0.9, 20.0),
     ("gdps", "GDPS", 15 / 0.7, 22.0),
+    ("ukmo-global", "UKMO", 10.0, 15.0),
 ]
+# ICON-EU's area, as the app's ModelAreas: the Met Office's global stays out of it (the spots leave it out there too).
+OUTSIDE = {"ukmo-global": (24, 71, -25, 63)}
 Z = 4
 ZOOMS = range(0, Z + 1)
 SIZE = 256
 DAYS = 14
 CREDIT = ("ICON-EU and ICON, Deutscher Wetterdienst; ECMWF open data (CC BY 4.0); GFS, NOAA; "
-          "GDPS, Environment and Climate Change Canada (Open Government Licence - Canada)")
+          "GDPS, Environment and Climate Change Canada (Open Government Licence - Canada); "
+          "Met Office global model, British Crown copyright (CC BY-SA 4.0)")
 PUBLISHED = "https://files.meteogust.com/tiles/mix-world/index.json"
 
 
@@ -95,6 +100,7 @@ def main():
     for name, label, km, coast_km in WORLD_MODELS:
         try:
             models.append(mt.Model(name, label, 1 / km / kind_total, coast_km))
+            models[-1].outside = OUTSIDE.get(name)
         except Exception as error:
             print(f"{label}: no index ({error})", flush=True)
     if not any(m.name in ("ecmwf", "gfs") and m.times for m in models):
