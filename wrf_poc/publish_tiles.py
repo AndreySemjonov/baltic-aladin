@@ -38,7 +38,7 @@ def upload(path, data):
 
 def main():
     folder, name = Path(sys.argv[1]), sys.argv[2]
-    if not name.startswith("wrf-"):
+    if not name.startswith(("wrf-", "wrf3-")):
         raise SystemExit("Only WRF's sets")
     packs = sorted(folder.rglob("*.pack"))
     if not packs or not (folder / "index.json").exists():
