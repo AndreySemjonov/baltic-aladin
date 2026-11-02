@@ -17,6 +17,7 @@ import numpy as np
 from netCDF4 import Dataset
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from wrf_poc import axes  # noqa: E402
 from wrf_poc import gust as gusts  # noqa: E402
 
 _GUSTS = {}
@@ -45,8 +46,9 @@ def series(path, lat, lon):
         if math.sqrt(d2[j, i]) * 111 > 2 * dx or j in (0, xlat.shape[0] - 1) or i in (0, xlat.shape[1] - 1):
             return None
         u, v = np.asarray(data["U10"][:, j, i]), np.asarray(data["V10"][:, j, i])
-        cosa, sina = float(data["COSALPHA"][0, j, i]), float(data["SINALPHA"][0, j, i])
-        east, north = u * cosa - v * sina, v * cosa + u * sina
+        # The grid's axes to east and north (axes.py; COSALPHA/SINALPHA turned Cape Town's the wrong way).
+        cos_b, sin_b = axes.grid_north(xlat, xlon)
+        east, north = axes.to_earth(u, v, cos_b[j, i], sin_b[j, i])
         # The whole grid's gusts once a file (every point reads them).
         if path not in _GUSTS:
             _GUSTS[path] = gusts.all_hours(data)

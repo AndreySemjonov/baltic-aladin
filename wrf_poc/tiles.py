@@ -1,6 +1,6 @@
 """WRF's 1 km box as our map tiles (the owner, 17.10.2026: "add WRF 1 km to the app and view it
 separately"): the innermost domain's output (wrfout_d03), its 10 m wind turned from the grid's
-axes to east and north (COSALPHA, SINALPHA: the Lambert grid is tilted), the gust from the
+axes to east and north (axes.py: the Lambert grid's tilt measured from its own latitudes and longitudes), the gust from the
 boundary layer (gust.py, from 20.10.2026; before, WSPD10MAX only), at zooms 6-9 through the
 shared tiler (tiler.py) as tiles/wrf-<region>/. Inside the box it counts fully, fading over its
 last 6 km (the app draws ECMWF's world under it). The app shows it as its own map, "WRF 1 km"
@@ -20,6 +20,7 @@ from scipy.spatial import cKDTree
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import tiler  # noqa: E402
+from wrf_poc import axes  # noqa: E402
 from wrf_poc import gust as gusts  # noqa: E402
 
 NAMES = {"tarifa": "Tarifa", "capetown": "Cape Town", "tarifa-ec": "Tarifa from ECMWF"}
@@ -93,13 +94,11 @@ def main():
     with Dataset(outputs[0]) as data:
         lat = np.asarray(data["XLAT"][0], dtype=np.float64)
         lon = np.asarray(data["XLONG"][0], dtype=np.float64)
-        cosa, sina = np.asarray(data["COSALPHA"][0]), np.asarray(data["SINALPHA"][0])
         u, v = np.asarray(data["U10"][:]), np.asarray(data["V10"][:])
         strongest = gusts.all_hours(data)
         stamps = ["".join(c.decode() for c in t) for t in data["Times"][:]]
-    # The grid's axes to east and north (WRF's own rule for its rotated grids).
-    east = u * cosa - v * sina
-    north = v * cosa + u * sina
+    # The grid's axes to east and north, the tilt from the grid itself (COSALPHA/SINALPHA turned Cape Town's the wrong way).
+    east, north = axes.to_earth(u, v, *axes.grid_north(lat, lon))
     speed = np.hypot(east, north)
     gust = np.maximum(strongest, speed)
 
