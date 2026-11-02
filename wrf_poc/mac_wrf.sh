@@ -15,9 +15,15 @@ HOURS=${2:-48}
 # Cape Town after the night's Tarifa (the owner, 1.11.2026: "option A for now, but later we will need to go with B"):
 # the evening start runs both, one after the other; for B, drop the hour's test. All inside one if, read by bash before
 # it runs, so the git pull in the runs can't change what this script reads next.
+# Then the ECMWF-driven Tarifa test, moved here from the Tower (the owner, 2.11.2026: "WRF ECMWF on tower takes to much
+# time to calculate and because of that other jobs waiting too, lets move WRF ECMWF on mac mini calculation after WRF
+# Capetown"): the evening's GFS cycle (18 UTC, three hours before this start) as EC_START, so ecmwf.py takes ECMWF's run
+# that was out then; its tiles as wrf-tarifa-ec, scored by the app repo's backend/lab/tarifa_check.py.
 if [ "$REGION" = tarifa ] && [ -z "${CHAINED:-}" ] && [ "$(date +%H)" -ge 18 ]; then
+  start=$(date -u -v-3H +%Y%m%d%H); start=${start:0:8}$(printf %02d $(( 10#${start:8:2} / 6 * 6 )))
   CHAINED=1 bash "$0" tarifa "$HOURS"
   CHAINED=1 bash "$0" capetown "$HOURS"
+  CHAINED=1 EC_START=$start bash "$0" tarifa-ec "$HOURS"
   exit
 fi
 HERE=$HOME/baltic-aladin
@@ -75,20 +81,28 @@ if [ "$TEST" != 1 ]; then
   BEAT=$!
 fi
 
-# The GFS cycle waited for first, as tower.sh does (W1: the run begins as soon as NOAA has the cycle's hours).
-export GFS_BACK=2 GFS_WAIT=100 GFS_POLL=120
-HOURS="$HOURS" "$PY" wrf_poc/gfs.py --wait || log "the GFS wait failed: WRF picks its cycle itself"
-
-started=$(date +%s)
-WORK=$HOME/wrf-work/$REGION
-rm -rf "$WORK" && mkdir -p "$WORK"
 set -a
 # shellcheck disable=SC1090
 source "wrf_poc/regions/$REGION.env"
 set +a
 export HOURS REGION
-log "GFS for $REGION, $HOURS hours"
-"$PY" wrf_poc/gfs.py "$WORK" || fail "GFS"
+# The GFS cycle waited for first, as tower.sh does (W1: the run begins as soon as NOAA has the cycle's hours); the ECMWF
+# test (SOURCE=ecmwf) has its run in hand by then.
+export GFS_BACK=2 GFS_WAIT=100 GFS_POLL=120
+if [ "${SOURCE:-gfs}" != ecmwf ]; then
+  HOURS="$HOURS" "$PY" wrf_poc/gfs.py --wait || log "the GFS wait failed: WRF picks its cycle itself"
+fi
+
+started=$(date +%s)
+WORK=$HOME/wrf-work/$REGION
+rm -rf "$WORK" && mkdir -p "$WORK"
+if [ "${SOURCE:-gfs}" = ecmwf ]; then
+  log "ECMWF for $REGION, $HOURS hours (from ${EC_START:-the newest})"
+  "$PY" wrf_poc/ecmwf.py "$WORK" || fail "ECMWF"
+else
+  log "GFS for $REGION, $HOURS hours"
+  "$PY" wrf_poc/gfs.py "$WORK" || fail "GFS"
+fi
 CYCLE=$(sed -n 's/^CYCLE=//p' "$WORK/env")
 # The beat reads the cycle from here from now on.
 [ -n "$BEAT" ] && { kill "$BEAT" 2> /dev/null; ( while sleep 300; do "$PY" "$HERE/wrf_poc/wrf_state.py" put "$REGION" \

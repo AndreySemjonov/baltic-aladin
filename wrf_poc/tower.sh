@@ -11,16 +11,13 @@ REGION=${1:-tarifa}
 HOURS=${2:-48}
 # Cape Town after the night's Tarifa, as on the Mac (mac_wrf.sh; the owner, 1.11.2026, option A): each region waits for
 # the Mac's own state and runs only when the Mac doesn't make it.
-# Then the ECMWF-driven Tarifa test (the owner, 1.11.2026: "Let's run test on tower and compare with gfs wrf"): last,
-# so the GFS runs' fallbacks never wait for it, with the GFS run's start (06 or 18 UTC, three hours before this task)
-# and ECMWF's run that was out then (ecmwf.py), so the two compare as a rider would have them; its tiles as
-# wrf-tarifa-ec (not in the app), scored by the app repo's backend/lab/tarifa_check.py.
+# The ECMWF-driven Tarifa test ran here last (1.11.2026) until the owner moved it to the Mac after Cape Town (2.11.2026:
+# "WRF ECMWF on tower takes to much time to calculate and because of that other jobs waiting too"; mac_wrf.sh). By hand
+# still: CHAINED=1 EC_START=2026110218 bash tower.sh tarifa-ec.
 if [ "$REGION" = tarifa ] && [ -z "${CHAINED:-}" ]; then
   evening=$([ "$(date +%H)" -ge 18 ] && echo 1 || echo 0)
-  start=$(date -u -d "-3 hours" +%Y%m%d%H); start=${start:0:8}$(printf %02d $(( 10#${start:8:2} / 6 * 6 )))
   CHAINED=1 bash "$0" tarifa "$HOURS"
   [ "$evening" = 1 ] && CHAINED=1 bash "$0" capetown "$HOURS"
-  CHAINED=1 EC_START=$start bash "$0" tarifa-ec "$HOURS"
   exit
 fi
 HERE=/root/baltic-aladin
