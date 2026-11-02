@@ -169,7 +169,11 @@ def run(local, hours, near=0, minutes=None):
     days = sorted({(now - timedelta(hours=h)).date() for h in (0, hours)})
     made = 0
     for day in days:
-        nordic = Nordic(datetime(day.year, day.month, day.day))
+        try:
+            nordic = Nordic(datetime(day.year, day.month, day.day))
+        except OSError as e:  # the new day's file appears on THREDDS a little after 00 UTC
+            print(f"  {day}: not there yet ({e.__class__.__name__})", flush=True)
+            continue
         for when in nordic.times():
             if when < now.timestamp() - hours * 3600 or (folder / f"{when}.pack").exists():
                 continue
