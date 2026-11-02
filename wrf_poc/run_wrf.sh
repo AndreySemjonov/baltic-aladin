@@ -1,6 +1,6 @@
 #!/bin/bash
 # The WRF test's model run inside NCAR's i-WRF container (wrf-poc.yml): real.exe (the start and
-# the boundaries from the met_em files), then wrf.exe over the three boxes (9, 3 and 1 km) on every
+# the boundaries from the met_em files), then wrf.exe over the boxes (9, 3 and 1 km) on every
 # core. NLEV and NSOIL (the met_em files' levels) come from /work/env, read on the runner.
 set -euo pipefail
 # The folders: the container's by default; the Mac mini passes its own (mac_wrf.sh, 23.10.2026).
@@ -9,6 +9,15 @@ POCDIR=${WRF_POCDIR:-/poc}
 source "$WORK/env"
 source "$POCDIR/regions/$REGION.env"
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
+# The domains: one size per box in the region's E_WE (9, 3 and 1 km); PARENT_ID their parents in WPS's numbering,
+# "1, 1, 2" (three nested) unless the region adds a second 1 km box beside the first (Cape Town's Breede valley, the
+# owner, 02.11.2026). The per-domain lists for N boxes: each (one value for all), nested (the outer box's, then the
+# others'), levels (by box: 9 km, 3 km, then the 1 km ones, all inside the 3 km one).
+PARENT_ID=${PARENT_ID:-"1, 1, 2"}
+N=$(echo "$E_WE" | tr ',' '\n' | grep -c '[0-9]')
+each() { local out=$1 k; for ((k = 1; k < N; k++)); do out="$out, $1"; done; echo "$out"; }
+nested() { local out=$1 k; for ((k = 1; k < N; k++)); do out="$out, $2"; done; echo "$out"; }
+levels() { local out="$1, $2" k; for ((k = 2; k < N; k++)); do out="$out, $3"; done; echo "$out"; }
 timed() { local name=$1; shift; local t0; t0=$(date +%s); "$@" || return $?; echo "$name $(( $(date +%s) - t0 ))" >> "$WORK/times.txt"; log "$name done"; }
 # The container's own set-up (its entrypoint is bypassed): Intel's MPI and compilers, the user's paths.
 set +u
@@ -55,17 +64,19 @@ D3S=$START; D3E=$END
 [ -n "${D3_FROM:-}" ] && D3S=$(plus "$START" "$D3_FROM")
 [ -n "${D3_TO:-}" ] && D3E=$(plus "$START" "$D3_TO")
 log "1 km box from $D3S to $D3E"
+# Each box's start and end: the 9 and 3 km boxes the whole run, every 1 km box its hours (D3S, D3E).
+span() { local fn=$1 whole=$2 part=$3 out k; out="$($fn "$whole"), $($fn "$whole")"; for ((k = 2; k < N; k++)); do out="$out, $($fn "$part")"; done; echo "$out"; }
 # Adaptive time steps (ADAPTIVE=1): longer steps where the wind allows (WRF keeps the CFL under 1.2).
 ADAPT=""
 if [ "${ADAPTIVE:-0}" = "1" ]; then
   ADAPT=" use_adaptive_time_step = .true.,
  step_to_output_time = .true.,
- target_cfl = 1.2, 1.2, 1.2,
- target_hcfl = .84, .84, .84,
- max_step_increase_pct = 5, 51, 51,
- starting_time_step = -1, -1, -1,
- max_time_step = -1, -1, -1,
- min_time_step = -1, -1, -1,
+ target_cfl = $(each 1.2),
+ target_hcfl = $(each .84),
+ max_step_increase_pct = $(nested 5 51),
+ starting_time_step = $(each -1),
+ max_time_step = $(each -1),
+ min_time_step = $(each -1),
  adaptation_domain = 1,"
   log "adaptive time steps"
 fi
@@ -79,19 +90,19 @@ cat > namelist.input <<EOF
  run_hours = $HOURS,
  run_minutes = 0,
  run_seconds = 0,
- start_year  = $(y $START), $(y $START), $(y $D3S),
- start_month = $(m $START), $(m $START), $(m $D3S),
- start_day   = $(d $START), $(d $START), $(d $D3S),
- start_hour  = $(h $START), $(h $START), $(h $D3S),
- end_year    = $(y $END), $(y $END), $(y $D3E),
- end_month   = $(m $END), $(m $END), $(m $D3E),
- end_day     = $(d $END), $(d $END), $(d $D3E),
- end_hour    = $(h $END), $(h $END), $(h $D3E),
+ start_year  = $(span y $START $D3S),
+ start_month = $(span m $START $D3S),
+ start_day   = $(span d $START $D3S),
+ start_hour  = $(span h $START $D3S),
+ end_year    = $(span y $END $D3E),
+ end_month   = $(span m $END $D3E),
+ end_day     = $(span d $END $D3E),
+ end_hour    = $(span h $END $D3E),
  interval_seconds = 10800,
- input_from_file = .true., .true., .true.,
- history_interval = 60, 60, 60,
+ input_from_file = $(each .true.),
+ history_interval = $(each 60),
  nwp_diagnostics = 1,
- frames_per_outfile = 1000, 1000, 1000,
+ frames_per_outfile = $(each 1000),
  restart = .false.,
  restart_interval = 100000,
  io_form_history = 2,
@@ -104,40 +115,40 @@ cat > namelist.input <<EOF
  time_step_fract_num = 0,
  time_step_fract_den = 1,
 $ADAPT
- max_dom = 3,
+ max_dom = $N,
  e_we = $E_WE,
  e_sn = $E_SN,
- e_vert = 40, 40, 40,
+ e_vert = $(each 40),
  p_top_requested = 5000,
  num_metgrid_levels = $NLEV,
  num_metgrid_soil_levels = $NSOIL,
- dx = 9000, 3000, 1000,
- dy = 9000, 3000, 1000,
- grid_id = 1, 2, 3,
- parent_id = 0, 1, 2,
+ dx = $(levels 9000 3000 1000),
+ dy = $(levels 9000 3000 1000),
+ grid_id = $(seq -s ', ' 1 $N),
+ parent_id = 0, ${PARENT_ID#*, },
  i_parent_start = $I_PARENT,
  j_parent_start = $J_PARENT,
- parent_grid_ratio = 1, 3, 3,
- parent_time_step_ratio = 1, 3, 3,
+ parent_grid_ratio = $(nested 1 3),
+ parent_time_step_ratio = $(nested 1 3),
  feedback = 1,
  smooth_option = 0,
 /
 &physics
  physics_suite = 'CONUS',
- mp_physics = -1, -1, -1,
- cu_physics = -1, 0, 0,
- ra_lw_physics = -1, -1, -1,
- ra_sw_physics = -1, -1, -1,
- bl_pbl_physics = 1, 1, 1,
- sf_sfclay_physics = 1, 1, 1,
- topo_wind = 1, 1, 1,
- sf_surface_physics = -1, -1, -1,
- radt = 9, 9, 9,
- bldt = 0, 0, 0,
- cudt = 0, 0, 0,
+ mp_physics = $(each -1),
+ cu_physics = $(nested -1 0),
+ ra_lw_physics = $(each -1),
+ ra_sw_physics = $(each -1),
+ bl_pbl_physics = $(each 1),
+ sf_sfclay_physics = $(each 1),
+ topo_wind = $(each 1),
+ sf_surface_physics = $(each -1),
+ radt = $(each 9),
+ bldt = $(each 0),
+ cudt = $(each 0),
  icloud = 1,
  num_land_cat = 21,
- sf_urban_physics = 0, 0, 0,
+ sf_urban_physics = $(each 0),
  fractional_seaice = 1,
 /
 &fdda
@@ -145,20 +156,20 @@ $ADAPT
 &dynamics
  hybrid_opt = 2,
  w_damping = 1,
- diff_opt = 2, 2, 2,
- km_opt = 4, 4, 4,
- diff_6th_opt = 0, 0, 0,
- diff_6th_factor = 0.12, 0.12, 0.12,
+ diff_opt = $(each 2),
+ km_opt = $(each 4),
+ diff_6th_opt = $(each 0),
+ diff_6th_factor = $(each 0.12),
  base_temp = 290.,
  damp_opt = 3,
- zdamp = 5000., 5000., 5000.,
- dampcoef = 0.2, 0.2, 0.2,
- khdif = 0, 0, 0,
- kvdif = 0, 0, 0,
- non_hydrostatic = .true., .true., .true.,
- moist_adv_opt = 1, 1, 1,
- scalar_adv_opt = 1, 1, 1,
- gwd_opt = 1, 0, 0,
+ zdamp = $(each 5000.),
+ dampcoef = $(each 0.2),
+ khdif = $(each 0),
+ kvdif = $(each 0),
+ non_hydrostatic = $(each .true.),
+ moist_adv_opt = $(each 1),
+ scalar_adv_opt = $(each 1),
+ gwd_opt = $(nested 1 0),
 /
 &bdy_control
  spec_bdy_width = 5,

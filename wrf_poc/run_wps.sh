@@ -9,6 +9,15 @@ POCDIR=${WRF_POCDIR:-/poc}
 source "$WORK/env"
 source "$POCDIR/regions/$REGION.env"
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
+# The domains: one size per box in the region's E_WE (9, 3 and 1 km); PARENT_ID their parents in WPS's numbering,
+# "1, 1, 2" (three nested) unless the region adds a second 1 km box beside the first (Cape Town's Breede valley, the
+# owner, 02.11.2026). The per-domain lists for N boxes: each (one value for all), nested (the outer box's, then the
+# others'), levels (by box: 9 km, 3 km, then the 1 km ones, all inside the 3 km one).
+PARENT_ID=${PARENT_ID:-"1, 1, 2"}
+N=$(echo "$E_WE" | tr ',' '\n' | grep -c '[0-9]')
+each() { local out=$1 k; for ((k = 1; k < N; k++)); do out="$out, $1"; done; echo "$out"; }
+nested() { local out=$1 k; for ((k = 1; k < N; k++)); do out="$out, $2"; done; echo "$out"; }
+levels() { local out="$1, $2" k; for ((k = 2; k < N; k++)); do out="$out, $3"; done; echo "$out"; }
 timed() { local name=$1; shift; local t0; t0=$(date +%s); "$@" || return $?; echo "$name $(( $(date +%s) - t0 ))" >> "$WORK/times.txt"; log "$name done"; }
 # The container's own set-up (its entrypoint is bypassed): Intel's MPI and compilers, the user's paths.
 set +u
@@ -54,20 +63,20 @@ fi
 cat > namelist.wps <<EOF
 &share
  wrf_core = 'ARW',
- max_dom = 3,
- start_date = '$START', '$START', '$START',
- end_date   = '$END', '$END', '$END',
+ max_dom = $N,
+ start_date = $(each "'$START'"),
+ end_date   = $(each "'$END'"),
  interval_seconds = 10800,
  io_form_geogrid = 2,
 /
 &geogrid
- parent_id         = 1, 1, 2,
- parent_grid_ratio = 1, 3, 3,
+ parent_id         = $PARENT_ID,
+ parent_grid_ratio = $(nested 1 3),
  i_parent_start    = $I_PARENT,
  j_parent_start    = $J_PARENT,
  e_we              = $E_WE,
  e_sn              = $E_SN,
- geog_data_res = 'default', 'default', 'default',
+ geog_data_res = $(each "'default'"),
  dx = 9000,
  dy = 9000,
  map_proj  = 'lambert',
