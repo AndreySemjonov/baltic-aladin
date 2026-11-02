@@ -74,7 +74,7 @@ function laneData(maps, fr, f, now, s) {
   return maps.maps.map((m) => {
     const set = m.name.startsWith("tiles:") ? m.name.slice(6) : m.name;
     const [om, wf, word] = SET_SRC[set] || [];
-    const wrf = set === "wrf-tarifa";
+    const wrf = set.startsWith("wrf-");
     const runs = (byMap[m.name] || []).sort((a, b) => a.run - b.run);
     const jobs = SET_JOBS[set] || [];
     // Made at home only (every job behind it live): GitHub shows only where it really stood in (the owner, 24.10.2026).
@@ -90,9 +90,9 @@ function laneData(maps, fr, f, now, s) {
     if (wrf) {
       // WRF reads GFS from NOAA, hours before Open-Meteo's record: available is when its log had GFS in hand after
       // waiting for it, else WRF's start (GFS was out by then).
-      for (const [a, b, ok, ready, waited, cycle] of pipe.wrf) if (cycle) byRun[cycle] = { run: cycle, avail: waited && ready ? ready : a, early: !waited,
-        tower: { start: a, end: b, ok: ok !== false, going: ok === "going", waiting: ok === "waiting", live: true, job: "wrf", host: pipe.wrf.find((x) => x[0] === a)?.[7] || "tower",
-                 phases: pipe.wrf.find((x) => x[0] === a)?.[6] } };
+      // Each lane its own region's runs (the owner, 2.11.2026: Cape Town's lane showed only its publish).
+      for (const [a, b, ok, ready, waited, cycle, phases, host, region] of pipe.wrf) if (cycle && set === "wrf-" + (region || "tarifa")) byRun[cycle] = { run: cycle, avail: waited && ready ? ready : a, early: !waited,
+        tower: { start: a, end: b, ok: ok !== false, going: ok === "going", waiting: ok === "waiting", live: true, job: "wrf", host: host || "tower", phases } };
     } else for (const [r, d] of Object.entries(avails)) byRun[+r] = { run: +r, avail: d };
     for (const r of runs) if ((r.published || r.run) >= since) {
       const e = byRun[r.run] = byRun[r.run] || { run: r.run, avail: null };
@@ -165,14 +165,15 @@ function laneData(maps, fr, f, now, s) {
     }
     const recent = entries.filter((e) => (e.avail || e.pub || e.run) >= day);
     const runTimes = Object.keys(avails).map(Number).sort((a, b) => a - b);
-    const cad = wrf ? 12 * 3600 : runTimes.length > 1 ? med(runTimes.slice(1).map((r, i) => r - runTimes[i])) : null;
+    const cad = wrf ? (set === "wrf-tarifa" ? 12 : 24) * 3600 : runTimes.length > 1 ? med(runTimes.slice(1).map((r, i) => r - runTimes[i])) : null;
     const lastAvail = runTimes.length ? avails[runTimes[runTimes.length - 1]] : null;
     const last = runs[runs.length - 1];
     // Without a source's rhythm (a job on a clock: chance of rain, the seas): the Tower's own planned start, the
     // scheduler's "next" (the owner, 22.10.2026: chance of rain looked unscheduled; a guess from its last run fell in
     // the past and drew nothing).
     const towerNext = ((f && f.next) || []).filter((n) => jobs.includes(n.job) && n.at).map((n) => n.at).sort((a, b) => a - b)[0] || null;
-    const next = wrf ? ((f && f.wrf && f.wrf.next) || [])[0] || null
+    // Cape Town has no clock of its own: it follows the evening Tarifa.
+    const next = wrf ? (set === "wrf-tarifa" && ((f && f.wrf && f.wrf.next) || [])[0]) || null
       : cad && lastAvail ? lastAvail + cad : towerNext || (last ? last.run + (m.interval + m.delay) * 3600 : null);
     const fresh = freshBySet[set];
     let status = "ok";
@@ -1008,7 +1009,8 @@ function LaneDetail({ l, now, cap, all }) {
         <span>· waited, then the run</span><span>${mins(tw)} · ${mins(t.end - Math.max(t.start, last.avail))}</span>` : null}
       ${l.wrf && last.pub ? html`<span>Published</span><span>${clock(last.pub)} · ${mins(last.pub - last.avail)}</span>` : null}
       ${l.om && !l.wrf ? html`<span>Open-Meteo had it</span><span>${clock(last.avail)} · 0 min</span>` : null}</div>
-      <div class="hint">${l.wrf ? `WRF starts at fixed times (11:45 and 23:45 Riga) and waits there for GFS, so GFS being available earlier or later moves the wait, not the run.`
+      <div class="hint">${l.wrf && l.set !== "wrf-tarifa" ? `Runs once a day after the evening Tarifa run, then waits for GFS if it isn't out yet.`
+        : l.wrf ? `WRF starts at fixed times (11:45 and 23:45 Riga) and waits there for GFS, so GFS being available earlier or later moves the wait, not the run.`
         : gw != null && tw != null ? `GitHub waited ${mins(gw)} for its job to start (its cron); at home the job started ${mins(tw)} after the run was available.`
         : gw != null ? `GitHub waited ${mins(gw)} for its job to start (its cron).` : `"Available" is Open-Meteo's record of the run being complete on its open data, where our jobs read it; so Open-Meteo has every run at that same moment.`}</div></div>` : null}
     ${jobs.length ? html`<div class="panel"><h2>A run costs · Tower, 24 h</h2><div class="kv">

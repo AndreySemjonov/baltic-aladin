@@ -11,6 +11,7 @@ network"): WRF's own memory (its programs' resident memory, "mem_wrf" MB) and th
 
     python3 wrf_poc/mac_beat.py [region]        (tarifa)
 """
+import glob
 import json
 import os
 import re
@@ -160,14 +161,18 @@ def fast_runs(keep=40):
         return []
 
 
-def main(region):
+def main():
+    # Every region's runs, each with its name (the owner, 2.11.2026: Cape Town's lane had no runs: only Tarifa's were sent).
+    regions = sorted(os.path.basename(p)[:-4] for p in glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "regions", "*.env")))
+    going = next(({**w, "region": g} for g in regions if (w := wrf_now(g))), None)
+    runs = sorted(({**r, "region": g} for g in regions for r in wrf_state.history(g)), key=lambda r: r.get("started") or 0)
     cores = os.cpu_count() or 10
     cpu_wrf, cpu_other, mem_wrf = cpu(cores)
     used, total = memory()
     net_in, net_out = network()
     body = {"t": round(time.time()), "host": os.uname().nodename, "cores": cores, "mem_total": total, "mem_used": used,
             "cpu_wrf": cpu_wrf, "cpu_other": cpu_other, "mem_wrf": mem_wrf, "net_in": net_in, "net_out": net_out,
-            "wrf": wrf_now(region), "runs": wrf_state.history(region), "fast": fast_jobs(), "fast_runs": fast_runs()}
+            "wrf": going, "runs": runs, "fast": fast_jobs(), "fast_runs": fast_runs()}
     key = token()
     if not key:
         sys.exit("no INGEST_TOKEN (~/.meteogust.env)")
@@ -178,4 +183,4 @@ def main(region):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "tarifa")
+    main()

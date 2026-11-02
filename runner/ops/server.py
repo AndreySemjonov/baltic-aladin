@@ -484,11 +484,11 @@ def wrf_state():
 
 
 def wrf_runs(since):
-    """WRF's runs since `since` from its logs: [(start, end, ok)]."""
+    """WRF's runs since `since` from its logs: [(start, end, ok, region)]."""
     out = []
     logs = sorted(p for p in glob.glob(f"{WRF_LOGS}/*.log") if re.match(r"\d{8}T\d{4}Z-", os.path.basename(p)))[-12:]
     for path in logs:
-        m = re.match(r"(\d{8}T\d{4})Z-", os.path.basename(path))
+        m = re.match(r"(\d{8}T\d{4})Z-([\w-]+)\.log", os.path.basename(path))
         if not m:
             continue
         start = datetime.strptime(m.group(1), "%Y%m%dT%H%M").replace(tzinfo=timezone.utc).timestamp()
@@ -497,7 +497,7 @@ def wrf_runs(since):
         # Since 23.10.2026 the Mac makes the runs and tower.sh stands aside (wrf_state.py): a log in which the Tower never
         # started WRF itself ("WRF tarifa, 48 hours, on 20 cores") is no run of the Tower's; nor the newest while the Mac
         # is on it (the Tower's own GFS wait before it asks).
-        if not re.search(r"^\d\d:\d\d:\d\d WRF \w+, \d+ hours", text, re.M) and (
+        if not re.search(r"^\d\d:\d\d:\d\d WRF [\w-]+, \d+ hours", text, re.M) and (
                 "the Mac (" in text or (path == logs[-1] and (mac_state() or {}).get("wrf"))):
             continue
         # The run going now: its log stops changing a few minutes in (the model's progress goes to rsl.out.*); or
@@ -508,7 +508,7 @@ def wrf_runs(since):
         if going or waiting:
             end = time.time()
         if end >= since:
-            out.append((start, end, "going" if going else "waiting" if waiting else "the run failed" not in text))
+            out.append((start, end, "going" if going else "waiting" if waiting else "the run failed" not in text, m.group(2)))
     return out
 
 
@@ -660,7 +660,7 @@ class Records:
         for c in (live or {}).get("running", []):
             if c.get("started"):
                 items.append({"lane": lane(c["job"]), "job": c["job"], "a": c["started"], "b": now, "kind": "run"})
-        for a, b, ok in wrf_runs(since) + [(r[0], r[1], r[2]) for r in mac_wrf_runs(since)]:
+        for a, b, ok, *_ in wrf_runs(since) + mac_wrf_runs(since):
             items.append({"lane": "WRF", "job": "wrf", "a": a, "b": b, "kind": "run" if ok in ("going", "waiting") else "wrf" if ok else "bad"})
         wrf_typ = 3.5 * 3600
         for t in wrf_next(now):
@@ -712,8 +712,8 @@ class Records:
                 arrived.setdefault((a["model"], a["run"]), a["done"])
         pipe = {"arrivals": [[m, r, d] for (m, r), d in arrived.items()], "gh": views.GH.pipe(),
                 # Each WRF run with the machine that made it, the Tower's and the Mac's, by start.
-                "wrf": sorted([[round(a), round(b), ok if ok in ("going", "waiting") else bool(ok), *wrf_gfs(a), wrf_phases(a), "tower"]
-                               for a, b, ok in wrf_runs(now - 36 * 3600)] + mac_wrf_runs(now - 36 * 3600))}
+                "wrf": sorted([[round(a), round(b), ok if ok in ("going", "waiting") else bool(ok), *wrf_gfs(a), wrf_phases(a), "tower", region]
+                               for a, b, ok, region in wrf_runs(now - 36 * 3600)] + mac_wrf_runs(now - 36 * 3600))}
         self.slow = {"home": home, "pipe": pipe, "t": round(now), "from": round(since), "to": round(now + 6 * 3600), "lanes": [n for n, _ in LANES],
                      "items": items, "arrivals": arr, "runs": recent, "hosts": hosts, "typical": typical,
                      "github_at": round(self.github_at) or None}
@@ -837,7 +837,7 @@ def mac_state():
 
 def mac_wrf_runs(since):
     """The Mac's WRF runs since `since` as the Pipeline's WRF tuples: [start, end, ok, GFS in hand, waited for it, cycle,
-    phases, "mac"] (ok: "going" or "waiting" for the run on now)."""
+    phases, "mac", region] (ok: "going" or "waiting" for the run on now)."""
     m = mac_state() or {}
     out = []
     for r in (m.get("runs") or []) + ([m["wrf"]] if m.get("wrf") else []):
@@ -856,7 +856,7 @@ def mac_wrf_runs(since):
         if c:
             cycle = int(datetime.strptime(f"{c[1]} {c[2]}", "%Y-%m-%d %H").replace(tzinfo=timezone.utc).timestamp())
         phases = {k: v for k, v in {"gfs_done": ready, "wps": ready, "model": at.get("wrf"), "end": at.get("tiles")}.items() if v}
-        out.append([round(start), round(end), ok, ready, bool(ready and ready - start > 300), cycle, phases, "mac"])
+        out.append([round(start), round(end), ok, ready, bool(ready and ready - start > 300), cycle, phases, "mac", r.get("region") or "tarifa"])
     return out
 
 
