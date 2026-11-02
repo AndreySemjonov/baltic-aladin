@@ -131,10 +131,16 @@ rm -rf "$WORK/tiles"
 "$PY" wrf_poc/tiles.py "$WORK" --local "$WORK/tiles" || fail "tiles"
 # The run's wind at the airports and spots (points.py), uploaded with the tiles.
 "$PY" wrf_poc/points.py "$WORK" "$WORK/tiles/points.json" || log "no points"
+# The 3 km box as its own map too (the owner, 02.11.2026); a failure there doesn't stop the 1 km one.
+rm -rf "$WORK/tiles3"
+"$PY" wrf_poc/tiles.py "$WORK" --coarse --local "$WORK/tiles3" || log "no 3 km tiles"
 if [ "$TEST" = 1 ]; then
   log "test: tiles in $WORK/tiles, nothing uploaded"
 else
   again "$PY" wrf_poc/publish_tiles.py "$WORK/tiles" "wrf-$REGION" || fail "upload"
+  if [ -f "$WORK/tiles3/index.json" ]; then
+    again "$PY" wrf_poc/publish_tiles.py "$WORK/tiles3" "wrf3-$REGION" || log "3 km not uploaded"
+  fi
 fi
 # "done" sent for sure: the beat stops with this script, and a "tiles" left behind goes stale and the Tower runs it again.
 again stage done

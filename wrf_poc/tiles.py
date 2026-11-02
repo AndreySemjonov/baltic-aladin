@@ -9,6 +9,7 @@ last 6 km (the app draws ECMWF's world under it). The app shows it as its own ma
 
     REGION=tarifa python wrf_poc/tiles.py work         upload (INGEST_TOKEN)
     REGION=tarifa python wrf_poc/tiles.py work --local DIR
+    REGION=tarifa python wrf_poc/tiles.py work --coarse --local DIR    the 3 km box as tiles/wrf3-<region>/ (zooms 5-7)
 """
 import os
 import sys
@@ -26,6 +27,7 @@ from wrf_poc import gust as gusts  # noqa: E402
 
 NAMES = {"tarifa": "Tarifa", "capetown": "Cape Town", "tarifa-ec": "Tarifa from ECMWF"}
 ZOOMS = range(6, 10)
+COARSE_ZOOMS = range(5, 8)
 FADE_CELLS = 6
 EARTH_KM = 6371.0
 
@@ -59,10 +61,12 @@ def placer(lat, lon, with_distance=False):
     xc, xr, yc, yr = lon_c * shrink * km_lat, lon_r * shrink * km_lat, lat_c * km_lat, lat_r * km_lat
     det = xc * yr - xr * yc
     inv = [(yr / det).ravel(), (-xr / det).ravel(), (-yc / det).ravel(), (xc / det).ravel()]
+    # Outside the grid past 1.5 cells (1.5 km for the 1 km boxes, 4.5 for the 3 km one).
+    reach = 1.5 * float(np.median(np.hypot(xc, yc)))
 
     def place(tile_lon, tile_lat):
         distance, k = tree.query(unit(tile_lat.ravel(), tile_lon.ravel()))
-        weight = np.clip(edge[k] / FADE_CELLS, 0, 1) * (distance * EARTH_KM < 1.5)
+        weight = np.clip(edge[k] / FADE_CELLS, 0, 1) * (distance * EARTH_KM < reach)
         dx = (tile_lon.ravel() - lon.ravel()[k]) * shrink.ravel()[k] * km_lat
         dy = (tile_lat.ravel() - lat.ravel()[k]) * km_lat
         col = np.clip(k % cols + inv[0][k] * dx + inv[1][k] * dy, 0, cols - 1)
@@ -131,14 +135,20 @@ def main():
     region = os.environ.get("REGION", "tarifa")
     env = dict(line.split("=", 1) for line in (work / "env").read_text().split() if "=" in line)
     run_time = datetime.strptime(env["CYCLE"], "%Y-%m-%dT%HZ").replace(tzinfo=timezone.utc)
-    # The 1 km boxes: d03, and Cape Town's valley box d04.
-    fine = [box(paths[0]) for d in ("d03", "d04") if (paths := sorted((work / "wrf").glob(f"wrfout_{d}_*")))]
+    if "--coarse" in sys.argv:
+        # The 3 km box on its own as tiles/wrf3-<region>/ (the owner, 02.11.2026: "can we post our WRF 3km too? If we
+        # have calculated it anyway"): every hour of the run (the 1 km boxes only by daylight), wider than them.
+        fine, name, zooms, km = [box(sorted((work / "wrf").glob("wrfout_d02_*"))[0])], f"wrf3-{region}", COARSE_ZOOMS, 3
+    else:
+        # The 1 km boxes: d03, and Cape Town's valley box d04.
+        fine = [box(paths[0]) for d in ("d03", "d04") if (paths := sorted((work / "wrf").glob(f"wrfout_{d}_*")))]
+        name, zooms, km = f"wrf-{region}", ZOOMS, 1
     if not fine:
         raise SystemExit("No wrfout_d03: nothing to tile")
     stamps = fine[0]["stamps"]
     south, north_, west, east_ = (min(float(b["lat"].min()) for b in fine), max(float(b["lat"].max()) for b in fine),
                                   min(float(b["lon"].min()) for b in fine), max(float(b["lon"].max()) for b in fine))
-    keys = tiler.tiles_in_box((south, north_, west, east_), ZOOMS)
+    keys = tiler.tiles_in_box((south, north_, west, east_), zooms)
     if len(fine) == 1:
         boxes = fine
         placement, sample = tiler.Placement(keys, placer(fine[0]["lat"], fine[0]["lon"])), bilinear
@@ -150,14 +160,14 @@ def main():
         boxes = fine + [coarse]
         placement = tiler.Placement(keys, composite([placer(b["lat"], b["lon"], with_distance=True) for b in boxes]))
         sample = composite_sample
-    run = tiler.Run(f"wrf-{region}", run_time, zooms=ZOOMS, model=f"WRF 1 km {NAMES.get(region, region)} (test)",
+    run = tiler.Run(name, run_time, zooms=zooms, model=f"WRF {km} km {NAMES.get(region, region)} (test)",
                     credit="WRF (NCAR), our test run from NOAA's GFS", force=True, local=local)
     for hour, stamp in enumerate(stamps):
         when = int(datetime.strptime(stamp, "%Y-%m-%d_%H:%M:%S").replace(tzinfo=timezone.utc).timestamp())
         layer = (lambda name: boxes[0][name][hour]) if len(boxes) == 1 else (lambda name: tuple(b[name][hour] for b in boxes))
         run.put(when, tiler.pack(placement, sample, lambda at: tiler.wind_rgb(at(layer("east")), at(layer("north")), at(layer("gust")))))
     run.finish(box=[round(south, 3), round(north_, 3), round(west, 3), round(east_, 3)])
-    print(f"wrf-{region}: {len(stamps)} hours, {len(fine)} 1 km box(es), {len(placement.parts)} tiles an hour", flush=True)
+    print(f"{name}: {len(stamps)} hours, {len(fine)} {km} km box(es), {len(placement.parts)} tiles an hour", flush=True)
 
 
 if __name__ == "__main__":
