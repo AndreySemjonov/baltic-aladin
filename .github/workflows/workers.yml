@@ -43,10 +43,12 @@ jobs:
           token: ${{ secrets.APP_REPO_TOKEN }}
           path: app
           persist-credentials: false
-          # The web version's shaders come from the Android app's weather_layer.cpp (tools/web/build.py).
+          # The web version's shaders come from the Android app's weather_layer.cpp (tools/web/build.py), its Baltic
+          # coast from the apps' CoastDistance.png.
           sparse-checkout: |
             tools
             android/app/src/main/cpp
+            apple/Packages/WindCore/Sources/ExtraTools
 
       - name: Check and upload
         env:
