@@ -31,6 +31,8 @@ POINTS = {
     "capetown": {
         "FACT": (-33.969, 18.597, "airport"),
         "Bloubergstrand": (-33.800, 18.460, "spot"), "Muizenberg": (-34.108, 18.472, "spot"), "Langebaan": (-33.090, 18.030, "spot"),
+        # The Breede valley's 1 km box (the owner, 02.11.2026: thermals when Cape Town has no wind).
+        "Brandvlei Dam": (-33.720, 19.430, "spot"),
     },
 }
 
@@ -65,13 +67,15 @@ def main():
     out = Path(sys.argv[2]) if len(sys.argv) > 2 else work / "points.json"
     region = os.environ.get("REGION", "tarifa")
     env = dict(line.split("=", 1) for line in (work / "env").read_text().split() if "=" in line)
-    files = {d: sorted((work / "wrf").glob(f"wrfout_{d}_*")) for d in ("d01", "d02", "d03")}
+    # Every box the run has (d01-d03, Cape Town's valley box d04), coarse first.
+    domains = sorted({p.name.split("_")[1] for p in (work / "wrf").glob("wrfout_d0*")})
+    files = {d: sorted((work / "wrf").glob(f"wrfout_{d}_*")) for d in domains}
     result = {"region": region, "run": env["CYCLE"], "made": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
               "units": "m/s, from degrees", "points": {}}
     for name, (lat, lon, kind) in POINTS.get(region, {}).items():
         hours = {}
         # Coarse first, then finer over it: each hour from the finest box that has it.
-        for domain in ("d01", "d02", "d03"):
+        for domain in domains:
             for path in files[domain]:
                 found = series(path, lat, lon)
                 if not found:
