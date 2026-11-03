@@ -115,6 +115,8 @@ WRF_MB = int(os.environ.get("MG_WRF_MB", "9000"))
 # 29.10.2026: World GFS 00Z failed on a passing NOMADS error at 07:27 Riga and was tried again only at 08:06; a run
 # killed out of memory (137) would most likely meet the same full machine, so it waits RETRY_S as before).
 RETRY_S, FIRST_RETRY_S, RETRIES = 45 * 60, 10 * 60, 3
+# A job's exit when its source's server answered an error (5xx; ops/hook/sitecustomize.py).
+SOURCE_DOWN = 75
 
 
 def retry_after(mine):
@@ -230,7 +232,10 @@ def heartbeat(state, live, running, wrf):
     token = env_value("INGEST_TOKEN")
     if not token:
         return False
-    failing = sorted(name for name in live if state.get(name, {}).get("fails", 0) >= 2)
+    # Not a job whose last run met its source's server down: GitHub would read the same server, and the admin push would
+    # be about MET Norway, not us; its retries go on as for any failed run.
+    failing = sorted(name for name in live if state.get(name, {}).get("fails", 0) >= 2
+                     and state.get(name, {}).get("exit") != SOURCE_DOWN)
     body = json.dumps({"t": round(time.time()), "host": os.uname().nodename, "live": sorted(set(live) - set(failing)),
                        "failing": failing, "running": sorted(running), "wrf": wrf}).encode()
     try:

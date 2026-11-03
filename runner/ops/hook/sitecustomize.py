@@ -107,3 +107,32 @@ if _TARGET:
         http.client.HTTPResponse.close = _close_counted
     except Exception:
         pass
+
+# A job ended by a source's server error (HTTP 5xx, not ours) exits SOURCE_DOWN, not 1: the scheduler tries it again
+# but doesn't call it failing (the owner, 3.11.2026, "(b)": thredds.met.no answered 500 from ~03:27 to 04:28 UTC two
+# mornings running, five jobs "failing", a push and GitHub reading the same server for nothing).
+SOURCE_DOWN = 75
+
+if os.environ.get("MG_JOB"):
+    import sys
+
+    def _source_down(error):
+        """A 5xx HTTPError from another server behind the error (it, its cause or its context)."""
+        for _ in range(10):
+            if error is None:
+                return False
+            code, url = getattr(error, "code", None), str(getattr(error, "url", None) or getattr(error, "filename", None) or "")
+            if isinstance(code, int) and code >= 500 and url.startswith("http") and "meteogust.com" not in url.split("/")[2]:
+                return True
+            error = error.__cause__ or error.__context__
+        return False
+
+    def _excepthook(kind, error, trace):
+        sys.__excepthook__(kind, error, trace)
+        if _source_down(error):
+            print(f"source down: exit {SOURCE_DOWN}", file=sys.stderr)
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(SOURCE_DOWN)
+
+    sys.excepthook = _excepthook
