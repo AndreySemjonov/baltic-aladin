@@ -57,4 +57,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except urllib.error.HTTPError as error:
+        # Refused (4xx): sending again won't help, exit 2 so mac_wrf.sh's again() stops (3.11.2026: wrf-tarifa-ec's
+        # points refused, tried for 3 hours, the night chain held the Mac past its midday Tarifa).
+        print(f"refused: HTTP {error.code} {error.url}", flush=True)
+        sys.exit(2 if error.code < 500 else 1)

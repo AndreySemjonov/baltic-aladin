@@ -51,8 +51,11 @@ stage() {
 # we made WRF and it can't upload what will happen?", a break expected 02:00-06:00 Riga, up to an hour; the night run
 # ends about 02:00).
 again() {
-  local n=0
+  local n=0 rc
   until "$@"; do
+    rc=$?
+    # 2: the server refused it (publish_tiles.py, a 4xx): no internet break, trying again won't help.
+    [ "$rc" -eq 2 ] && return 1
     n=$((n + 1))
     [ "$n" -ge 36 ] && return 1
     log "not sent (no internet?): tried again in 5 minutes"
