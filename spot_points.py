@@ -29,6 +29,7 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 import numpy as np
@@ -93,9 +94,11 @@ def get(url, start=None, length=None, tries=4):
 
 
 def key(lat, lon):
-    """"57.0602,24.0207": 4 decimals, no trailing zeros (JavaScript's +x.toFixed(4))."""
+    """"57.0602,24.0207": 4 decimals, no trailing zeros (JavaScript's +x.toFixed(4)). A tie rounds away from zero as
+    toFixed does, not to even as round(): Pāvilosta's ICON-EU point 56.90625 was "56.9062" here and "56.9063" on the
+    server, so its wind was never found ("1 spot without our data for icon_eu" every 6 hours, 3.11.2026)."""
     def short(v):
-        text = f"{round(float(v), 4):.4f}".rstrip("0").rstrip(".")
+        text = f"{Decimal(float(v)).quantize(Decimal('0.0001'), ROUND_HALF_UP):f}".rstrip("0").rstrip(".")
         return "0" if text in ("-0", "") else text
     return short(lat) + "," + short(lon)
 
