@@ -28,7 +28,8 @@ def upload(path, data):
             with urllib.request.urlopen(request, timeout=300) as reply:
                 return reply.read()
         except urllib.error.HTTPError as error:
-            if error.code < 500 or attempt == 3:
+            # Refused (4xx) at once, but "too many requests" (429) waited out like a server error.
+            if (error.code < 500 and error.code != 429) or attempt == 3:
                 raise
         except OSError:
             if attempt == 3:
@@ -63,4 +64,4 @@ if __name__ == "__main__":
         # Refused (4xx): sending again won't help, exit 2 so mac_wrf.sh's again() stops (3.11.2026: wrf-tarifa-ec's
         # points refused, tried for 3 hours, the night chain held the Mac past its midday Tarifa).
         print(f"refused: HTTP {error.code} {error.url}", flush=True)
-        sys.exit(2 if error.code < 500 else 1)
+        sys.exit(2 if error.code < 500 and error.code != 429 else 1)
