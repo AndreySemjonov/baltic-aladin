@@ -54,6 +54,16 @@ mkdir -p "$WORK/wrf" && cd "$WORK/wrf"
 for f in "$RUN"/*; do ln -sf "$f" .; done
 rm -f namelist.input met_em.* wrfout_* wrfinput_* wrfbdy_* rsl.*
 ln -sf "$WORK"/wps/met_em.* .
+# URBAN_Z0 (a region's file): MODIS "Urban and Built-Up" roughness (Z0MIN, Z0MAX) instead of 0.50 m, in this run's own
+# copy of VEGPARM.TBL. Cape Town 0.20 (the owner, 04.11.2026: "lets fix capetown airport so we match windguru"; the
+# 02.11 test gave the airport +1.3 m/s, the spots on water unchanged).
+if [ -n "${URBAN_Z0:-}" ]; then
+  rm -f VEGPARM.TBL
+  awk -v z="$URBAN_Z0" -F, 'BEGIN { OFS = "," } /MODIFIED_IGBP_MODIS_NOAH/ { m = 1 }
+    m && /Urban and Built-Up/ { $15 = "      " z; $16 = "     " z; m = 0 } { print }' "$RUN/VEGPARM.TBL" > VEGPARM.TBL
+  if [ "$(cmp -l "$RUN/VEGPARM.TBL" VEGPARM.TBL 2>/dev/null | wc -l)" -gt 0 ]; then log "urban z0 $URBAN_Z0 m"
+  else log "urban z0 not set, WRF's own table kept"; ln -sf "$RUN/VEGPARM.TBL" .; fi
+fi
 
 y() { echo "${1:0:4}"; }; m() { echo "${1:5:2}"; }; d() { echo "${1:8:2}"; }; h() { echo "${1:11:2}"; }
 plus() { date -u -d "${1:0:10} ${1:11:8} UTC + $2 hours" +%Y-%m-%d_%H:00:00; }
