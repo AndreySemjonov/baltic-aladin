@@ -45,7 +45,9 @@ SHARE = 0.9
 RING = 0.15
 # Very much alone: a lower share will do.
 ALONE_SHARE = 0.7
-ALONE_RING = 0.05
+# 0.05 dropped the Tootsi wind farm on 04.11.2026 (82 % of Estonia's images, its ring exactly 5 %; the owner's video:
+# "a lot of echoes and false rains").
+ALONE_RING = 0.08
 # A spot of the list before stays while it rains (or is cleared) in this share.
 KEEP_SHARE = 0.5
 MOST_PIXELS = 400
@@ -125,16 +127,16 @@ def main():
 
     spots = find(share, enough, mercator)
     try:
-        for s in estonia([f["time"] for f in frames]):
+        before = json.loads(get(BASE + "clutter.json")).get("spots", [])
+    except Exception:
+        before = []
+    try:
+        for s in estonia([f["time"] for f in frames], before):
             if not any(abs(s["lat"] - o["lat"]) < 0.05 and abs(s["lon"] - o["lon"]) < 0.08 for o in spots):
                 spots.append(s)
     except Exception as error:
         print(f"Estonia's radars: {error}", flush=True)
     # The list before: its spots stay while they still rain (or are cleared) in half the images.
-    try:
-        before = json.loads(get(BASE + "clutter.json")).get("spots", [])
-    except Exception:
-        before = []
     n = (1 << Z) * SIZE
     for old in before:
         if any(abs(s["lat"] - old["lat"]) < 0.05 and abs(s["lon"] - old["lon"]) < 0.08 for s in spots):
@@ -159,8 +161,9 @@ def main():
     print(f"{len(spots)} spots", flush=True)
 
 
-def estonia(times):
-    """Steady echoes of Estonia's radars: their file 5 minutes before each image (as the radar Worker takes them)."""
+def estonia(times, before=()):
+    """Steady echoes of Estonia's radars: their file 5 minutes before each image (as the radar Worker takes them).
+    A spot of the list before stays while their own images have it in half (our tiles don't show it once cleared)."""
     from pyproj import Transformer
 
     def read(t):
@@ -197,7 +200,20 @@ def estonia(times):
         lon, lat = to_lonlat.transform(-500 + (grid[0] + px) * 1000, 500 - (grid[1] + py) * 1000)
         return lon, lat, 1000
 
-    return find(np.where(enough, wet / np.maximum(looked, 1), 0), enough, place)
+    share = np.where(enough, wet / np.maximum(looked, 1), 0)
+    spots = find(share, enough, place)
+    to_grid = Transformer.from_crs("EPSG:4326", OPERA, always_xy=True)
+    for old in before:
+        x, y = to_grid.transform(old["lon"], old["lat"])
+        cx, cy = int((x + 500) // 1000) - grid[0], int((500 - y) // 1000) - grid[1]
+        if not (2 <= cx < share.shape[1] - 2 and 2 <= cy < share.shape[0] - 2):
+            continue
+        if any(abs(s["lat"] - old["lat"]) < 0.05 and abs(s["lon"] - old["lon"]) < 0.08 for s in spots):
+            continue
+        here = float(share[cy - 2:cy + 3, cx - 2:cx + 3].max())
+        if here >= KEEP_SHARE:
+            spots.append({**old, "share": round(here, 2), "kept": True})
+    return spots
 
 
 def find(share, enough, place):
