@@ -103,6 +103,9 @@ JOBS = [
     # as they're out, then replace them with the 9 km ones"; the 2.5 h before fitted neither, riders had 28 km only).
     Job("ecmwf-waves", ["waves_tiles.py", "ecmwf"], watch=[("ecmwf_wam", 12)], delay=1.25, every=30, priority=3),
     Job("ewam", ["waves_tiles.py", "ewam"], watch=[("dwd_ewam", 12)], priority=3),
+    # ECMWF's wind at 700 hPa (the owner, 4.11.2026: "Long forecast rain not moving"): the rain map's motion past
+    # ICON-EU's 5 days. From ECMWF's own files (later than Open-Meteo's copy, as the waves'): a look every 30 min.
+    Job("ecmwf-steer", ["ecmwf_steer.py"], watch=[("ecmwf_ifs", 12)], delay=1.25, every=30, priority=3),
     # Europe's models from Open-Meteo's open data (bucket.yml, ukmo.yml).
     Job("bucket-icon-ch2", ["bucket_tiles.py", "icon-ch2"], watch=[("meteoswiss_icon_ch2", 6)]),
     Job("bucket-knmi-eu", ["bucket_tiles.py", "knmi-eu"], watch=[("knmi_harmonie_arome_europe", 1)]),

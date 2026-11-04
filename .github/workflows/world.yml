@@ -16,7 +16,7 @@ on:
         type: boolean
         default: false
       only:
-        description: "Only this model (gfs, ecmwf, icon-eu, ecmwf-waves, ewam, icon, gdps, ukmo-global); empty: all"
+        description: "Only this model (gfs, ecmwf, icon-eu, ecmwf-waves, ewam, icon, gdps, ukmo-global, ecmwf-steer); empty: all"
         type: string
         default: ""
 
@@ -33,7 +33,8 @@ jobs:
         # ICON-EU over Europe (iconeu_tiles.py, docs/TILES_PLAN.md phase 2) beside the world's two; the
         # waves (waves_tiles.py, docs/WAVES_PLAN.md W1): ECMWF's for the world, EWAM over Europe.
         # ICON (DWD's 13 km) and GDPS (Canada's 15 km) for the world mix (mix_world.py, 18.10.2026).
-        model: [gfs, ecmwf, icon-eu, ecmwf-waves, ewam, icon, gdps, ukmo-global]
+        # ECMWF's wind at 700 hPa (ecmwf_steer.py): the rain's motion past ICON-EU's 5 days and outside its area (4.11.2026).
+        model: [gfs, ecmwf, icon-eu, ecmwf-waves, ewam, icon, gdps, ukmo-global, ecmwf-steer]
     concurrency:
       group: world-${{ matrix.model }}
       cancel-in-progress: false
@@ -95,6 +96,7 @@ jobs:
           script="world_tiles.py ${{ matrix.model }}"
           if [ "${{ matrix.model }}" = "icon-eu" ]; then script="iconeu_tiles.py"; fi
           if [ "${{ matrix.model }}" = "ecmwf-waves" ]; then script="waves_tiles.py ecmwf"; fi
+          if [ "${{ matrix.model }}" = "ecmwf-steer" ]; then script="ecmwf_steer.py"; fi
           if [ "${{ matrix.model }}" = "ewam" ]; then script="waves_tiles.py ewam"; fi
           if [ "$FORCE" = "true" ]; then
             .venv/bin/python $script --force
