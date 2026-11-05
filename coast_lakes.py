@@ -28,7 +28,7 @@ def chosen():
     work.mkdir(exist_ok=True)
     download(LAKES, work / "lakes.zip")
     natural = coast_tiles.polygons("lakes")
-    ne = shapely.make_valid(np.array([shapely.polygons(r[0], holes=r[1:]) for r, _ in natural]))
+    ne = shapely.make_valid(np.array([shapely.Polygon(r[0], r[1:]) for r, _ in natural], dtype=object))
     _, _, geometry, _ = pyogrio.raw.read(shapefile_in(work / "lakes.zip"), where="Lake_area >= 1", columns=[], read_geometry=True)
     hydro = shapely.make_valid(shapely.from_wkb(geometry))
     pairs = shapely.STRtree(ne).query(hydro, predicate="intersects")
