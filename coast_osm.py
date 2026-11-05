@@ -67,15 +67,23 @@ LIMIT = 85.0511
 def download(path):
     if path.exists():
         return path
-    print("downloading OSM land polygons...", flush=True)
+    # Tries again on a time-out (osmdata.openstreetmap.de timed out for one of 16 parts, 6.11.2026), into a .part first so a
+    # broken read never looks done; the world run downloads it once for all its parts (coast-world.yml).
     request = urllib.request.Request(OSM, headers={"User-Agent": "MeteoGust coastline (data.meteogust.com)"})
-    with urllib.request.urlopen(request, timeout=1800) as reply, open(path, "wb") as out:
-        while True:
-            chunk = reply.read(1 << 22)
-            if not chunk:
-                break
-            out.write(chunk)
-    return path
+    part = path.with_suffix(".part")
+    for attempt in range(5):
+        print("downloading OSM land polygons...", flush=True)
+        try:
+            with urllib.request.urlopen(request, timeout=1800) as reply, open(part, "wb") as out:
+                while chunk := reply.read(1 << 22):
+                    out.write(chunk)
+            part.rename(path)
+            return path
+        except OSError as error:
+            if attempt == 4:
+                raise
+            print(f"  {error}: again in {60 * (attempt + 1)} s", flush=True)
+            time.sleep(60 * (attempt + 1))
 
 
 def regions_of(bbox):

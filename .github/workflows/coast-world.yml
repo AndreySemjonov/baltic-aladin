@@ -31,10 +31,23 @@ jobs:
       - name: Install ecCodes, NumPy, Pillow, SciPy, pyogrio and shapely
         run: |
           python3 -m venv .venv
-          .venv/bin/pip install --quiet eccodes numpy pillow scipy pyogrio shapely
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy pyogrio shapely pyshp
 
       - name: HydroLAKES' outlines of Natural Earth's lakes
         run: .venv/bin/python -W ignore coast_lakes.py lakes.json
+
+      # OpenStreetMap's land polygons once for all the parts (16 reads at once timed out at osmdata.openstreetmap.de,
+      # 6.11.2026), with the download's own retries.
+      - name: OpenStreetMap's land polygons
+        run: .venv/bin/python -W ignore -c "from pathlib import Path; import coast_osm; coast_osm.download(Path('land-polygons-split-3857.zip'))"
+
+      - name: Keep them for the parts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coast-land
+          path: land-polygons-split-3857.zip
+          compression-level: 0
+          retention-days: 3
 
       - name: Keep them for the parts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -61,6 +74,11 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: coast-lakes
+
+      - name: OpenStreetMap's land polygons
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: coast-land
 
       - name: The tile's water, Natural Earth's lakes beside these
         env:
@@ -96,6 +114,11 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: coast-lakes
+
+      - name: OpenStreetMap's land polygons
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: coast-land
 
       - name: Make and upload this part's coast
         env:
