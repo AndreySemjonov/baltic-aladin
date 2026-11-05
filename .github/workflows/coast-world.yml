@@ -3,16 +3,80 @@ run-name: The world's coastline from OpenStreetMap
 
 # The whole world's coast in full detail (coast_osm.py --world; the owner, 16.10.2026: "fine
 # coastline worldwide", usable anywhere at release): OpenStreetMap's land polygons to zoom 10, the
-# shore from the land drawn 8 times finer, into tiles/coast/v4. In 16 parts by columns of zoom-5
-# tiles side by side, then the index from all of them (only when every part made it). Run by hand.
+# shore from the land drawn 8 times finer, into tiles/coast/<folder> (coast_osm.py FOLDER). In 16 parts
+# by columns of zoom-5 tiles side by side, then the index from all of them (only when every part made
+# it) and the far-out zooms (coast_low.py). Run by hand.
+# The lakes (v5, 6.11.2026, the owner on Lake Peipus: "same issue for lakes"): HydroLAKES' outlines of
+# Natural Earth's lakes, picked once (coast_lakes.py) for all the parts. With test_tile ("x,y", a zoom-5
+# tile) only a picture of that tile's water, Natural Earth's lakes beside these, nothing uploaded.
 on:
   workflow_dispatch:
+    inputs:
+      test_tile:
+        description: "Only compare the lakes in this zoom-5 tile (x,y), nothing uploaded"
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
 jobs:
+  lakes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install NumPy, pyogrio and shapely
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet numpy pyogrio shapely
+
+      - name: HydroLAKES' outlines of Natural Earth's lakes
+        run: .venv/bin/python -W ignore coast_lakes.py lakes.json
+
+      - name: Keep them for the parts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coast-lakes
+          path: lakes.json
+          retention-days: 3
+
+  test:
+    needs: lakes
+    if: ${{ inputs.test_tile != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install NumPy, Pillow, SciPy and pyshp
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet eccodes numpy pillow scipy pyshp
+
+      - name: The lakes
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: coast-lakes
+
+      - name: The tile's water, Natural Earth's lakes beside these
+        env:
+          TILE: ${{ inputs.test_tile }}
+        run: .venv/bin/python -W ignore coast_lakes.py --compare "$TILE" lakes.json compare.png
+
+      - name: Keep the picture
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coast-compare
+          path: compare.png
+          retention-days: 3
+
   part:
+    needs: lakes
+    if: ${{ inputs.test_tile == '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
     strategy:
@@ -28,13 +92,18 @@ jobs:
           python3 -m venv .venv
           .venv/bin/pip install --quiet eccodes numpy pillow scipy pyshp
 
+      - name: The lakes
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: coast-lakes
+
       - name: Make and upload this part's coast
         env:
           INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
           PART: ${{ matrix.part }}
         run: |
           mkdir -p parts
-          .venv/bin/python -W ignore coast_osm.py --world --columns $((PART * 2)),$((PART * 2 + 1)) --part parts/part-$PART.json
+          .venv/bin/python -W ignore coast_osm.py --world --columns $((PART * 2)),$((PART * 2 + 1)) --part parts/part-$PART.json --lakes lakes.json
 
       - name: Keep the part's lists
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -46,7 +115,7 @@ jobs:
   index:
     needs: part
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Check out
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -66,3 +135,8 @@ jobs:
         env:
           INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
         run: .venv/bin/python -W ignore coast_osm.py --index parts
+
+      - name: The far-out zooms in the index's folder
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+        run: .venv/bin/python -W ignore coast_low.py

@@ -42,12 +42,14 @@ from PIL import Image, ImageDraw
 from scipy import ndimage
 from scipy.spatial import cKDTree
 
+import coast_lakes
 import coast_tiles
 import world_tiles
 
 OSM = "https://osmdata.openstreetmap.de/download/land-polygons-split-3857.zip"
 FILES = "https://files.meteogust.com/tiles/coast/"
-FOLDER = "v4"
+# v5 (6.11.2026): the lakes from HydroLAKES (coast_lakes.py); a new folder, as the packs are kept a month in caches.
+FOLDER = "v5"
 BASE, TOP, SIZE = 5, 10, 256
 EUROPE_X, EUROPE_Y = range(13, 21), range(6, 13)
 # The zoom-5 tiles made (Europe's by default; the world's, or a part of it, by the arguments).
@@ -288,7 +290,7 @@ def world_index(parts, put):
     if len(files) < 16 or len(packs) < 300:
         raise SystemExit("parts missing: the index stays as it was")
     index = {"source": "OpenStreetMap land polygons (ODbL), the world, zooms 5-10 (the shore from the land drawn 8 times finer); "
-                       "Natural Earth's lakes (public domain)",
+                       "the lakes HydroLAKES' (CC BY 4.0) outlines of Natural Earth's (coast_lakes.py)",
              "zooms": [BASE, TOP], "fine": {"zooms": [BASE, TOP], "x": [0, 31], "y": [0, 31]},
              "tileSize": SIZE, "encoding": "127.5 on the shore, inland up and out to sea down, 16 levels a pixel of the tile's zoom",
              "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "folder": FOLDER,
@@ -321,7 +323,8 @@ def main():
         world_index(args[args.index("--index") + 1], put)
         return
     land = load_land(download(Path("land-polygons-split-3857.zip")))
-    lakes = coast_tiles.polygons("lakes")
+    # The lakes: HydroLAKES' outlines of Natural Earth's (coast_lakes.py, --lakes FILE), else Natural Earth's own.
+    lakes = coast_lakes.load(args[args.index("--lakes") + 1]) if "--lakes" in args else coast_tiles.polygons("lakes")
     old = json.loads(get(FILES + "index.json"))
     packs, all_land, size = [], [], 0
     europe = {(x, y) for x in X_RANGE for y in Y_RANGE}
