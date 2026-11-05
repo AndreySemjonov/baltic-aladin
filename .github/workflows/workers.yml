@@ -70,11 +70,13 @@ jobs:
               # web.meteogust.com, behind Cloudflare Access (both set by the owner in the dashboard).
               out="$RUNNER_TEMP/web"
               python3 app/tools/web/build.py "$out"
-              for f in "$out/worker.js" "$out/site.js"; do
+              # Every .js beside site/ is one of the Worker's modules: worker.js, site.js, the sign-in gate.js (5.11.2026).
+              parts=()
+              for f in "$out"/*.js; do
                 node --check "$f" > /dev/null 2>&1 || { echo "::error::meteogust-web: $(basename "$f") is not a valid module"; exit 1; }
+                b=$(basename "$f")
+                parts+=(-F "$b=@$f;filename=$b;type=application/javascript+module")
               done
-              parts=(-F "worker.js=@$out/worker.js;filename=worker.js;type=application/javascript+module"
-                     -F "site.js=@$out/site.js;filename=site.js;type=application/javascript+module")
               for f in "$out"/site/*; do
                 b=$(basename "$f")
                 parts+=(-F "site/$b=@$f;filename=site/$b;type=text/plain")
