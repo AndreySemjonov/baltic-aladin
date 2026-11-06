@@ -158,7 +158,7 @@ function CloudSection({ sc, now }) {
   const last2 = days.slice(-2).reverse();
   return html`
     <div class="panel s12"><h2>Satellite clouds vs airports · each frame, ${Math.round((x1 - x0) / 3600)} h</h2>
-      <p class="note" style="margin:0 0 6px">Each published frame at :15 and :45 against the METARs of ${rows.length} airports round the Baltic (:20, :50): overcast (BKN, OVC) drawn clear, clear (CAVOK, NSC, FEW only) drawn cloud, and right overall. Shaded: night at Riga (dark), low sun (light). A frame's share from 3 reports. Scored 90 minutes after each frame, as published then.</p>
+      <p class="note" style="margin:0 0 6px">Each published frame at :15 and :45 against the METARs of ${rows.length} airports round the Baltic (:20, :50): overcast (BKN, OVC) drawn clear, clear (CAVOK, NSC, FEW only) drawn cloud (judged on the ~5 km round each airport: a quarter cloudy for overcast, three quarters for clear), and right overall. Shaded: night at Riga (dark), low sun (light). A frame's share from 3 reports. Scored 90 minutes after each frame, as published then.</p>
       <${TimeChart} series=${[{ name: "right", color: "var(--ok)", width: 2.5, points: right }]} x0=${x0} x1=${x1} pct shade=${shade} H=${150} />
       <${TimeChart} series=${[{ name: "overcast drawn clear", color: "var(--bad)", points: missed }, { name: "clear drawn cloud", color: "var(--warn)", dash: "5 4", points: falses }]} x0=${x0} x1=${x1} top=${errTop} pct shade=${shade} />
       <${Legend} items=${[["right, all reports", "var(--ok)"], ["overcast drawn clear, of overcast reports", "var(--bad)"], ["clear drawn cloud, of clear reports", "var(--warn)", true]]} /></div>

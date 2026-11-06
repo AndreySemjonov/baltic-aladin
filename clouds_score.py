@@ -3,8 +3,10 @@ night and dawn rules for the deck EUMETSAT's Cloud Mask missed; "Yes, build it")
 (tiles/sat/index.json) against the METARs of 20 airports round the Baltic at :20 and :50, by the sun's height at
 each airport: night (under -6 deg), low sun (-6 to 15: dawn, dusk and November's whole day) and day. Per UTC day and
 band: overcast reports (BKN, OVC, VV), the ones drawn clear, clear reports (CAVOK, NSC, NCD, SKC, CLR, FEW only) and
-the ones drawn cloud. A frame's cloud at an airport is its zoom-6 tile's alpha (a full deck 216) over 3 x 3 pixels
-(about 4 km), cloud from CUT. Only the tiles the airports are in are read (Range requests), not the 7 MB packs.
+the ones drawn cloud. A frame's cloud at an airport is the share of its zoom-6 tile's pixels within ~5 km (9 x 9) with
+alpha (a full deck 216) from CUT: overcast drawn cloud from a quarter, clear drawn cloud from three quarters (since
+06.11.2026, version 3: in a field of cells the 3 x 3 point over the airport sat in gaps the map had about right, the
+owner, "lets investigate", Riga BKN014 under a clear point with half its ring cloud). Only the tiles the airports are in are read (Range requests), not the 7 MB packs.
 
 Kept in runner/clouds-score.json (the last 30 days; each frame scored once, 90 minutes after its time, as published
 then) with `flags`: yesterday's bands off their last two weeks (at least 20 reports each), and the last 48 hours' frames
@@ -44,6 +46,7 @@ NAMES = {"EVRA": "Riga", "EVLA": "Liepāja", "EVVA": "Ventspils", "EYSA": "Šiau
          "EFTU": "Turku", "ESSA": "Stockholm", "ESSV": "Visby", "EPGD": "Gdańsk", "UMKK": "Kaliningrad", "ESMQ": "Kalmar",
          "EYPP": "Panevėžys", "EFHA": "Halli"}
 CUT = 108  # half a full deck's alpha
+NEAR = 4  # pixels each way: 9 x 9, about 5 km at zoom 6
 BANDS = ("night", "low", "day")
 # A frame's letter at an airport: "." no verdict (no report, SCT); else "a" + 4 x its band + overcast drawn cloud 0,
 # overcast drawn clear 1, clear drawn clear 2, clear drawn cloud 3.
@@ -67,6 +70,12 @@ def sky(metar):
     if re.search(r"\b(CAVOK|NSC|NCD|SKC|CLR)\b|\bFEW\d{3}", metar):
         return "clear"
     return None
+
+
+def cloud_near(kind, share):
+    """Drawn cloud at an airport: for an overcast report a quarter of the ~5 km round it cloudy, for a clear one three
+    quarters (a cell gap or a cell next door is no miss either way)."""
+    return share >= (0.25 if kind == "cloudy" else 0.75)
 
 
 def band(sun):
@@ -98,7 +107,7 @@ def place(lat, lon):
 
 
 def covers(file, points):
-    """Each point's cloud (alpha 0-255, 3 x 3 mean) in one published pack; no tile there: clear (0)."""
+    """Each point's share of cloudy pixels (alpha from CUT) within NEAR in one published pack; no tile there: 0."""
     url = f"{FILES}tiles/sat/{file}"
     n = struct.unpack("<I", get(url, {"Range": "bytes=0-7"})[4:8])[0]
     tiles = json.loads(get(url, {"Range": f"bytes=8-{7 + n}"}))["tiles"]
@@ -112,7 +121,8 @@ def covers(file, points):
     for p in points:
         key, x, y = place(*p)
         a = alpha.get(key)
-        out.append(0.0 if a is None else float(a[max(y - 1, 0):y + 2, max(x - 1, 0):x + 2].mean()))
+        # shortcut: the window stops at the tile's edge (a smaller one there), fine while no airport sits on an edge.
+        out.append(0.0 if a is None else float((a[max(y - NEAR, 0):y + NEAR + 1, max(x - NEAR, 0):x + NEAR + 1] >= CUT).mean()))
     return out
 
 
@@ -159,7 +169,7 @@ def score(state, now):
                 places[st] = r[:2]
         known = [x for x in found if x]
         cloud = iter(covers(frame["file"], [(lat, lon) for lat, lon, _, _ in known]) if known else [])
-        rows = [None if x is None else (x[2], x[3], next(cloud) >= CUT) for x in found]
+        rows = [None if x is None else (x[2], x[3], cloud_near(x[2], next(cloud))) for x in found]
         cells = "".join("." if r is None else chr(97 + 4 * BANDS.index(r[1]) + (0 if r[0] == "cloudy" else 2) + (r[2] != (r[0] == "cloudy")))
                         for r in rows)
         return t, [r for r in rows if r], cells
@@ -194,6 +204,7 @@ def check():
     assert sky("EVRA 010720Z 18005KT 9999 OVC011 06/05 Q1021") == "cloudy"
     assert sky("EVRA 010720Z 18005KT CAVOK 06/05 Q1021") == "clear"
     assert sky("EVRA 010720Z 9999 FEW020 SCT040 06/05 Q1021") is None
+    assert cloud_near("cloudy", 0.3) and not cloud_near("cloudy", 0.2) and not cloud_near("clear", 0.5) and cloud_near("clear", 0.8)
     assert band(-7) == "night" and band(-6) == "low" and band(15) == "day"
     days = {f"2026-10-{d:02d}": {"night": [100, 10, 50, 1]} for d in range(10, 25)}
     days["2026-10-25"] = {"night": [100, 30, 50, 1]}
@@ -210,8 +221,9 @@ if __name__ == "__main__":
         state = json.loads(get(f"{FILES}runner/clouds-score.json?t={int(time.time())}"))
     except Exception:
         state = {}
-    if state.get("version") != 2:
-        state = {"version": 2}  # 2: with the frames airport by airport (01.11.2026); the index's day scored again
+    if state.get("version") != 3:
+        # 2: with the frames airport by airport (01.11.2026); 3: cloud within ~5 km (06.11.2026). The index's day scored again.
+        state = {"version": 3}
     made = score(state, time.time())
     body = json.dumps(state, separators=(",", ":")).encode()
     print(f"{made} frames scored, {len(body)} bytes, flags: {state.get('flags', [])}")
