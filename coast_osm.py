@@ -47,6 +47,8 @@ import coast_tiles
 import world_tiles
 
 OSM = "https://osmdata.openstreetmap.de/download/land-polygons-split-3857.zip"
+# Its unofficial North America mirror, tried in turn with it (the main server down for hours, 6.11.2026).
+MIRROR = "https://www.osmdata.org/download/land-polygons-split-3857.zip"
 FILES = "https://files.meteogust.com/tiles/coast/"
 # v5 (6.11.2026): the lakes from HydroLAKES (coast_lakes.py); a new folder, as the packs are kept a month in caches.
 FOLDER = "v5"
@@ -69,10 +71,11 @@ def download(path):
         return path
     # Tries again on a time-out (osmdata.openstreetmap.de timed out for one of 16 parts, 6.11.2026), into a .part first so a
     # broken read never looks done; the world run downloads it once for all its parts (coast-world.yml).
-    request = urllib.request.Request(OSM, headers={"User-Agent": "MeteoGust coastline (data.meteogust.com)"})
     part = path.with_suffix(".part")
     for attempt in range(5):
-        print("downloading OSM land polygons...", flush=True)
+        url = (OSM, MIRROR)[attempt % 2]
+        request = urllib.request.Request(url, headers={"User-Agent": "MeteoGust coastline (data.meteogust.com)"})
+        print(f"downloading OSM land polygons from {url}...", flush=True)
         try:
             with urllib.request.urlopen(request, timeout=1800) as reply, open(part, "wb") as out:
                 while chunk := reply.read(1 << 22):
