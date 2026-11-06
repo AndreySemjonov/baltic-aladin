@@ -100,6 +100,9 @@ jobs:
             check="$RUNNER_TEMP/check-$name"
             rm -rf "$check"; mkdir -p "$check"
             cp "app/tools/$dir"/*.js "$check/"
+            # The shared forecast engine (the phones', the web's and the server's, 6.11.2026) lives in tools/engine;
+            # station-history imports it as engine-forecast.js (as tools/check_worker.py does on the PC).
+            if [ "$name" = "station-history" ]; then cp app/tools/engine/forecast.js "$check/engine-forecast.js"; fi
             echo '{"type":"module"}' > "$check/package.json"
             for f in "$check"/*.js; do
               node --check "$f" > /dev/null 2>&1 || { echo "::error::$name: $(basename "$f") is not a valid module"; exit 1; }
