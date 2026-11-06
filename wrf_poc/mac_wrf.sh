@@ -144,7 +144,12 @@ else
   if [ -f "$WORK/tiles3/index.json" ]; then
     again "$PY" wrf_poc/publish_tiles.py "$WORK/tiles3" "wrf3-$REGION" || log "3 km not uploaded"
   fi
+  # A copy of the run's 1 km packs for the lab (tarifa_check.py WRF_KEEP; the owner, 06.11.2026, "Keep, fix the gaps"):
+  # the file store keeps only a set's last two runs, so the ECMWF test lost runs before they were scored. ~17 MB a run.
+  mkdir -p "$HOME/wrf-keep/wrf-$REGION" && cp -R "$WORK/tiles"/*T*Z "$HOME/wrf-keep/wrf-$REGION/" || log "no copy kept"
 fi
+# Three weeks of kept runs.
+find "$HOME/wrf-keep" -mindepth 2 -maxdepth 2 -type d -mtime +21 -exec rm -rf {} + 2> /dev/null
 # "done" sent for sure: the beat stops with this script, and a "tiles" left behind goes stale and the Tower runs it again.
 again stage done
 log "the run took $(( ($(date +%s) - started) / 60 )) minutes"

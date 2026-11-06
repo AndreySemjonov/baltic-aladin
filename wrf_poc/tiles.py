@@ -161,7 +161,8 @@ def main():
         placement = tiler.Placement(keys, composite([placer(b["lat"], b["lon"], with_distance=True) for b in boxes]))
         sample = composite_sample
     run = tiler.Run(name, run_time, zooms=zooms, model=f"WRF {km} km {NAMES.get(region, region)} (test)",
-                    credit="WRF (NCAR), our test run from NOAA's GFS", force=True, local=local)
+                    credit="WRF (NCAR), our test run from " + ("ECMWF's open data" if region.endswith("-ec") else "NOAA's GFS"),
+                    force=True, local=local)
     for hour, stamp in enumerate(stamps):
         when = int(datetime.strptime(stamp, "%Y-%m-%d_%H:%M:%S").replace(tzinfo=timezone.utc).timestamp())
         layer = (lambda name: boxes[0][name][hour]) if len(boxes) == 1 else (lambda name: tuple(b[name][hour] for b in boxes))
