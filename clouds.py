@@ -56,6 +56,11 @@ MASK = "msg_fes:clm"
 VISIBLE = "mtg_fd:vis06_hrfi"
 HEIGHT = "msg_fes:cth"
 FOG = "mtg_fd:rgb_fog"
+CLOUDTYPE = "mtg_fd:rgb_cloudtype"
+# sunlit_low_cloud on: the Baltic while it's snow-free (the owner, 06.11.2026: "A, Baltic till snow"). It draws snowy ground
+# as cloud (Lapland: 21-39 % of clear skies), so False at the first snow round the Baltic (the scorecard's "clear drawn
+# cloud" flag), until a winter backtest finds a snow test (docs/backlog/data.md in the app's repo).
+LOW_SUN_RULE = True
 LEGEND = "https://view.eumetsat.int/geoserver/wms?service=WMS&version=1.3.0&request=GetLegendGraphic&layer=msg_fes:cth&format=image/png"
 # The grey by the cloud top's height (km): low darker, high brighter.
 HEIGHT_KM = [0, 2, 6, 10, 12]
@@ -202,6 +207,23 @@ def water_cloud(fog, night=None):
     out = low_water(fog)
     if night is not None:
         out |= night & (fog[..., 1] > 120) & (fog[..., 1] - fog[..., 0] > -40)
+    return out
+
+
+def sunlit_low_cloud(mask, cloudtype, sun, lat):
+    """The low deck the Cloud Mask misses in low sun, from MTG's Cloud Type RGB (green 0.64 um, blue 1.6 um, where water
+    cloud is bright and snow dark): cloudy where both are at least 16 + 9 x the sun's height (`sun`, degrees, on the
+    mask's grid), the sun up. The owner's scorecard, 05.11.2026: Palanga BKN012-016 drawn clear, the mask clear for
+    15 km round under ~15 deg of sun; "Both", then "Yes, add it" (06.11.2026). Backtested on 15.10-05.11 (20 airports,
+    5,853 daylight reports, lab_lowsun_fit.py, each day fitted on the others): of the overcast reports the mask called
+    clear 288 of 527 caught, of the clear ones 26 of 1,362 called cloud. Without the picture the mask as it was.
+    Only south of 61.5 deg N (`lat`, on the mask's grid), the bar raised from there to out of reach at 62.5 (a fade, no
+    straight edge): further north it drew snow as cloud (lab_lowsun_clouds.py --north, 25.10-05.11, 18 airports)."""
+    if cloudtype is None or cloudtype.shape[:2] != mask.shape[:2]:
+        return mask
+    bar = 16 + 9 * sun + 240 * np.clip(lat - 61.5, 0, 1)
+    out = mask.copy()
+    out[(sun >= 0) & (cloudtype[..., 1:3].min(axis=2) >= bar)] = 255
     return out
 
 
@@ -401,6 +423,9 @@ def sat_pack(when, incomplete=True, again=False):
             "height": (HEIGHT, when, (width // 4, height // 4)), "fog": (FOG, ten, (width // 4, height // 4))}
     if daylight.max() > 0:
         jobs["visible"] = (VISIBLE, ten, (width, height))
+        # Optional: no frame waits for it (sunlit_low_cloud).
+        if LOW_SUN_RULE:
+            jobs["cloudtype"] = (CLOUDTYPE, ten, (width // 4, height // 4))
 
     def listed(layer, t):
         # Asked for a time it hasn't listed, the map server answers with its newest older picture (a 09:40 visible for a
@@ -472,6 +497,9 @@ def sat_pack(when, incomplete=True, again=False):
 
     sun_now = sun_height(lats[:, None], lons[None, :], when)
     mask = with_low_cloud(mask, got.get("fog"), grid(sun_now < -6))
+    sun_grid = np.asarray(Image.fromarray(sun_now.astype(np.float32)).resize((mask.shape[1], mask.shape[0]), Image.BILINEAR))
+    lat_grid = np.interp(np.linspace(0, len(lats) - 1, mask.shape[0]), np.arange(len(lats)), lats)[:, None]
+    mask = sunlit_low_cloud(mask, got.get("cloudtype"), sun_grid, lat_grid)
     rising =(sun_now >= -6) & (sun_now < 15) & (sun_now > sun_height(lats[:, None], lons[None, :], when - timedelta(minutes=30)))
     # With the sun up, the memory's deck only where the visible is still that bright: brighter than 23 + 2 a degree of
     # sun (of 255), bare ground under it (the owner's photos, 29.10.2026: blue sky by Riga airport at 08:20-09:05 Riga,
@@ -761,7 +789,8 @@ def newest_ready(now):
     listed"; frames came 31-35 min after their time, EUMETSAT lists them after about 22). Not merely a shorter wait:
     asked for a time it hasn't got, the map server answers with the newest older picture (21:55's infrared came back as
     21:40's), so a frame could mix a new infrared with an old mask. Unlisted (the server down): 30 minutes old, as before."""
-    layers = (MASK, HEIGHT, INFRARED, FOG, VISIBLE)
+    # The Cloud Type only listed, never waited for (asked unlisted, the server answers with an older picture).
+    layers = (MASK, HEIGHT, INFRARED, FOG, VISIBLE, CLOUDTYPE)
     with ThreadPoolExecutor(len(layers)) as pool:
         until = dict(zip(layers, pool.map(listed_until, layers)))
     LISTED.clear()
