@@ -126,11 +126,13 @@ jobs:
                 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
                 --data '[{"cron":"*/5 * * * *"}]' | python3 -c 'import json,sys; r=json.load(sys.stdin); print("schedule:", "ok" if r.get("success") else r.get("errors"))'
             else
-              reply=$(curl -sS -X PUT "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/workers/scripts/$name/content" \
+              reply=$(curl -sS -D "$RUNNER_TEMP/headers-$name" -X PUT "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/workers/scripts/$name/content" \
                 -H "Authorization: Bearer $TOKEN" \
                 -F 'metadata={"main_module":"worker.js"};type=application/json' \
                 "${parts[@]}")
             fi
+            # An empty answer (6.11.2026: twice for station-history): Cloudflare's status line and headers, to see why.
+            if [ -z "$reply" ]; then echo "::error::$name: empty answer from Cloudflare"; head -20 "$RUNNER_TEMP/headers-$name" 2>/dev/null; exit 1; fi
             echo "$reply" | NAME="$name" python3 -c '
           import json, os, sys
           reply = json.load(sys.stdin)
