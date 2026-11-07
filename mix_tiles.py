@@ -131,10 +131,11 @@ MAX_GAP = 6 * 3600
 # Raised when a change here alters the tiles (the next run makes every tile again).
 VERSION = 1
 NONE = "------"
-# Hours past the first day remade at most every 3 hours (the owner, 21.10.2026, "make all next": an hour later 94 % of
+# Hours past the first day remade at most every 6 hours (3 from 21.10.2026, 6 from 8.11.2026: R2 writes held under 2M
+# a month; the owner, 21.10.2026, "make all next": an hour later 94 % of
 # the tiles had a newer model run, HARM-EU's and MET Nordic's every hour; riders look at today and tomorrow most).
 # Each frame says when its pack was made ("made").
-FAR_FROM, FAR_EVERY = 24 * 3600, 3 * 3600
+FAR_FROM, FAR_EVERY = 24 * 3600, 6 * 3600
 # Under the home runner in shadow (--local, its /stats folder): the shadow's own last index stands for the published one,
 # so a shadow run keeps what it made (far hours, unchanged hours) as the live job does (the owner, 23.10.2026: against
 # GitHub's index every far hour was remade, "0 kept", 38 CPU-hours a day at home). An hour with a changed input is made

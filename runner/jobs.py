@@ -169,8 +169,9 @@ JOBS = [
     Job("sea-world", ["sea_world.py"], every=1440, heavy=True, needs=COPERNICUS, timeout=240, priority=3),
     # Stations read at home (station-history's homeStationRows): Kolka from meteo.kolka.lv's two pictures with the NAS's
     # kolka.py (the owner, 25.10.2026: "Go with plan A", "Make station live already"). Its pictures change every minute
-    # or two; the collect takes the newest each 5 minutes.
-    Job("kolka", ["stations/kolka_home.py"], every=2, timeout=3, priority=1, mem_mb=200, tiny=True, mac=True),
+    # or two; the collect takes the newest each 5 minutes, so every 5 here too (every 2 until 8.11.2026, the owner: R2
+    # writes held under 2M a month).
+    Job("kolka", ["stations/kolka_home.py"], every=5, timeout=3, priority=1, mem_mb=200, tiny=True, mac=True),
     # OPERA's radar composite as GeoTIFF where EUMETNET publishes only the HDF5 (the owner, 26.10.2026: "lets make B";
     # from 00:25 UTC that day their GeoTIFFs stopped, and with them our radar, the rain alerts and the nowcast): every
     # 3 minutes the last hour's images without theirs, a few seconds each; nothing to do while theirs are there.

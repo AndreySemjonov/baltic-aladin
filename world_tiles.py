@@ -154,16 +154,18 @@ def ecmwf9_newest_run():
     raise SystemExit("No complete ECMWF 9 km run found")
 
 
-# The hours past the first day remade at most every 3 hours (the owner, 21.10.2026, "M2", as the Mix's FAR_FROM and
-# FAR_EVERY): an hourly set's new run keeps the published run's packs of those hours while they're under 3 hours old
+# The hours past the first day remade at most every 6 hours (3 from 21.10.2026, the owner's "M2"; 6 from 8.11.2026, the
+# owner: R2 writes held under 2M a month, ~0.01 m/s on day 2's maps), as the Mix's FAR_FROM and
+# FAR_EVERY: an hourly set's new run keeps the published run's packs of those hours while they're under 6 hours old
 # (each frame says when its pack was made: "made"); station-history keeps every folder an index points to. An hour
-# later 94 % of the Mix's far tiles were unchanged; the near day stays hourly. 3- and 6-hourly sets: never kept.
-FAR_FROM, FAR_EVERY = 24 * 3600, 3 * 3600
+# later 94 % of the Mix's far tiles were unchanged; the near day stays hourly. 3-hourly sets: every other run's
+# kept; 6-hourly: never.
+FAR_FROM, FAR_EVERY = 24 * 3600, 6 * 3600
 
 
 def far_frames(index):
     """{time: frame} of a published index's frames to keep as they are: past the first day from now, made under
-    FAR_EVERY ago (10 minutes' margin, so hourly runs remake them every third run)."""
+    FAR_EVERY ago (10 minutes' margin, so hourly runs remake them every sixth run)."""
     now = time.time()
     out = {}
     for frame in (index or {}).get("frames") or []:
@@ -880,6 +882,10 @@ def main():
     if local is None and "--force" not in args and published(model) == run_name:
         print(f"{model}: {run_name} is published already")
         return
+    # GFS's and ICON's 06/18 UTC runs: the map's own hours to +72 h, then the 00/12 run's (with_tail), as ECMWF's
+    # short runs (the owner, 8.11.2026: R2 writes held under 2M a month, ~0.05 m/s at worst on days 4-16); the spots'
+    # cells still from every hour.
+    tail_from = 72 if model in ("gfs", "icon") and run.hour % 12 != 0 else None
     steps = {"gfs": GFS_STEPS, "ecmwf": ecmwf_map.STEPS, "icon": ICON_STEPS, "gdps": GDPS_STEPS}.get(model)
     if nine:
         steps = None
@@ -965,6 +971,18 @@ def main():
                 previous[0], previous[1] = step, fields["tp"]
             elif "rate" in fields:
                 rate = fields["rate"]
+            if cells is not None:
+                try:
+                    if "_native" in fields:
+                        cells.add_native(t, fields["_native"])
+                    else:
+                        cells.add_regular(t, grid, fields, rate)
+                except Exception as error:
+                    print(f"{model} step {step}: the spots' cells left out ({error})", flush=True)
+                    cells = None
+            # A 06/18 UTC run's later hours: the spots' cells only, the map keeps the published run's (with_tail).
+            if tail_from is not None and step > tail_from:
+                continue
             jobs = {"file": makers.submit(pack, sample, fields)}
             if "2t" in fields:
                 jobs["temp"] = makers.submit(temp_pack, sample, fields)
@@ -976,15 +994,6 @@ def main():
             # The rest of a place's weather (ECMWF 9 km's: humidity, visibility, thunder, snow, showers).
             if "vis" in fields and "2d" in fields:
                 jobs["sky"] = makers.submit(sky_pack, sample, fields)
-            if cells is not None:
-                try:
-                    if "_native" in fields:
-                        cells.add_native(t, fields["_native"])
-                    else:
-                        cells.add_regular(t, grid, fields, rate)
-                except Exception as error:
-                    print(f"{model} step {step}: the spots' cells left out ({error})", flush=True)
-                    cells = None
             frame = {"time": t, "file": f"{run_name}/{t}.pack"}
             for key, job in jobs.items():
                 name = f"{run_name}/{t}{suffixes[key]}.pack"
@@ -1016,7 +1025,7 @@ def main():
         frames, size, cells, land = make(source, cells)
     if not frames:
         raise SystemExit(f"{model}: no frames")
-    if short:
+    if short or tail_from is not None:
         own = len(frames)
         frames = with_tail(frames, published_index(model))
         print(f"{model} {run_name}: {own} hours of its own, {len(frames) - own} of the run before after them", flush=True)

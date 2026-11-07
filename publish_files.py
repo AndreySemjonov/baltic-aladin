@@ -77,7 +77,12 @@ def main():
     for name in NAMES:
         path = folder / f"{name}.json"
         if path.exists():
-            print(f"{name}.json ({path.stat().st_size // 1000} KB): {upload(name + '.json', path.read_bytes(), token)}", flush=True)
+            data = path.read_bytes()
+            # Only a changed file (the owner, 8.11.2026: R2 writes held under 2M a month; a read costs an eighth).
+            if published(name + ".json") == data:
+                print(f"{name}.json: unchanged", flush=True)
+                continue
+            print(f"{name}.json ({len(data) // 1000} KB): {upload(name + '.json', data, token)}", flush=True)
     for name in PICTURES:
         picture(folder, name, token)
 
