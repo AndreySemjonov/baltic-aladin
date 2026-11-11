@@ -100,7 +100,7 @@ def main():
     native_lat = np.repeat(lats, counts)
     native_lon = (np.concatenate([np.arange(n) * 360.0 / n for n in counts]) + 180) % 360 - 180
     cells = spot_cells.SpotCells("ecmwf", "ecmwf_ifs", weather="ecmwf-wx")
-    wanted = {"10u", "10v", "gust", "2t", "rain", "tcc", "low", "mid", "high"}
+    wanted = {"10u", "10v", "gust", "2t", "rain", "tcc", "low", "mid", "high", "snow"}
     steps = sorted(files)
     started, previous = time.time(), 0
     print(f"ECMWF {run_name}: {len(steps)} hours", flush=True)
@@ -120,6 +120,8 @@ def main():
             omremote.done(path)
             if "rain" in values:
                 values["rate"] = np.maximum(values.pop("rain"), 0) / max(step - previous, 1)
+            if "snow" in values:
+                values["snow"] = np.maximum(values["snow"], 0) / max(step - previous, 1)
             previous = step
             cells.add_native(int(run.timestamp()) + step * 3600, {"lat": native_lat, "lon": native_lon, "values": values})
             if step % 24 == 0:

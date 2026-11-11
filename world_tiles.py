@@ -292,7 +292,7 @@ def ecmwf9_steps(run, steps, grid=None, part=None):
                     continue
                 values = np.nan_to_num(values.astype(np.float32))
                 fields[ours] = regular(values) + add
-                if ours in ("10u", "10v", "gust", "2t", "rain", "tcc", "low", "mid", "high"):
+                if ours in ("10u", "10v", "gust", "2t", "rain", "tcc", "low", "mid", "high", "snow"):
                     native[ours] = values + add
             reader.close()
             omremote.done(path)
@@ -303,6 +303,9 @@ def ecmwf9_steps(run, steps, grid=None, part=None):
                 fields["rate"] = np.maximum(fields["rain_step"], 0) / max(step - before, 1)
             if "rain" in native:
                 native["rate"] = np.maximum(native.pop("rain"), 0) / max(step - before, 1)
+            # The snow (its water) the same way: the spots' snow share (spot_cells.py).
+            if "snow" in native:
+                native["snow"] = np.maximum(native["snow"], 0) / max(step - before, 1)
             fields["_native"] = dict(native_points, values=native)
             yield step, fields, ECMWF9_GRID
 

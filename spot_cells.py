@@ -6,7 +6,8 @@ from the cell nearest its point for that model (its csPoints: Open-Meteo's cell_
 the regional models' sea points blended between the 4 cells round them since 31.10.2026) and its air, rain and clouds from the nearest cell whose centre is on land (cell_selection=land; our
 coastline tiles say where land is; the model's own ground where we have it, as Open-Meteo), the air
 moved from the cell's ground to the spot's (our terrain; 6.5 °C a km, as Open-Meteo), written as spot_points.py's files (points/<set>.json: [east,
-north, gust] m/s; points/<set>-wx.json: [air °C, rain mm an hour, cloud %, low, mid, high]).
+north, gust] m/s; points/<set>-wx.json: [air °C, rain mm an hour, cloud %, low, mid, high, rain within 10 km, snow share 0-1 (ECMWF's,
+MET Nordic's: only where the model's own rain is WET mm an hour or more; the owner, 11.11.2026)]).
 
     cells = SpotCells("ecmwf", "ecmwf_ifs", weather="ecmwf-wx")
     for each hour: cells.add_regular(t, grid, fields, rate)      # a regular latitude/longitude grid
@@ -34,6 +35,17 @@ LAND_RINGS = 3
 # owner, 19.10.2026): each model's heaviest rain over a lattice round the spot, every NEAR_STEP km.
 NEAR_KM, NEAR_STEP = 10, 5
 # The world's models: their sea points stay the nearest cell (admin spots.js GLOBAL_MODELS).
+# Rain from this much (mm an hour) carries a snow share.
+WET = 0.05
+
+
+def snow_share(rain, snow):
+    """What falls, 0 rain to 1 snow, when the model has rain here; else None."""
+    if rain is None or snow is None or not math.isfinite(rain) or not math.isfinite(snow) or rain < WET:
+        return None
+    return round(min(max(snow, 0.0), 1.0), 2)
+
+
 GLOBAL_KEYS = {"ecmwf_ifs", "gfs_global", "icon_global", "gem_global", "ukmo_global_deterministic_10km"}
 
 
@@ -380,6 +392,8 @@ class SpotCells:
 
         def percent(name, i):
             return round(float(values[name][i]) * scales[name]) if name in values else None
+        def rate_at(i):
+            return float(values["rate"][i]) if "rate" in values else None
         def near_rain(k):
             if "rate" not in values or not self.near.get(k):
                 return None
@@ -387,7 +401,9 @@ class SpotCells:
             return round(max(max(found), 0), 2) if found else None
         self.air[int(t)] = {k: [round(float(values["2t"][i]) - 273.15 + self.shift.get(k, 0.0), 1),
                                 None if "rate" not in values else round(max(float(values["rate"][i]), 0), 2),
-                                percent("tcc", i), percent("low", i), percent("mid", i), percent("high", i), near_rain(k)]
+                                percent("tcc", i), percent("low", i), percent("mid", i), percent("high", i), near_rain(k),
+                                # ECMWF's snow (water, mm an hour) over its rain.
+                                snow_share(rate_at(i), float(values["snow"][i]) / max(rate_at(i), 1e-6) if "snow" in values and rate_at(i) else None)]
                             for k, i in air_cells.items()}
 
     def add_native(self, *args, **kwargs):
@@ -401,7 +417,7 @@ class SpotCells:
 
     # MARK: A model's own projection (the regional models, MET Nordic)
 
-    def _add_placed(self, t, place, sample, east, north, gust, air=None, rain=None, cloud=None):
+    def _add_placed(self, t, place, sample, east, north, gust, air=None, rain=None, cloud=None, snow=None):
         """One hour on a model's own grid: `place(lon, lat)` -> its column, row (and weight), `sample(
         values, col, row)` its value there; the spot's nearest cell, the air at the spot's own."""
         if self.cells is None:
@@ -447,7 +463,9 @@ class SpotCells:
             self.air[int(t)] = {k: [None if at(air, c) is None else round(at(air, c) + self.shift.get(k, 0.0), 1),
                                     None if at(rain, c) is None else round(max(at(rain, c), 0), 2),
                                     None if at(cloud, c) is None else round(at(cloud, c) * (100 if at(cloud, c) <= 1.5 else 1)),
-                                    None, None, None, near_rain(k)] for k, c in air_cells.items()}
+                                    None, None, None, near_rain(k),
+                                    # MET Nordic's chance of snow, 0-1.
+                                    snow_share(at(rain, c), at(snow, c))] for k, c in air_cells.items()}
 
     # MARK: Safe to call from the tile builders: a failure stops the spots' cells, never the tiles.
 

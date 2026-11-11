@@ -32,6 +32,9 @@ BOX = (49.0, 74.0, -6.0, 42.0)
 NAMES = (("speed", "wind_speed_10m"), ("direction", "wind_direction_10m"), ("gust", "wind_speed_of_gust"))
 WEATHER = (("speed", "wind_speed_10m"), ("air", "air_temperature_2m"), ("humidity", "relative_humidity_2m"),
            ("pressure", "air_pressure_at_sea_level"), ("rain", "precipitation_amount"), ("cloud", "cloud_area_fraction"))
+# MET Nordic's chance that what falls is snow (0-1, every hour, wet or dry), for the spots' forecast (the owner, 11.11.2026:
+# "we have to show snow on forecast too"); optional: the air and rain go on without it.
+SNOW = (("snow", "probability_of_snow_phase"),)
 CREDIT = "MET Nordic, MET Norway (CC BY 4.0)"
 
 
@@ -106,10 +109,18 @@ def main():
     # Eight hours at a time (each field about 130 MB for 8 hours at every cell).
     for k in range(0, len(steps), 8):
         chunk = steps[k:k + 8]
-        names = WEATHER if weather else NAMES
+        names = WEATHER + SNOW if weather else NAMES
+
+        def fetch(pair, chunk=chunk):
+            try:
+                return regional_tiles.fetch_hours(pair[1], chunk, ROWS, COLS)
+            except Exception as error:
+                if pair not in SNOW:
+                    raise
+                print(f"  no snow chance ({error})", flush=True)
+                return None
         with ThreadPoolExecutor(len(names)) as pool:
-            fields = dict(zip([key for key, _ in names],
-                              pool.map(lambda pair: regional_tiles.fetch_hours(pair[1], chunk, ROWS, COLS), names)))
+            fields = dict(zip([key for key, _ in names], pool.map(fetch, names)))
         if weather:
             for s in chunk:
                 t = int(times[s])
@@ -123,7 +134,8 @@ def main():
                 if not out.checked("MET Nordic", t, quality.weather(air, rain)):
                     continue
                 if cells is not None:
-                    cells.add_placed(t, place, sample, None, None, None, air=air, rain=rain, cloud=cloud)
+                    snow = None if fields.get("snow") is None else np.clip(np.nan_to_num(fields["snow"][s]), 0, 1)
+                    cells.add_placed(t, place, sample, None, None, None, air=air, rain=rain, cloud=cloud, snow=snow)
                 if out.kept_far(t):
                     continue
                 valid = lambda at: np.isfinite(at(raw))  # noqa: E731
