@@ -167,7 +167,8 @@ def main():
                 cells.add_regular(t, grid, {"10u": u, "10v": v, "gust": fields.get("VMAX_10M", np.hypot(u, v)),
                                             "2t": fields["T_2M"], "tcc": fields["CLCT"], **layers}, rain)
             weather.put(t, tiler.pack(placement, sample, lambda at: tiler.temp_rgb(at(air), at(feels), at(hpa))), "temp")
-            weather.put(t, tiler.pack(placement, sample, lambda at: tiler.rain_rgb(at(rain), at(cloud))), "rain")
+            share = tiler.snow_from_air(air)
+            weather.put(t, tiler.pack(placement, sample, lambda at: tiler.rain_rgb(at(rain), at(cloud), at(share))), "rain")
             if {"CLCL", "CLCM", "CLCH"} <= fields.keys():
                 low, mid, high = (fields[name] / 100 for name in ("CLCL", "CLCM", "CLCH"))
                 weather.put(t, tiler.pack(placement, sample, lambda at: tiler.cloud_rgb(at(low), at(mid), at(high))), "cloud")

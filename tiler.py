@@ -118,12 +118,20 @@ def cloud_rgb(low, mid, high):
     return np.stack([np.clip(np.rint(np.nan_to_num(v) * 255), 0, 255) for v in (low, mid, high)], axis=-1)
 
 
-def rain_rgb(mm, cloud):
-    """sqrt(mm an hour) x 50, the cloud cover (0-1) x 255."""
+def snow_from_air(celsius):
+    """The snow's share of the precipitation from the 2 m air alone (a model without its own): all at +0.5 °C
+    or colder, none from +2.5 °C (the spot table's rule, Forecast.swift snowShare, as a ramp)."""
+    return np.clip((2.5 - np.nan_to_num(celsius, nan=10)) / 2, 0, 1)
+
+
+def rain_rgb(mm, cloud, snow=None):
+    """sqrt(mm an hour) x 50, the cloud cover (0-1) x 255, the snow's share (0-1) x 255 (the map's lilac; the
+    owner, 11.11.2026: "Not see snow in forecast")."""
     mm = np.maximum(np.nan_to_num(mm), 0)
     cloud = np.clip(np.nan_to_num(cloud), 0, 1)
+    snow = np.zeros(mm.shape) if snow is None else np.clip(np.nan_to_num(snow), 0, 1)
     return np.stack([np.clip(np.rint(np.sqrt(mm) * 50), 0, 255), np.clip(np.rint(cloud * 255), 0, 255),
-                     np.zeros(mm.shape)], axis=-1)
+                     np.rint(snow * 255)], axis=-1)
 
 
 def cells_across(z, km):

@@ -184,7 +184,8 @@ def main():
         if rain is not None:
             cover = np.clip(np.nan_to_num(cloud) / 100, 0, 1) if cloud is not None else np.zeros_like(rain)
             wet = np.maximum(np.nan_to_num(rain), 0)
-            out.put(t, tiler.pack(placement, grid.sample, lambda at: tiler.rain_rgb(at(wet), at(cover)),
+            share = tiler.snow_from_air(air) if air is not None else np.zeros_like(wet)
+            out.put(t, tiler.pack(placement, grid.sample, lambda at: tiler.rain_rgb(at(wet), at(cover), at(share)),
                                   valid=lambda at: np.isfinite(at(rain))), "rain")
         print(f"  {valid:%d %H:%M}: {out.bytes / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
     out.finish()

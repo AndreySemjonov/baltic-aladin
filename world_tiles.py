@@ -684,15 +684,20 @@ def temp_pack(sample, fields):
 
 
 def rain_pack(sample, fields, rate):
-    """The rain as the Baltic rain map: red sqrt(mm an hour) x 50, green the cloud cover x 255."""
+    """The rain as the Baltic rain map: red sqrt(mm an hour) x 50, green the cloud cover x 255, blue the snow's
+    share x 255 (ECMWF's own snow over its rain where wet, else from the 2 m air as tiler.snow_from_air)."""
     tiles = {}
     for key in sample.tiles:
         mm = np.maximum(np.nan_to_num(sample(key, rate)), 0)
         cloud = np.nan_to_num(sample(key, fields["tcc"])) if "tcc" in fields else np.zeros_like(mm)
         if cloud.max() > 1.5:
             cloud = cloud / 100
+        share = np.clip((275.65 - np.nan_to_num(sample(key, fields["2t"]), nan=290)) / 2, 0, 1) if "2t" in fields else 0 * mm
+        if "snow" in fields and "rain_step" in fields:
+            step = np.maximum(np.nan_to_num(sample(key, fields["rain_step"])), 0)
+            share = np.where(step > 0.01, np.clip(np.nan_to_num(sample(key, fields["snow"])) / np.maximum(step, 1e-6), 0, 1), share)
         rgb = np.stack([np.clip(np.rint(np.sqrt(mm) * 50), 0, 255), np.clip(np.rint(cloud * 255), 0, 255),
-                        np.zeros_like(mm)], axis=-1).astype(np.uint8)
+                        np.rint(share * 255)], axis=-1).astype(np.uint8)
         tiles[key] = png(rgb, "RGB")
     return encode(tiles, sample.sizes)
 

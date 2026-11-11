@@ -133,8 +133,8 @@ def main():
                 cloud = np.clip(np.nan_to_num(fields["cloud"][s]), 0, 1)
                 if not out.checked("MET Nordic", t, quality.weather(air, rain)):
                     continue
+                snow = None if fields.get("snow") is None else np.clip(np.nan_to_num(fields["snow"][s]), 0, 1)
                 if cells is not None:
-                    snow = None if fields.get("snow") is None else np.clip(np.nan_to_num(fields["snow"][s]), 0, 1)
                     cells.add_placed(t, place, sample, None, None, None, air=air, rain=rain, cloud=cloud, snow=snow)
                 if out.kept_far(t):
                     continue
@@ -143,7 +143,8 @@ def main():
                 air0 = np.nan_to_num(air)
                 out.put(t, tiler.pack(placement, sample, lambda at: tiler.temp_rgb(at(air0), at(feels), at(hpa)), valid,
                                       km=mn.STEP / 1000), "temp")
-                out.put(t, tiler.pack(placement, sample, lambda at: tiler.rain_rgb(at(rain), at(cloud)), valid,
+                share = snow if snow is not None else tiler.snow_from_air(air)
+                out.put(t, tiler.pack(placement, sample, lambda at: tiler.rain_rgb(at(rain), at(cloud), at(share)), valid,
                                       km=mn.STEP / 1000), "rain")
             print(f"  {len(out.frames)} hours, {out.bytes / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
             continue
