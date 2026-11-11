@@ -579,9 +579,12 @@ def main():
         def temp_rgb(air, feel, pressure):
             return np.stack([temp_map.encode(air), temp_map.encode(feel), np.clip(np.rint((pressure - 940) * 2), 1, 255)], axis=-1)
 
-        def rain_rgb(amount, cover):
+        # Blue: the snow's share from the 2 m air (tiler.snow_from_air; the owner, 11.11.2026: "Not see snow in forecast").
+        # shortcut: from the air, not MET Nordic's own probability_of_snow_phase (as metnordic_tiles.py's 1 km): that is
+        # one more field held for every hour here; read it when the blend's memory allows.
+        def rain_rgb(amount, cover, air):
             return np.stack([np.clip(np.rint(np.sqrt(np.maximum(amount, 0)) * 50), 0, 255),
-                             np.clip(np.rint(cover * 255), 0, 255), np.zeros(amount.shape)], axis=-1)
+                             np.clip(np.rint(cover * 255), 0, 255), np.rint(np.clip((2.5 - np.nan_to_num(air, nan=10)) / 2, 0, 1) * 255)], axis=-1)
 
         # The others at this hour: their air (the pressure left as MET Nordic's or ECMWF's: the
         # isobars come from ECMWF's anyway) and rain, averaged by their weights where they overlap,
@@ -604,7 +607,7 @@ def main():
                     rh, speed = sample(data["rh"], c, r), sample(data["wind"], c, r)
                     feel = temp_map.feels_like(np.nan_to_num(air), np.nan_to_num(speed), np.nan_to_num(rh, nan=0.6))
                     rgb_t = temp_rgb(np.nan_to_num(air), feel, np.full(air.shape, 1013.0)).astype(np.float32)
-                    rgb_r = rain_rgb(np.nan_to_num(sample(data["rain"], c, r)), np.nan_to_num(sample(data["cloud"], c, r))).astype(np.float32)
+                    rgb_r = rain_rgb(np.nan_to_num(sample(data["rain"], c, r)), np.nan_to_num(sample(data["cloud"], c, r)), air).astype(np.float32)
                     sums_t = sums_t + rgb_t * w[..., None]
                     sums_r = sums_r + rgb_r * w[..., None]
                     w_sum = w_sum + w
@@ -615,7 +618,7 @@ def main():
                 extra_temp[key] = (sums_t / np.maximum(w_sum, 1e-6)[..., None], share)
                 extra_rain[key] = (sums_r / np.maximum(w_sum, 1e-6)[..., None], share)
         temp = packed(lambda at: temp_rgb(at(celsius), at(feels), at(hpa)), extra_temp)
-        rain = packed(lambda at: rain_rgb(at(mm), at(cloud)), extra_rain)
+        rain = packed(lambda at: rain_rgb(at(mm), at(cloud), at(celsius)), extra_rain)
         put(f"{run_name}/{t}-temp.pack", temp)
         put(f"{run_name}/{t}-rain.pack", rain)
         frames.append({"time": t, "file": f"{run_name}/{t}-temp.pack", "temp": f"{run_name}/{t}-temp.pack",
