@@ -118,6 +118,13 @@ def cloud_rgb(low, mid, high):
     return np.stack([np.clip(np.rint(np.nan_to_num(v) * 255), 0, 255) for v in (low, mid, high)], axis=-1)
 
 
+def snow_rgb(cm):
+    """The snow's depth on the ground: 1 + cm (to 254 cm; 0 = unknown, 1 = none)."""
+    cm = np.asarray(cm, dtype=np.float32)
+    return np.stack([np.where(np.isfinite(cm), np.clip(np.rint(np.nan_to_num(cm)) + 1, 1, 255), 0),
+                     np.zeros(cm.shape), np.zeros(cm.shape)], axis=-1)
+
+
 def snow_from_air(celsius):
     """The snow's share of the precipitation from the 2 m air alone (a model without its own): all at +0.5 °C
     or colder, none from +2.5 °C (the spot table's rule, Forecast.swift snowShare, as a ramp)."""
@@ -224,7 +231,7 @@ class Run:
             print(f"{self.name}: check.json not sent ({error})", flush=True)
 
     def put(self, unix_time, data, kind=None):
-        """One hour's pack (kind: None the wind, "temp", "rain" or "cloud")."""
+        """One hour's pack (kind: None the wind, "temp", "rain", "cloud" or "snow")."""
         file = f"{self.folder}/{unix_time}{'-' + kind if kind else ''}.pack"
         if self.local:
             (self.local / self.folder).mkdir(parents=True, exist_ok=True)

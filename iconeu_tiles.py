@@ -35,7 +35,9 @@ FADE_KM = 150
 WIND = ("U_10M", "V_10M", "VMAX_10M")
 # The clouds low (under about 2 km), mid (2-6 km) and high (over 6 km) too: the app's forecast clouds in
 # layers (the owner, 15.10.2026).
-WEATHER = ("U_10M", "V_10M", "T_2M", "TD_2M", "PMSL", "TOT_PREC", "CLCT", "CLCL", "CLCM", "CLCH")
+# The snow's depth on the ground (m) for the Snow map (the owner, 12.11.2026, docs/mockups/snow-depth-2026-11-12.png "B");
+# not ECMWF's: its open data packs the snow's water in 31 mm steps, under ~15 cm reads none.
+WEATHER = ("U_10M", "V_10M", "T_2M", "TD_2M", "PMSL", "TOT_PREC", "CLCT", "CLCL", "CLCM", "CLCH", "H_SNOW")
 # The wind aloft: (name in the fields, variable, level in hPa).
 STEER = (("U_700", "U", 700), ("V_700", "V", 700))
 STEER_ZOOMS = range(3, 4)
@@ -172,6 +174,9 @@ def main():
             if {"CLCL", "CLCM", "CLCH"} <= fields.keys():
                 low, mid, high = (fields[name] / 100 for name in ("CLCL", "CLCM", "CLCH"))
                 weather.put(t, tiler.pack(placement, sample, lambda at: tiler.cloud_rgb(at(low), at(mid), at(high))), "cloud")
+            if "H_SNOW" in fields:
+                depth = fields["H_SNOW"] * 100
+                weather.put(t, tiler.pack(placement, sample, lambda at: tiler.snow_rgb(at(depth))), "snow")
             # The totals before the one before aren't needed any more.
             for s in [s for s in totals if s < before]:
                 del totals[s]
