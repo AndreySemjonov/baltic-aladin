@@ -1,0 +1,29 @@
+name: Places
+run-name: The map search's places (GeoNames)
+
+# The map search's places (places.py; the owner, 12.11.2026: "GeoNames list on R2"): towns and the coast's named points
+# from GeoNames' dumps, one JSON on our files the apps search themselves. Once a year (GeoNames changes slowly), or by hand.
+on:
+  schedule:
+    - cron: "20 3 15 1 *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: places
+  cancel-in-progress: false
+
+jobs:
+  places:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Make and upload the places
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+        run: python3 places.py
