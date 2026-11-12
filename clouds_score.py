@@ -6,7 +6,8 @@ band: overcast reports (BKN, OVC, VV), the ones drawn clear, clear reports (CAVO
 the ones drawn cloud. A frame's cloud at an airport is the share of its zoom-6 tile's pixels within ~5 km (9 x 9) with
 alpha (a full deck 216) from CUT: overcast drawn cloud from a quarter, clear drawn cloud from three quarters (since
 06.11.2026, version 3: in a field of cells the 3 x 3 point over the airport sat in gaps the map had about right, the
-owner, "lets investigate", Riga BKN014 under a clear point with half its ring cloud). Only the tiles the airports are in are read (Range requests), not the 7 MB packs.
+owner, "lets investigate", Riga BKN014 under a clear point with half its ring cloud). A clear report under drawn
+cloud topped above HIGH_KM (the tile's grey, clouds.HEIGHT_GREY) is no verdict (since 12.11.2026, version 4). Only the tiles the airports are in are read (Range requests), not the 7 MB packs.
 
 Kept in runner/clouds-score.json (the last 30 days; each frame scored once, 90 minutes after its time, as published
 then) with `flags`: yesterday's bands off their last two weeks (at least 20 reports each), and the last 48 hours' frames
@@ -47,6 +48,10 @@ NAMES = {"EVRA": "Riga", "EVLA": "Liepāja", "EVVA": "Ventspils", "EYSA": "Šiau
          "EYPP": "Panevėžys", "EFHA": "Halli"}
 CUT = 108  # half a full deck's alpha
 NEAR = 4  # pixels each way: 9 x 9, about 5 km at zoom 6
+# A clear report (CAVOK, NSC, FEW: the sky below ~1.5 km, or the ceilometer's reach) can't judge a deck topped higher:
+# 11.11.2026's frontal night scored 32 of 33 clear reports drawn cloud, 7 of the 9 still in the index topped 3-8 km
+# (the owner, 12.11.2026: "Yes, do B"). Not lower: a stratocumulus deck tops out near 2-3 km with its base under 1.5 km.
+HIGH_KM = 3
 BANDS = ("night", "low", "day")
 # A frame's letter at an airport: "." no verdict (no report, SCT); else "a" + 4 x its band + overcast drawn cloud 0,
 # overcast drawn clear 1, clear drawn clear 2, clear drawn cloud 3.
@@ -78,6 +83,17 @@ def cloud_near(kind, share):
     return share >= (0.25 if kind == "cloudy" else 0.75)
 
 
+def judged(kind, share, top_km):
+    """False where the report can't judge what's drawn: clear under cloud topped above HIGH_KM."""
+    return not (kind == "clear" and cloud_near(kind, share) and top_km > HIGH_KM)
+
+
+def top_km(grey):
+    """The tile's grey back to the cloud top's height (km), as clouds.style_height drew it (its texture evened out by a
+    median)."""
+    return float(np.interp(grey, [128, 144, 198, 224, 229], [0, 2, 6, 10, 12]))
+
+
 def band(sun):
     return "night" if sun < -6 else "low" if sun < 15 else "day"
 
@@ -107,22 +123,28 @@ def place(lat, lon):
 
 
 def covers(file, points):
-    """Each point's share of cloudy pixels (alpha from CUT) within NEAR in one published pack; no tile there: 0."""
+    """Each point's (share of cloudy pixels (alpha from CUT) within NEAR, the cloudy ones' median top in km) in one
+    published pack; no tile there: (0, 0)."""
     url = f"{FILES}tiles/sat/{file}"
     n = struct.unpack("<I", get(url, {"Range": "bytes=0-7"})[4:8])[0]
     tiles = json.loads(get(url, {"Range": f"bytes=8-{7 + n}"}))["tiles"]
-    alpha = {}
+    la = {}
     for key in {place(*p)[0] for p in points}:
         if key in tiles:
             o, k = tiles[key]
             png = get(url, {"Range": f"bytes={8 + n + o}-{8 + n + o + k - 1}"})
-            alpha[key] = np.asarray(Image.open(io.BytesIO(png)).convert("LA"))[..., 1].astype(np.float32)
+            la[key] = np.asarray(Image.open(io.BytesIO(png)).convert("LA")).astype(np.float32)
     out = []
     for p in points:
         key, x, y = place(*p)
-        a = alpha.get(key)
+        a = la.get(key)
+        if a is None:
+            out.append((0.0, 0.0))
+            continue
         # shortcut: the window stops at the tile's edge (a smaller one there), fine while no airport sits on an edge.
-        out.append(0.0 if a is None else float((a[max(y - NEAR, 0):y + NEAR + 1, max(x - NEAR, 0):x + NEAR + 1] >= CUT).mean()))
+        w = a[max(y - NEAR, 0):y + NEAR + 1, max(x - NEAR, 0):x + NEAR + 1]
+        cloudy = w[..., 1] >= CUT
+        out.append((float(cloudy.mean()), top_km(float(np.median(w[..., 0][cloudy]))) if cloudy.any() else 0.0))
     return out
 
 
@@ -169,7 +191,10 @@ def score(state, now):
                 places[st] = r[:2]
         known = [x for x in found if x]
         cloud = iter(covers(frame["file"], [(lat, lon) for lat, lon, _, _ in known]) if known else [])
-        rows = [None if x is None else (x[2], x[3], cloud_near(x[2], next(cloud))) for x in found]
+        rows = []
+        for x in found:
+            share, top = next(cloud) if x else (0.0, 0.0)
+            rows.append(None if x is None or not judged(x[2], share, top) else (x[2], x[3], cloud_near(x[2], share)))
         cells = "".join("." if r is None else chr(97 + 4 * BANDS.index(r[1]) + (0 if r[0] == "cloudy" else 2) + (r[2] != (r[0] == "cloudy")))
                         for r in rows)
         return t, [r for r in rows if r], cells
@@ -205,6 +230,8 @@ def check():
     assert sky("EVRA 010720Z 18005KT CAVOK 06/05 Q1021") == "clear"
     assert sky("EVRA 010720Z 9999 FEW020 SCT040 06/05 Q1021") is None
     assert cloud_near("cloudy", 0.3) and not cloud_near("cloudy", 0.2) and not cloud_near("clear", 0.5) and cloud_near("clear", 0.8)
+    assert judged("clear", 0.8, 2.5) and not judged("clear", 0.8, 4) and judged("clear", 0.5, 8) and judged("cloudy", 1, 8)
+    assert top_km(128) == 0 and abs(top_km(157.5) - 3) < 0.01
     assert band(-7) == "night" and band(-6) == "low" and band(15) == "day"
     days = {f"2026-10-{d:02d}": {"night": [100, 10, 50, 1]} for d in range(10, 25)}
     days["2026-10-25"] = {"night": [100, 30, 50, 1]}
@@ -221,9 +248,13 @@ if __name__ == "__main__":
         state = json.loads(get(f"{FILES}runner/clouds-score.json?t={int(time.time())}"))
     except Exception:
         state = {}
-    if state.get("version") != 3:
+    if state.get("version") == 3:
+        # 4: no verdict for clear under high cloud (12.11.2026). The days kept: their clear counts a bit high till they
+        # age out (two weeks), rather than no flags at all while new ones gather.
+        state["version"] = 4
+    if state.get("version") != 4:
         # 2: with the frames airport by airport (01.11.2026); 3: cloud within ~5 km (06.11.2026). The index's day scored again.
-        state = {"version": 3}
+        state = {"version": 4}
     made = score(state, time.time())
     body = json.dumps(state, separators=(",", ":")).encode()
     print(f"{made} frames scored, {len(body)} bytes, flags: {state.get('flags', [])}")
