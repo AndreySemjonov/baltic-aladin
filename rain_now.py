@@ -155,7 +155,8 @@ class Forecast:
         self.keep = None
 
     def field(self, domain, t):
-        """mm/h, the cloud cover (0-1) and the weight (0-1) on the domain at time t; None without it."""
+        """mm/h, the cloud cover (0-1), the weight (0-1) and the snow's share (0-1, tiler.rain_rgb's blue) on the
+        domain at time t; None without it."""
         if t not in self.frames:
             return None
         if t in self.cache:
@@ -163,7 +164,7 @@ class Forecast:
         sizes, tiles = read_pack(get(FILES + self.name + "/" + self.frames[t]))
         z = min(self.zooms[1], Z)
         rgba = domain.place(tiles, z, sizes.get(z, 256), 4)
-        got = ((rgba[..., 0] / 50) ** 2, rgba[..., 1] / 255, rgba[..., 3] / 255)
+        got = ((rgba[..., 0] / 50) ** 2, rgba[..., 1] / 255, rgba[..., 3] / 255, rgba[..., 2] / 255)
         if t == self.keep:
             self.cache[t] = got
         return got
@@ -175,19 +176,20 @@ def weighted(sets, domain, t, weights):
     if not weights:
         return composite(sets, domain, t)
     shape = (domain.height, domain.width)
-    rain, cloud, total, reach = (np.zeros(shape, np.float32) for _ in range(4))
+    rain, cloud, total, reach, snow = (np.zeros(shape, np.float32) for _ in range(5))
     for forecast in sets:
         got = forecast.field(domain, t)
         if got is None or forecast.name not in weights:
             continue
-        mm, cover, weight = got
+        mm, cover, weight, white = got
         share = weight * weights[forecast.name]
         rain += share * mm
         cloud += share * cover
+        snow += share * white
         total += share
         reach = np.maximum(reach, weight)
     safe = np.maximum(total, 1e-6)
-    return rain / safe, cloud / safe, reach
+    return rain / safe, cloud / safe, reach, snow / safe
 
 
 def skill_weights(history):
@@ -208,21 +210,23 @@ def skill_weights(history):
 
 
 def composite(sets, domain, t):
-    """The app's Auto order at time t, each over the ones after it by its weight: mm/h, cloud, weight."""
+    """The app's Auto order at time t, each over the ones after it by its weight: mm/h, cloud, weight, snow's share."""
     shape = (domain.height, domain.width)
-    rain, cloud, remaining = np.zeros(shape, np.float32), np.zeros(shape, np.float32), np.ones(shape, np.float32)
+    rain, cloud, snow = (np.zeros(shape, np.float32) for _ in range(3))
+    remaining = np.ones(shape, np.float32)
     for forecast in sets:
         got = forecast.field(domain, t)
         if got is None:
             continue
-        mm, cover, weight = got
+        mm, cover, weight, white = got
         share = weight * remaining
         rain += share * mm
         cloud += share * cover
+        snow += share * white
         remaining *= 1 - weight
     total = 1 - remaining
     safe = np.maximum(total, 1e-6)
-    return rain / safe, cloud / safe, total
+    return rain / safe, cloud / safe, total, snow / safe
 
 
 # MARK: Measuring
@@ -304,7 +308,7 @@ def blend_field(domain, run_hour, t):
         return None
     sizes, tiles = read_pack(data)
     rgba = domain.place(tiles, Z, 256, 4)
-    return (rgba[..., 0] / 50) ** 2, rgba[..., 1] / 255, rgba[..., 3] / 255
+    return (rgba[..., 0] / 50) ** 2, rgba[..., 1] / 255, rgba[..., 3] / 255, rgba[..., 2] / 255
 
 
 class Fixed:
@@ -324,18 +328,18 @@ def measure(radar, sets, domain, t, checked=(), weights=None):
     out = {}
     for forecast in list(sets) + ["composite", "weighted"] + list(checked):
         if forecast == "composite":
-            mm, _, weight = composite(sets, domain, t)
+            mm, _, weight, _ = composite(sets, domain, t)
             name, run = "composite", None
         elif forecast == "weighted":
             if not weights:
                 continue
-            mm, _, weight = weighted(sets, domain, t, weights)
+            mm, _, weight, _ = weighted(sets, domain, t, weights)
             name, run = "weighted", None
         else:
             got = forecast.field(domain, t)
             if got is None:
                 continue
-            mm, _, weight = got
+            mm, _, weight, _ = got
             name, run = forecast.name, forecast.run
         m5, w5 = half(mm), half(weight)
         known = np.isfinite(r5) & (w5 > 0.5)
@@ -402,15 +406,16 @@ def trim_level(radar, mm, known):
 
 
 def frames(radar, newest_time, vy, vx, sets, domain, t0, shift, trim, weights=None):
-    """The blended hours (time, mm/h, cloud, weight), one at a time (a day of them won't fit in
-    memory at once)."""
+    """The blended hours (time, mm/h, cloud, snow's share, weight), one at a time (a day of them won't fit in
+    memory at once). The snow's share is the forecast's, moved with its rain (the owner, 12.11.2026: no lilac
+    on the rain map's next day while the forecast underneath had snow)."""
     first = (newest_time // 3600 + 1) * 3600
     sy, sx = shift
     rows, cols = np.meshgrid(np.arange(domain.height, dtype=np.float32), np.arange(domain.width, dtype=np.float32), indexing="ij")
     for k in range(HOURS):
         t = first + k * 3600
         lead = (t - newest_time) / 3600
-        mm, cloud, weight = weighted(sets, domain, t, weights)
+        mm, cloud, weight, snow = weighted(sets, domain, t, weights)
         if not np.any(weight > 0):
             continue
         fade = float(np.clip((SHIFT_END - (t - t0) / 3600) / (SHIFT_END - SHIFT_FULL), 0, 1))
@@ -418,6 +423,7 @@ def frames(radar, newest_time, vy, vx, sets, domain, t0, shift, trim, weights=No
             at = [rows - sy * fade, cols - sx * fade]
             mm = ndimage.map_coordinates(mm, at, order=1, mode="nearest")
             cloud = ndimage.map_coordinates(cloud, at, order=1, mode="nearest")
+            snow = ndimage.map_coordinates(snow, at, order=1, mode="nearest")
             weight = ndimage.map_coordinates(weight, at, order=1, mode="nearest")
             level = WET + (trim - WET) * fade
             mm = np.where(mm >= level, mm, 0)
@@ -425,14 +431,14 @@ def frames(radar, newest_time, vy, vx, sets, domain, t0, shift, trim, weights=No
         share = float(np.clip((NOW_TO - lead) / (NOW_TO - NOW_FROM), 0, 1))
         w = np.where(np.isfinite(now), share, 0).astype(np.float32)
         blended = w * np.nan_to_num(now) + (1 - w) * mm
-        yield t, blended, cloud, np.maximum(weight, w)
+        yield t, blended, cloud, snow, np.maximum(weight, w)
 
 
 
-def pack(domain, mm, cloud, weight):
+def pack(domain, mm, cloud, snow, weight):
     """Tiles at zooms 3-6 (each zoom down: the means of 2 x 2)."""
     tiles = {}
-    level_mm, level_cloud, level_w = mm, cloud, weight
+    level_mm, level_cloud, level_snow, level_w = mm, cloud, snow, weight
     for z in range(Z, 2, -1):
         k = Z - z
         x0, y0 = domain.x0 >> k, domain.y0 >> k
@@ -443,7 +449,7 @@ def pack(domain, mm, cloud, weight):
                 a = level_w[sl]
                 if a.shape != (256, 256) or not np.any(a > 0.004):
                     continue
-                rgb = tiler.rain_rgb(level_mm[sl], level_cloud[sl])
+                rgb = tiler.rain_rgb(level_mm[sl], level_cloud[sl], level_snow[sl])
                 alpha = np.clip(np.rint(a * 255), 0, 255)
                 tiles[(z, x0 + tx, y0 + ty)] = world_tiles.png(np.concatenate([rgb, alpha[..., None]], -1).astype(np.uint8), "RGBA")
         if z > 3:
@@ -456,7 +462,7 @@ def pack(domain, mm, cloud, weight):
                 hh, ww = -(-v.shape[0] // 512) * 512, -(-v.shape[1] // 512) * 512
                 v = np.pad(v, ((0, hh - v.shape[0]), (0, ww - v.shape[1])))
                 return v.reshape(hh // 2, 2, ww // 2, 2).mean(axis=(1, 3))
-            level_mm, level_cloud, level_w = down(level_mm), down(level_cloud), down(level_w)
+            level_mm, level_cloud, level_snow, level_w = down(level_mm), down(level_cloud), down(level_snow), down(level_w)
     return world_tiles.encode(tiles, {z: 256 for z in range(3, Z + 1)})
 
 
@@ -530,7 +536,7 @@ def main():
         shift = (to_zoom6(oy5 * 2, (domain.height, domain.width)), to_zoom6(ox5 * 2, (domain.height, domain.width)))
     else:
         shift = (np.zeros((domain.height, domain.width), np.float32), np.zeros((domain.height, domain.width), np.float32))
-    mm0, _, w0 = composite(sets, domain, t0)
+    mm0, _, w0, _ = composite(sets, domain, t0)
     known0 = np.isfinite(radar_hour) & (w0 > 0.5)
     trim = trim_level(radar_hour, mm0, known0)
     vy, vx, measured = motion(radar_new, radar_before, (newest["time"] - before_time) / 60)
@@ -541,9 +547,9 @@ def main():
     run_time = datetime.fromtimestamp(newest["time"], timezone.utc)
     out = tiler.Run("rain-now", run_time, range(3, Z + 1), "Radar into the forecast", "EUMETNET OPERA (CC BY 4.0); the forecast sets' own",
                     True, local)
-    for t, mm, cloud, weight in frames(radar_new, newest["time"], vy, vx, sets, domain, t0, shift, trim, weights):
+    for t, mm, cloud, snow, weight in frames(radar_new, newest["time"], vy, vx, sets, domain, t0, shift, trim, weights):
         out.report.count()
-        out.put(t, pack(domain, mm, cloud, weight), kind="rain")
+        out.put(t, pack(domain, mm, cloud, snow, weight), kind="rain")
         print(f"  {datetime.fromtimestamp(t, timezone.utc):%H:%M}: {out.bytes / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
     summary = {name: {k: row[k] for k in row if k != "offset"} | {"offsetKm": row["offset"]["medianKm"], "moved": row["offset"]["moved"],
                                                                    "cellsCompared": row["offset"]["cells"]}
