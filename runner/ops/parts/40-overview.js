@@ -73,6 +73,32 @@ function StationsSec({ ad, st, now }) {
 
 // MARK: Costs
 
+// Spending by day and the billing month (admin's overview.js spending; the owner, 12.11.2026: "costs summary for daily
+// spending and ... cap limit"): the month's bill so far and at this pace, each item; the last 30 days' spending past the
+// free shares as bars, the warning ($1: a push) and the hold ($3: a runaway folder's uploads wait) as lines.
+function spendPanels(sp, storeCost) {
+  if (!sp || !sp.month) return html`<div class="panel s3"><h2>This month, estimated</h2><div class="big">$${(5 + storeCost).toFixed(2)}</div><p class="whytxt">Workers Paid $5 + file store $${storeCost.toFixed(2)} (no spending data from admin yet).</p></div>`;
+  const usd = (v) => "$" + (v < 10 ? v.toFixed(2) : v.toFixed(0));
+  const names = { ...sp.names, store: "File store size", base: "Workers Paid" };
+  const items = Object.entries(sp.month.projected.items).filter(([, v]) => v >= 0.005).sort((a, b) => b[1] - a[1]);
+  const days = sp.days.slice(-30), today = days[days.length - 1];
+  const top = Math.max(sp.hold * 1.15, ...days.map((d) => d.over));
+  const y = (v) => 155 - v / top * 140, w = 470 / Math.max(days.length, 1);
+  const colour = (v) => v > sp.hold ? "var(--bad)" : v > sp.warn ? "var(--warn)" : "var(--accent)";
+  return html`
+    <div class="panel s3"><h2>This month, at this pace</h2><div class="big">${usd(sp.month.projected.total)}</div>
+      <p class="whytxt">${usd(sp.month.soFar.total)} so far, ${sp.month.from.slice(5)} to ${sp.month.to.slice(5)} (Cloudflare's bill, day ${Math.ceil(sp.month.elapsed)} of ${sp.month.length}).</p>
+      <div class="kv">${items.map(([k, v]) => html`<span>${names[k] || k}</span><span class="num">${usd(v)}</span>`)}</div></div>
+    <div class="panel s3"><h2>Today</h2><div class="big" style=${`color:${today ? colour(today.over) : "inherit"}`}>${today ? usd(today.over) : "–"}</div>
+      <p class="whytxt">Past the free shares (a 30th of each month's allowance a day). A push at ${usd(sp.warn)}; at ${usd(sp.hold)} a folder writing over 3× its normal day waits until midnight UTC.</p>
+      ${sp.held && sp.held.length ? html`<p class="whytxt" style="color:var(--bad)">Held today: ${sp.held.join(", ")}</p>` : ""}
+      ${sp.errors && sp.errors.length ? html`<p class="whytxt">${sp.errors.join("; ")}</p>` : ""}</div>
+    <div class="panel s6"><h2>Spending a day past the free shares · 30 days (UTC)</h2>
+      <svg class="chart" viewBox="0 0 500 180">${days.map((d, i) => { const h = 155 - y(d.over); return html`<rect x=${20 + i * w} y=${155 - Math.max(h, 1)} width=${Math.max(w - 4, 2)} height=${Math.max(h, 1)} rx="2" fill=${colour(d.over)}><title>${d.day}: ${usd(d.over)} · ${Object.entries(d.dollars).filter(([, v]) => v >= 0.005).map(([k, v]) => `${names[k] || k} ${usd(v)}`).join(", ") || "all within the free shares"}</title></rect>`; })}
+        ${[[sp.warn, "var(--warn)", "push"], [sp.hold, "var(--bad)", "hold"]].map(([v, c, t]) => html`<line x1="15" x2="495" y1=${y(v)} y2=${y(v)} stroke=${c} stroke-dasharray="4 4"/><text x="490" y=${y(v) - 4} text-anchor="end">${usd(v)} ${t}</text>`)}</svg></div>
+  `;
+}
+
 function Costs({ ad, now }) {
   const o = ad && ad.overview;
   if (!o) return html`<p class="empty">Reading admin's data…</p>`;
@@ -85,7 +111,7 @@ function Costs({ ad, now }) {
   const month = perDay.reduce((a, v) => a + v, 0);
   const maxDay = Math.max(9000, ...perDay);
   return html`<div class="grid">
-    <div class="panel s3"><h2>This month, estimated</h2><div class="big">$${(5 + storeCost).toFixed(2)}</div><p class="whytxt">Workers Paid $5 + file store $${storeCost.toFixed(2)}.</p></div>
+    ${spendPanels(o.spend, storeCost)}
     <div class="panel s3"><h2>File store</h2><div class="big">${(total / 1e9).toFixed(1)} <small>GB · 10 free</small></div><p class="whytxt">$0.015 a GB a month after 10; counted ${o.storage && o.storage.time ? hrs(now - o.storage.time) + " ago" : "–"}.</p></div>
     <div class="panel s3"><h2>Open-Meteo weight</h2><div class="big">${month.toLocaleString("en")} <small>14 days</small></div><p class="whytxt">Admins' vs OM and the server's comparisons; none for riders.</p></div>
     <div class="panel s3"><h2>Database</h2><div class="big">${((o.collector || []).find((c) => c.key === "readings_rows") || {}).value?.toLocaleString?.("en") ?? "–"} <small>readings rows</small></div><p class="whytxt">Free tier: 5M rows read a day.</p></div>
