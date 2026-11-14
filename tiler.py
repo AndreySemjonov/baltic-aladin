@@ -248,11 +248,13 @@ class Run:
         self.bytes += len(data)
         return file
 
-    def finish(self, tail=False, **extra):
+    def finish(self, tail=False, past=0, **extra):
         """The index, after the packs (station-history records the run for the admin panel); not
         when over a fifth of the hours failed their checks (the run before stays). `tail`: a short run
         (ICON-EU's 03/09/15/21 UTC), its hours followed by the published run's later ones (the owner,
-        21.10.2026; station-history keeps every folder an index points to)."""
+        21.10.2026; station-history keeps every folder an index points to). `past`: hours before the run's first
+        kept from the published index (the Mix remade hourly from now: its past hours, each from the run made at it,
+        the owner 15.11.2026: "Can we have history for map too?"); station-history keeps the files an index lists."""
         failed = len(self.report.failures)
         if self.report.checked and failed > 0.2 * self.report.checked:
             self.publish_check(False)
@@ -267,6 +269,13 @@ class Run:
             later = [f for f in sorted((previous or {}).get("frames") or [], key=lambda f: f["time"]) if f["time"] > last]
             index["frames"] += later
             print(f"{self.name} {self.folder}: {len(later)} hours of the run before after its own", flush=True)
+        if past and index["frames"] and not self.local:
+            previous = world_tiles.published_index(self.name)
+            first = index["frames"][0]["time"]
+            earlier = [f for f in sorted((previous or {}).get("frames") or [], key=lambda f: f["time"])
+                       if first - past * 3600 <= f["time"] < first]
+            index["frames"] = earlier + index["frames"]
+            print(f"{self.name} {self.folder}: {len(earlier)} past hours kept before its own", flush=True)
         body = json.dumps(index, separators=(",", ":")).encode()
         if self.local:
             # (Every hour kept from the published run: no pack made the folder.)

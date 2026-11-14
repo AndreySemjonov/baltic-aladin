@@ -783,7 +783,7 @@ def main():
             memory_report(models, coast, f"after {partial + whole} hours made")
         print(f"  {datetime.fromtimestamp(t, timezone.utc):%d %H:%M}: {len(results)} of {len(tiles)} tiles made, "
               f"{', '.join(out.frames[t]['models'])}, {time.time() - started:.0f} s", flush=True)
-    out.finish(weights={m.label: m.weight for m in models}, freshness={k: round(v, 3) for k, v in FRESH.items()},
+    out.finish(past=24, weights={m.label: m.weight for m in models}, freshness={k: round(v, 3) for k, v in FRESH.items()},
                srcModels=[m.name for m in models], srcWeights=weights_mark)
     if shadowing and (Path(local) / "index.json").exists():
         SHADOW.parent.mkdir(parents=True, exist_ok=True)

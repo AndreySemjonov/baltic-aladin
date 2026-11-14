@@ -170,7 +170,7 @@ def main():
         out.frames[t]["models"] = [m.label for m in models if m.label in used]
         print(f"  {datetime.fromtimestamp(t, timezone.utc):%d %H:%M}: {len(tiles)} tiles, "
               f"{', '.join(out.frames[t]['models'])}, {time.time() - started:.0f} s", flush=True)
-    out.finish(weights={m.label: m.weight for m in models}, inputs=inputs)
+    out.finish(past=24, weights={m.label: m.weight for m in models}, inputs=inputs)
     print(f"World mix done in {time.time() - started:.0f} s")
 
 
