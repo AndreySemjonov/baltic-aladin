@@ -192,6 +192,12 @@ def waves(r, g, b, a):
     return None if a < 128 or r == 0 else [round((r - 1) / 20, 2), round(g / 10, 1), round(b * 360 / 256)]
 
 
+def swell(r, g, b, a):
+    """EWAM's swell pack (waves_tiles.swell_hour): [swell m, its peak period s, wind waves m]; the swell 0 m when
+    there's none (red 1), the wind waves None when unknown."""
+    return None if a < 128 or r == 0 else [round((r - 1) / 20, 2), round(g / 10, 1), round((b - 1) / 20, 2) if b else None]
+
+
 def frame_values(url, points, zooms, sizes, decode=wind, search=0):
     """One hour's values (decode(r, g, b, a), or None) at each point: the finest zoom that has its
     tile; `search`: else the nearest pixel with a value within that many (the waves' sea)."""
@@ -340,6 +346,13 @@ def main():
         publish(name, make(name, sea, force, None,
                            lambda f, zooms, sizes, name=name: frame_values(FILES + f"tiles/{name}/{f['file']}", sea, zooms, sizes,
                                                                           waves, WAVE_SEARCH[name])))
+    # EWAM's swell and wind waves apart at every spot: the table's Swell row (the owner, 17.11.2026: "add the swell row
+    # to the table"). Europe's seas only: ECMWF's open data has no swell part.
+    if not chosen or "ewam-swell" in chosen:
+        publish("ewam-swell", make("ewam-swell", sea, force, "ewam",
+                                   lambda f, zooms, sizes: frame_values(FILES + f"tiles/ewam/{f['swell']}", sea, zooms, sizes,
+                                                                        swell, WAVE_SEARCH["ewam"])
+                                   if f.get("swell") else {k: None for k in sea}))
 
 
 if __name__ == "__main__":

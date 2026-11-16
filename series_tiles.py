@@ -57,6 +57,8 @@ SETS = ["mix", "mix-world", "metnordic-1km", "dini", "arome", "ukmo", "icon-ch2"
         "ecmwf:temp", "ecmwf:rain", "ecmwf:cloud", "ecmwf:sky", "icon-eu-wx:temp", "icon-eu-wx:rain", "icon-eu-wx:cloud",
         "metnordic-1km-wx:temp", "metnordic-1km-wx:rain", "gfs:temp", "gfs:rain", "icon:temp", "icon:rain",
         "gdps:temp", "gdps:rain", "ukmo-global:temp", "ukmo-global:rain", "ewam", "ecmwf-waves",
+        # EWAM's swell and wind waves apart (the table's Swell row; the owner, 17.11.2026).
+        "ewam:swell",
         # The regional models' air and rain too (the owner, 19.10.2026: riders' own spots and taps with
         # every model's weather, as the catalog spots), at zoom 5 (WEATHER_ZOOM).
         "dini-wx:temp", "dini-wx:rain", "harm-nl-wx:temp", "harm-nl-wx:rain", "icon-d2-wx:temp", "icon-d2-wx:rain",
@@ -71,7 +73,7 @@ SETS = ["mix", "mix-world", "metnordic-1km", "dini", "arome", "ukmo", "icon-ch2"
 # (station-history notes every read, /series/wanted); station-history builds any other on its first request (a few
 # seconds once a run) and notes it, so it's made ahead from the next run. The coarse world sets, the fallback at any
 # place on Earth, stay whole.
-WHOLE = {"mix-world", "mix-world-wx", "icon-eu", "icon-eu-wx", "ecmwf", "gfs", "icon", "gdps", "ukmo-global", "ewam", "ecmwf-waves", "sea", "sea-world"}
+WHOLE = {"mix-world", "mix-world-wx", "icon-eu", "icon-eu-wx", "ecmwf", "gfs", "icon", "gdps", "ukmo-global", "ewam", "ewam-swell", "ecmwf-waves", "sea", "sea-world"}
 WANTED = "https://data.meteogust.com/series/wanted?set="
 
 
