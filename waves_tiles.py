@@ -97,6 +97,18 @@ def encode_hour(placement, sample, height, period, direction):
     return tiler.pack(placement, sample, encode, valid=lambda at: np.isfinite(at(height)))
 
 
+def swell_hour(placement, sample, swell, period, chop):
+    """The swell and the wind waves apart (the owner, 16.11.2026, "make point 5"; EWAM only: ECMWF's open data has no
+    split): red the swell's height m x 20 + 1 (0 unknown), green its peak period s x 10, blue the wind waves' height
+    m x 20 + 1; alpha the weight, as the waves' pack. The app's wave map switch "Swell" (WindMapSource.swellTiles)."""
+    def metres(values):
+        return np.where(np.isfinite(values), np.clip(np.rint(np.nan_to_num(values) * 20) + 1, 1, 255), 0)
+
+    def encode(at):
+        return np.stack([metres(at(swell)), np.clip(np.rint(np.nan_to_num(at(period)) * 10), 0, 255), metres(at(chop))], axis=-1)
+    return tiler.pack(placement, sample, encode, valid=lambda at: np.isfinite(at(swell)))
+
+
 # MARK: ECMWF
 
 def ecmwf_url(run, step, suffix, res="0p1"):
@@ -250,6 +262,9 @@ def run_ewam(args):
                 continue
             h, p, d = (filled(fields[name], missing) for name in ("SWH", "PERIOD", "MWD"))
             out.put(t, encode_hour(placement, sample, h, p, d))
+            # The parts are blank where there is none: 0 at sea, then the coast filled as the rest.
+            sw, sp, ww = (filled(np.where(missing, np.nan, np.nan_to_num(fields[name])), missing) for name in ("SHTS", "PPTS", "SHWW"))
+            out.put(t, swell_hour(placement, sample, sw, sp, ww), kind="swell")
         print(f"  +{chunk[-1]} h, {len(out.frames)} hours, {out.bytes / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
     if out.frames:
         out.finish()
