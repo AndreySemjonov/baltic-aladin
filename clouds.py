@@ -61,6 +61,11 @@ CLOUDTYPE = "mtg_fd:rgb_cloudtype"
 # as cloud (Lapland: 21-39 % of clear skies), so False at the first snow round the Baltic (the scorecard's "clear drawn
 # cloud" flag), until a winter backtest finds a snow test (docs/backlog/data.md in the app's repo).
 LOW_SUN_RULE = True
+# By night a deck under thin cirrus reads as thin in the Fog / Low Clouds RGB (the split window sees the top layer only):
+# where the mask says cloud and ICON-EU's low cloud is at least this, kept solid (the owner, 16.11.2026: "build B60").
+# Backtest 22.10-15.11 at the scorecard's 20 airports, every night hour: overcast drawn clear 365 -> 261 of 3,913, clear
+# drawn cloud 420 -> 433 of 1,488 (14.11's two-layer night 71 -> 38); 50 % fixed 120 for 28, 70 % 81 for 6.
+LOW_DECK = 60
 LEGEND = "https://view.eumetsat.int/geoserver/wms?service=WMS&version=1.3.0&request=GetLegendGraphic&layer=msg_fes:cth&format=image/png"
 # The grey by the cloud top's height (km): low darker, high brighter.
 HEIGHT_KM = [0, 2, 6, 10, 12]
@@ -335,7 +340,7 @@ def smooth_heights(heights, radius):
     return np.where(weight > 0.05, blur(np.where(known, heights, 0), radius) / np.maximum(weight, 1e-3), 1500).astype(np.float32)
 
 
-def style_height(infrared, mask_rgb, visible, heights, daylight, fog=None, sun=None):
+def style_height(infrared, mask_rgb, visible, heights, daylight, fog=None, sun=None, low=None):
     """The grey and how much cloud, by the cloud top's height (`heights` in m, smooth, every pixel)
     with the texture of the visible (by day, `daylight` 0-1) or the infrared (by night); how thick by night from
     the Fog / Low Clouds RGB (`fog`, the pictures' size) when there is one; `sun`: the sun's height (deg) per pixel."""
@@ -380,6 +385,9 @@ def style_height(infrared, mask_rgb, visible, heights, daylight, fog=None, sun=N
         # grey (the cloud top's height) as it was.
         red = fog[..., 0].astype(np.float32)
         night_thick = np.where(low_water(fog), 1.0, np.clip((blur(red, 1) - 15) / 55, 0, 1))
+        if low is not None and low.shape == night_thick.shape:
+            # ICON-EU's low deck under what reads as thin (`low`: its low cloud %, LOW_DECK): solid where the mask has cloud.
+            night_thick = np.where(low >= LOW_DECK, 1.0, night_thick)
         alpha = alpha * (daylight + (1 - daylight) * (0.15 + 0.85 * night_thick))
     else:
         # Without the fog picture: thin high cloud (a high top, the infrared hardly colder than the ground) see-through.
@@ -404,6 +412,54 @@ def sat_box():
 
 
 NEVER = "the fog picture never came (EUMETSAT's gap), not tried again"
+
+
+def on_grid(grid, values, lats, lons):
+    """A regular lat-lon model field (iconeu_map.decode's grid and values) at the given latitudes (rows) and longitudes
+    (columns), nearest cell; NaN outside it."""
+    lat0, lon0 = grid["latitudeOfFirstGridPointInDegrees"], grid["longitudeOfFirstGridPointInDegrees"]
+    lon0 = lon0 - 360 if lon0 > 180 else lon0
+    dj = grid["jDirectionIncrementInDegrees"] * (1 if grid["jScansPositively"] else -1)
+    j = np.rint((np.asarray(lats) - lat0) / dj).astype(int)
+    i = np.rint((np.asarray(lons) - lon0) / grid["iDirectionIncrementInDegrees"]).astype(int)
+    out = np.full((len(j), len(i)), np.nan, dtype=np.float32)
+    rows, cols = (j >= 0) & (j < values.shape[0]), (i >= 0) & (i < values.shape[1])
+    out[np.ix_(rows, cols)] = values[np.ix_(j[rows], i[cols])]
+    return out
+
+
+def icon_low(when, shape):
+    """ICON-EU's low cloud (CLCL, %) at the frame's hour on the mosaic at `shape` (rows, columns), or None: the newest run
+    (every 3 hours) that has the hour, kept on disk (the hour's four frames read it once)."""
+    try:
+        import iconeu_map  # ecCodes: the Mac's and the Tower's, not GitHub's (lazily, docs: helper imports)
+    except ImportError:
+        return None
+    hour = when.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1 if when.minute >= 30 else 0)
+    newest = hour.replace(hour=hour.hour // 3 * 3)
+    n = 2 ** TILE_Z
+    lats = [tile_lat(TILE_Y[0] + (r + 0.5) * (TILE_Y[1] - TILE_Y[0] + 1) / shape[0], n) for r in range(shape[0])]
+    lons = [(TILE_X[0] + (c + 0.5) * (TILE_X[1] - TILE_X[0] + 1) / shape[1]) / n * 360 - 180 for c in range(shape[1])]
+    for back in range(5):
+        run = newest - timedelta(hours=3 * back)
+        step = int((hour - run).total_seconds() // 3600)
+        kept = PICTURES / f"iconeu-low-{run:%Y%m%d%H}-{step:03d}-{shape[0]}x{shape[1]}.npy"
+        try:
+            return np.load(kept)
+        except (OSError, ValueError):
+            pass
+        try:
+            grid, values = iconeu_map.decode(iconeu_map.download(run.strftime("%Y%m%d%H"), step, "CLCL"))
+        except Exception:  # not out yet (or the run's hour not in it): the run before
+            continue
+        low = on_grid(grid, values, lats, lons)
+        try:
+            PICTURES.mkdir(parents=True, exist_ok=True)
+            np.save(kept, low)
+        except OSError:
+            pass
+        return low
+    return None
 
 
 def sat_pack(when, incomplete=True, again=False):
@@ -548,7 +604,12 @@ def sat_pack(when, incomplete=True, again=False):
         fog = got.get("fog")
         if fog is not None:
             fog = np.asarray(Image.fromarray(fog.astype(np.uint8)).resize((width, height), Image.BILINEAR), dtype=np.float32)
-        shade, alpha = style_height(infrared, mask, visible, heights, daylight, fog, sun)
+        low = None
+        if fog is not None and daylight.min() < 1:
+            low = icon_low(when, (height // 4, width // 4))
+            if low is not None:
+                low = np.asarray(Image.fromarray(np.nan_to_num(low)).resize((width, height), Image.BILINEAR), dtype=np.float32)
+        shade, alpha = style_height(infrared, mask, visible, heights, daylight, fog, sun, low)
     tiles = {}
     for z in TILE_ZOOMS:
         f = 2 ** (TILE_Z - z)
@@ -896,5 +957,14 @@ def make(one, wanted, token):
     print(f"Clouds ({name}): {made} made")
 
 
+def check():
+    grid = {"latitudeOfFirstGridPointInDegrees": 29.5, "longitudeOfFirstGridPointInDegrees": 336.5,
+            "iDirectionIncrementInDegrees": 0.0625, "jDirectionIncrementInDegrees": 0.0625, "jScansPositively": 1}
+    values = np.arange(657 * 1377, dtype=np.float32).reshape(657, 1377)
+    out = on_grid(grid, values, [29.5, 57.0, 80.0], [-23.5, 24.0, 70.0])
+    assert out[0, 0] == 0 and out[1, 1] == values[440, 760] and np.isnan(out[2, 0]) and np.isnan(out[0, 2]), out
+
+
 if __name__ == "__main__":
+    check()
     sys.exit(main())
