@@ -346,13 +346,16 @@ def main():
         publish(name, make(name, sea, force, None,
                            lambda f, zooms, sizes, name=name: frame_values(FILES + f"tiles/{name}/{f['file']}", sea, zooms, sizes,
                                                                           waves, WAVE_SEARCH[name])))
-    # EWAM's swell and wind waves apart at every spot: the table's Swell row (the owner, 17.11.2026: "add the swell row
-    # to the table"). Europe's seas only: ECMWF's open data has no swell part.
-    if not chosen or "ewam-swell" in chosen:
-        publish("ewam-swell", make("ewam-swell", sea, force, "ewam",
-                                   lambda f, zooms, sizes: frame_values(FILES + f"tiles/ewam/{f['swell']}", sea, zooms, sizes,
-                                                                        swell, WAVE_SEARCH["ewam"])
-                                   if f.get("swell") else {k: None for k in sea}))
+    # The swell and wind waves apart at every spot: the table's Swell rows (the owner, 17.11.2026: "add the swell row
+    # to the table", then "Yes, world swell"): EWAM's (Europe's seas, its frames' "swell" pack) and Copernicus' global
+    # one (swell_world.py, its frames' own pack); station-history takes EWAM's where it has the hour.
+    for name, (folder, layer, search) in {"ewam-swell": ("ewam", "swell", 8), "swell-world": ("swell-world", "file", 1)}.items():
+        if chosen and name not in chosen:
+            continue
+        publish(name, make(name, sea, force, folder,
+                           lambda f, zooms, sizes, folder=folder, layer=layer, search=search:
+                           frame_values(FILES + f"tiles/{folder}/{f[layer]}", sea, zooms, sizes, swell, search)
+                           if f.get(layer) else {k: None for k in sea}))
 
 
 if __name__ == "__main__":
