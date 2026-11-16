@@ -4,13 +4,13 @@ Copernicus Marine Service Information; the owner, 11.10.2026: EWAM's 3 days were
 for 3 days and every 3 hours after; when it can't be read (no login, late), DWD's European wave
 model EWAM as before (Deutscher Wetterdienst open data, CC BY 4.0: 00 and 12 UTC, 78 hours
 ahead, hourly, 0.1 x 0.05 degrees, about 5.5 km). Significant wave height, mean wave direction
-and mean wave period (TM10), one PNG per frame on the water map's Web Mercator box (the app draws
+and peak wave period, one PNG per frame on the water map's Web Mercator box (the app draws
 them through the fine coastline's sea only):
 
     <out>/map.json                  "kind": "waves"
     <out>/<run>/<unix time>.png     RGB, read as raw numbers:
         red   = wave height m x 40 + 1 (1-255); 0 = no wave data
-        green = mean wave period s x 10
+        green = peak wave period s x 10
         blue  = mean wave direction (from) degrees x 256/360
 
 Land cells take their nearest sea cell's values first, so the coast never mixes in nothing.
@@ -40,7 +40,18 @@ BASE = "https://opendata.dwd.de/weather/maritime/wave_models/ewam/grib"
 SOUTH, NORTH, WEST, EAST = metnordic_map.SOUTH, metnordic_map.NORTH, metnordic_map.WEST, metnordic_map.EAST
 KM_PER_PIXEL = 2.5
 STEPS = list(range(0, 79))
-VARIABLES = ("SWH", "MWD", "TM10")
+# Height, direction, and the swell's and the wind sea's heights and peak periods: EWAM has no peak period for the
+# whole sea, so peak_period takes the bigger part's (the owner, 16.11.2026: the peak period, as Windguru and surf
+# forecasts, not the mean TM10 that blends a long swell with the chop).
+VARIABLES = ("SWH", "MWD", "SHTS", "PPTS", "SHWW", "PPWW")
+
+
+def peak_period(swell_height, swell_period, sea_height, sea_period):
+    """The whole sea's peak period: the swell's or the wind sea's, whichever is higher (the more energy); the other
+    where that one has none (NaN where neither has)."""
+    chosen = np.where(np.nan_to_num(swell_height) >= np.nan_to_num(sea_height), swell_period, sea_period)
+    other = np.where(np.isfinite(swell_period), swell_period, sea_period)
+    return np.where(np.isfinite(chosen), chosen, other)
 
 
 def url(run, step, variable):
@@ -173,7 +184,8 @@ def ewam_frames(run, run_time, lat, lon):
             fields = [decode(message) for message in messages]
             if crop is None:
                 crop = Cropped(fields[0][0], lat, lon)
-            height_m, direction, period = (crop(values) for _, values in fields)
+            height_m, direction, *parts = (crop(values) for _, values in fields)
+            period = peak_period(*parts)
             # Directions blend as their sine and cosine, so 350 and 10 make 0, not 180.
             radians = np.radians(direction)
             east, north = crop.sample(np.sin(radians)), crop.sample(np.cos(radians))
@@ -231,7 +243,7 @@ def main():
         "landFilled": True,
         "heightMax": round(highest, 2),
         "encoding": {"red": "significant wave height m x 40 + 1 (0 = no data)",
-                     "green": "mean wave period s x 10",
+                     "green": "peak wave period s x 10",
                      "blue": "mean wave direction (from) degrees x 256/360"},
         "frames": frames,
     }

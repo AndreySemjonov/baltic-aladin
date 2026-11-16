@@ -31,7 +31,9 @@ import tiler
 import wave_map
 
 ECMWF_STEPS = list(range(0, 145, 3)) + list(range(150, 241, 6))
-ECMWF_PARAMS = ("swh", "mwp", "mwd")
+# The peak period pp1d, not the mean mwp (the owner, 16.11.2026: as Windguru and surf forecasts; the mean blends a
+# long swell with the chop: Kitebeach's 13 s swell read 6-7 s).
+ECMWF_PARAMS = ("swh", "pp1d", "mwd")
 # Hourly for 2 days, then every 3 hours to its 78 (the app goes smoothly between them).
 EWAM_STEPS = list(range(0, 48)) + list(range(48, 79, 3))
 EWAM_FADE_KM = 100
@@ -182,7 +184,10 @@ def run_ecmwf(args):
             fields, missing, grid = {}, None, None
             for param in ECMWF_PARAMS:
                 fields[param], m, grid = decode_masked(messages[param])
-                missing = m if missing is None else missing | m
+                if param == "pp1d":  # the land from the height and direction only
+                    fields[param] = np.where(m, np.nan, fields[param])
+                else:
+                    missing = m if missing is None else missing | m
             if placement is None:
                 lat0 = grid["latitudeOfFirstGridPointInDegrees"]
                 lon0 = grid["longitudeOfFirstGridPointInDegrees"]
@@ -191,9 +196,9 @@ def run_ecmwf(args):
                 placement = tiler.Placement(tiler.tiles_in_box((-85, 85, -180, 180), zooms), place)
             t = int(run.timestamp()) + step * 3600
             height = np.where(missing, np.nan, fields["swh"])
-            if not out.checked("ECMWF", t, quality.waves(height, np.where(missing, np.nan, fields["mwp"]))):
+            if not out.checked("ECMWF", t, quality.waves(height, np.where(missing, np.nan, fields["pp1d"]))):
                 continue
-            h, p, d = (filled(fields[name], missing) for name in ("swh", "mwp", "mwd"))
+            h, p, d = (filled(fields[name], missing) for name in ("swh", "pp1d", "mwd"))
             out.put(t, encode_hour(placement, sample, h, p, d))
         print(f"  +{chunk[-1]} h, {len(out.frames)} hours, {out.bytes / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
     if out.frames:
@@ -220,15 +225,10 @@ def run_ewam(args):
         with ThreadPoolExecutor(8) as pool:
             raw = dict(zip(jobs, pool.map(lambda job: _ewam_get(run, *job), jobs)))
         for step in chunk:
-            fields, missing, grid = {}, None, None
-            for variable in wave_map.VARIABLES:
-                data = raw.get((step, variable))
-                if data is None:
-                    break
-                fields[variable], m, grid = decode_masked(data)
-                missing = m if missing is None else missing | m
-            if len(fields) != len(wave_map.VARIABLES):
+            messages = {variable: raw.get((step, variable)) for variable in wave_map.VARIABLES}
+            if any(data is None for data in messages.values()):
                 continue
+            fields, missing, grid = ewam_decode(messages)
             if placement is None:
                 lat0 = grid["latitudeOfFirstGridPointInDegrees"]
                 lon0 = grid["longitudeOfFirstGridPointInDegrees"]
@@ -246,13 +246,26 @@ def run_ewam(args):
                 print(f"EWAM {run}: {len(placement.parts)} tiles over {box}", flush=True)
             t = int(run_time.timestamp()) + step * 3600
             height = np.where(missing, np.nan, fields["SWH"])
-            if not out.checked("EWAM", t, quality.waves(height, np.where(missing, np.nan, fields["TM10"]))):
+            if not out.checked("EWAM", t, quality.waves(height, np.where(missing, np.nan, fields["PERIOD"]))):
                 continue
-            h, p, d = (filled(fields[name], missing) for name in ("SWH", "TM10", "MWD"))
+            h, p, d = (filled(fields[name], missing) for name in ("SWH", "PERIOD", "MWD"))
             out.put(t, encode_hour(placement, sample, h, p, d))
         print(f"  +{chunk[-1]} h, {len(out.frames)} hours, {out.bytes / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
     if out.frames:
         out.finish()
+
+
+def ewam_decode(messages):
+    """EWAM's hour from its GRIB messages {variable: bytes}: the fields (PERIOD the peak period), the land and the
+    grid. The land from the height and direction only: the swell and wind-sea parts are blank where there is none."""
+    fields, missing, grid = {}, None, None
+    for variable in wave_map.VARIABLES:
+        values, m, grid = decode_masked(messages[variable])
+        if variable in ("SWH", "MWD"):
+            missing = m if missing is None else missing | m
+        fields[variable] = np.where(m, np.nan, values)
+    fields["PERIOD"] = wave_map.peak_period(*(fields[v] for v in ("SHTS", "PPTS", "SHWW", "PPWW")))
+    return fields, missing, grid
 
 
 def _ewam_get(run, step, variable):

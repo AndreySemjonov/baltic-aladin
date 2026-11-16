@@ -11,7 +11,7 @@ the finest model that reaches it, fading into the next over its area's edge (as 
 
 Hourly for 2 days, every 3 hours to 6 days and every 6 to 10, as far as each model goes; zooms
 3-7. The app draws ECMWF's world waves (tiles/ecmwf-waves) under it and after it. The height,
-the period (mean, TM10) and the direction it comes from, as waves_tiles.py; the weight as alpha.
+the period (peak) and the direction it comes from, as waves_tiles.py; the weight as alpha.
 The hours are made in 4 processes, each reading its own hours of each model.
 
 Free data, but Copernicus needs our account (COPERNICUSMARINE_SERVICE_USERNAME and _PASSWORD,
@@ -42,7 +42,7 @@ MODELS = [
     ("BS", "cmems_mod_blk_wav_anfc_2.5km_PT1H-i"),
     ("MED", "cmems_mod_med_wav_anfc_4.2km_PT1H-i"),
 ]
-VARIABLES = ("VHM0", "VTM10", "VMDR")
+VARIABLES = ("VHM0", "VTPK", "VMDR")  # VTPK: the peak period (the owner, 16.11.2026), not the mean VTM10
 ZOOMS = range(3, 8)
 FADE_KM = 40
 STEPS = list(range(0, 48)) + list(range(48, 145, 3)) + list(range(150, 241, 6))
@@ -84,28 +84,27 @@ def cmems_grid(name, ds, index):
     place, sample = regular_grid(lats[0], lons[0], lats[1] - lats[0], lons[1] - lons[0], len(lats), len(lons), False)
     box = (float(lats.min()), float(lats.max()), float(lons.min()), float(lons.max()))
     h, p, d = (filled(fields[v], missing) for v in VARIABLES)
-    return Grid(name, box, place, sample, h, p, d), np.where(missing, np.nan, fields["VHM0"]), np.where(missing, np.nan, fields["VTM10"])
+    return Grid(name, box, place, sample, h, p, d), np.where(missing, np.nan, fields["VHM0"]), np.where(missing, np.nan, fields["VTPK"])
 
 
 def ewam_grid(run, step):
     """EWAM's hour as a Grid (None when it can't be read)."""
-    fields, missing, grid = {}, None, None
+    messages = {}
     for variable in wave_map.VARIABLES:
         try:
-            data = wave_map.download(run, step, variable)
+            messages[variable] = wave_map.download(run, step, variable)
         except Exception as error:
             print(f"EWAM {variable} +{step} h: {error}", flush=True)
             return None
-        fields[variable], m, grid = waves_tiles.decode_masked(data)
-        missing = m if missing is None else missing | m
+    fields, missing, grid = waves_tiles.ewam_decode(messages)
     lat0, lon0 = grid["latitudeOfFirstGridPointInDegrees"], grid["longitudeOfFirstGridPointInDegrees"]
     lon0 = lon0 - 360 if lon0 > 180 else lon0
     dlat = grid["jDirectionIncrementInDegrees"] * (1 if grid["jScansPositively"] else -1)
     dlon, nj, ni = grid["iDirectionIncrementInDegrees"], grid["Nj"], grid["Ni"]
     place, sample = regular_grid(lat0, lon0, dlat, dlon, nj, ni, False)
     box = (min(lat0, lat0 + dlat * (nj - 1)), max(lat0, lat0 + dlat * (nj - 1)), lon0, lon0 + dlon * (ni - 1))
-    h, p, d = (filled(fields[name], missing) for name in ("SWH", "TM10", "MWD"))
-    return Grid("EWAM", box, place, sample, h, p, d), np.where(missing, np.nan, fields["SWH"]), np.where(missing, np.nan, fields["TM10"])
+    h, p, d = (filled(fields[name], missing) for name in ("SWH", "PERIOD", "MWD"))
+    return Grid("EWAM", box, place, sample, h, p, d), np.where(missing, np.nan, fields["SWH"]), np.where(missing, np.nan, fields["PERIOD"])
 
 
 def composite(grids, keys):
