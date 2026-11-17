@@ -31,6 +31,10 @@ TOTAL = ("VHM0", "VTPK", "VMDR")
 # The main swell's direction, degrees it comes from (the owner, 17.11.2026: "add swell direction to the swell rows"): each
 # frame's "swelldir" pack, in the waves' format (the swell's height, period, direction).
 DIRECTION = "VMDR_SW1"
+# The wind waves' period and way: waves-world's frames get the swell's and the wind waves' own packs too ("swelldir",
+# "windsea", the waves' format), the web map's two crest systems (the owner, 17.11.2026: "Add swell and wind waves as two
+# systems").
+CHOP = ("VTM01_WW", "VMDR_WW")
 ZOOMS = range(0, 5)
 CREDIT = "E.U. Copernicus Marine Service Information (global wave forecast)"
 
@@ -43,7 +47,7 @@ def main():
     started = time.time()
     now = datetime.now(timezone.utc)
     run_time = now.replace(hour=now.hour // 3 * 3, minute=0, second=0, microsecond=0)
-    ds = copernicusmarine.open_dataset(dataset_id=DATASET, variables=list(VARIABLES + TOTAL + (DIRECTION,)), service="arco-geo-series")
+    ds = copernicusmarine.open_dataset(dataset_id=DATASET, variables=list(VARIABLES + TOTAL + (DIRECTION,) + CHOP), service="arco-geo-series")
     stamps = ds["time"].values.astype("datetime64[s]").astype(np.int64)
     hours = [i for i, t in enumerate(stamps) if t >= int(run_time.timestamp())][:limit]
     if not hours:
@@ -66,6 +70,13 @@ def main():
         gone = ~np.isfinite(height)
         if total.checked("Copernicus", t, quality.waves(height, np.where(gone, np.nan, peak))):
             total.put(t, encode_hour(placement, sample, *(filled(v, gone) for v in (height, peak, direction))))
+            heading = hour[DIRECTION].values.astype(np.float32)
+            chop_period, chop_way = (hour[v].values.astype(np.float32) for v in CHOP)
+            no_swell = ~missing & ~np.isfinite(swell)
+            total.put(t, encode_hour(placement, sample, *(filled(np.where(no_swell, 0, v), missing)
+                                                          for v in (swell, period, heading))), kind="swelldir")
+            total.put(t, encode_hour(placement, sample, *(filled(np.nan_to_num(v), missing)
+                                                          for v in (chop, chop_period, chop_way))), kind="windsea")
         if not out.checked("Copernicus", t, quality.waves(np.where(missing, np.nan, swell), np.where(missing, np.nan, period))):
             continue
         # No swell over the sea: 0 m (as EWAM's), not unknown.
