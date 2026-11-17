@@ -96,7 +96,23 @@ function spendPanels(sp, storeCost) {
     <div class="panel s6"><h2>Spending a day past the free shares · 30 days (UTC)</h2>
       <svg class="chart" viewBox="0 0 500 180">${days.map((d, i) => { const h = 155 - y(d.over); return html`<rect x=${20 + i * w} y=${155 - Math.max(h, 1)} width=${Math.max(w - 4, 2)} height=${Math.max(h, 1)} rx="2" fill=${colour(d.over)}><title>${d.day}: ${usd(d.over)} · ${Object.entries(d.dollars).filter(([, v]) => v >= 0.005).map(([k, v]) => `${names[k] || k} ${usd(v)}`).join(", ") || "all within the free shares"}</title></rect>`; })}
         ${[[sp.warn, "var(--warn)", "push"], [sp.hold, "var(--bad)", "hold"]].map(([v, c, t]) => html`<line x1="15" x2="495" y1=${y(v)} y2=${y(v)} stroke=${c} stroke-dasharray="4 4"/><text x="490" y=${y(v) - 4} text-anchor="end">${usd(v)} ${t}</text>`)}</svg></div>
+    ${opsPanel(days, "a", 1e6 / 30, "File store writes (Class A) a day", usd)}
+    ${opsPanel(days, "b", 10e6 / 30, "File store reads (Class B) a day", usd)}
   `;
+}
+
+// The file store's operations a UTC day against the day's free share (the owner, 17.11.2026: "daily operations A with B
+// with each day cap and do we go out or below it each day"). free: a 30th of the month's allowance, as admin's
+// overview.js SPEND_ITEMS (1M writes, 10M reads); past it each costs that item's price.
+function opsPanel(days, key, free, title, usd) {
+  const n = (v) => v >= 1e6 ? (v / 1e6).toFixed(2) + "M" : v >= 1e3 ? Math.round(v / 1e3) + "k" : String(Math.round(v));
+  const top = Math.max(free * 1.3, ...days.map((d) => d.use[key]));
+  const y = (v) => 155 - v / top * 140, w = 470 / Math.max(days.length, 1);
+  const over = days.filter((d) => d.use[key] > free).length, today = days[days.length - 1];
+  return html`<div class="panel s6"><h2>${title} · 30 days (UTC)</h2>
+    <svg class="chart" viewBox="0 0 500 180">${days.map((d, i) => { const v = d.use[key], h = Math.max(155 - y(v), 1); return html`<rect x=${20 + i * w} y=${155 - h} width=${Math.max(w - 4, 2)} height=${h} rx="2" fill=${v > free ? "var(--warn)" : "var(--accent)"}><title>${d.day}: ${v.toLocaleString("en")} · ${v > free ? `${n(v - free)} over the free share, ${usd(d.dollars[key])}` : `${Math.round(v / free * 100)}% of the free share`}</title></rect>`; })}
+      <line x1="15" x2="495" y1=${y(free)} y2=${y(free)} stroke="var(--warn)" stroke-dasharray="4 4"/><text x="490" y=${y(free) - 4} text-anchor="end">${n(free)} free a day</text></svg>
+    <p class="whytxt">Over the free share on ${over} of ${days.length} days.${today ? ` Today so far ${today.use[key].toLocaleString("en")} (${Math.round(today.use[key] / free * 100)}%).` : ""}</p></div>`;
 }
 
 function Costs({ ad, now }) {
