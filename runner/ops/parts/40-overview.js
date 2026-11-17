@@ -96,25 +96,78 @@ function spendPanels(sp, storeCost) {
     <div class="panel s6"><h2>Spending a day past the free shares · 30 days (UTC)</h2>
       <svg class="chart" viewBox="0 0 500 180">${days.map((d, i) => { const h = 155 - y(d.over); return html`<rect x=${20 + i * w} y=${155 - Math.max(h, 1)} width=${Math.max(w - 4, 2)} height=${Math.max(h, 1)} rx="2" fill=${colour(d.over)}><title>${d.day}: ${usd(d.over)} · ${Object.entries(d.dollars).filter(([, v]) => v >= 0.005).map(([k, v]) => `${names[k] || k} ${usd(v)}`).join(", ") || "all within the free shares"}</title></rect>`; })}
         ${[[sp.warn, "var(--warn)", "push"], [sp.hold, "var(--bad)", "hold"]].map(([v, c, t]) => html`<line x1="15" x2="495" y1=${y(v)} y2=${y(v)} stroke=${c} stroke-dasharray="4 4"/><text x="490" y=${y(v) - 4} text-anchor="end">${usd(v)} ${t}</text>`)}</svg></div>
-    ${opsPanel(days, "a", 1e6 / 30, "File store writes (Class A) a day", usd, 2e6 / 30)}
-    ${opsPanel(days, "b", 10e6 / 30, "File store reads (Class B) a day", usd)}
+    <${OpsChart} sp=${sp} k="a" free=${1e6 / 30} price=${4.5} cap=${2e6 / 30} title="File store writes (Class A) a day"/>
+    <${OpsChart} sp=${sp} k="b" free=${10e6 / 30} price=${0.36} title="File store reads (Class B) a day"/>
   `;
 }
 
-// The file store's operations a UTC day against the day's free share (the owner, 17.11.2026: "daily operations A with B
-// with each day cap and do we go out or below it each day"). free: a 30th of the month's allowance, as admin's
-// overview.js SPEND_ITEMS (1M writes, 10M reads); past it each costs that item's price. cap: the writes' 2M a month (a 30th),
-// the owner's limit (7.11.2026: "hold under 2M"): Cloudflare bills whole millions, $4.50 up to it, $9 past it.
-function opsPanel(days, key, free, title, usd, cap = 0) {
-  const n = (v) => v >= 1e6 ? (v / 1e6).toFixed(2) + "M" : v >= 1e3 ? Math.round(v / 1e3) + "k" : String(Math.round(v));
-  const top = Math.max((cap || free) * 1.15, ...days.map((d) => d.use[key]));
-  const y = (v) => 155 - v / top * 140, w = 470 / Math.max(days.length, 1);
-  const over = days.filter((d) => d.use[key] > free).length, today = days[days.length - 1];
-  return html`<div class="panel s6"><h2>${title} · 30 days (UTC)</h2>
-    <svg class="chart" viewBox="0 0 500 180">${days.map((d, i) => { const v = d.use[key], h = Math.max(155 - y(v), 1); return html`<rect x=${20 + i * w} y=${155 - h} width=${Math.max(w - 4, 2)} height=${h} rx="2" fill=${cap && v > cap ? "var(--bad)" : v > free ? "var(--warn)" : "var(--accent)"}><title>${d.day}: ${v.toLocaleString("en")} · ${v > free ? `${n(v - free)} over the free share, ${usd(d.dollars[key])}` : `${Math.round(v / free * 100)}% of the free share`}</title></rect>`; })}
-      <line x1="15" x2="495" y1=${y(free)} y2=${y(free)} stroke="var(--warn)" stroke-dasharray="4 4"/><text x="490" y=${y(free) - 4} text-anchor="end">${n(free)} free a day</text>
-      ${cap ? html`<line x1="15" x2="495" y1=${y(cap)} y2=${y(cap)} stroke="var(--bad)" stroke-dasharray="4 4"/><text x="490" y=${y(cap) - 4} text-anchor="end">${n(cap)} a day: 2M a month, $9</text>` : ""}</svg>
-    <p class="whytxt">Over the free share on ${over} of ${days.length} days${cap ? `, over the 2M-a-month line on ${days.filter((d) => d.use[key] > cap).length}` : ""}.${today ? ` Today so far ${today.use[key].toLocaleString("en")} (${Math.round(today.use[key] / free * 100)}%).` : ""}</p></div>`;
+// The file store's operations a UTC day in Cloudflare's billing month, the 7th to the 7th as its dashboard counts (the
+// owner, 17.11.2026: "daily operations A with B with each day cap and do we go out or below it each day"; then "start
+// counting from 7th", "at bottom ... date number", "33k line blends with columns", "average usage line where we will see
+// final usage at current pace", "when hover want to see more details"). free: a 30th of the month's allowance, as
+// admin's overview.js SPEND_ITEMS (1M writes, 10M reads), price a million past it; Cloudflare bills started millions.
+// cap: the writes' 2M a month, the owner's limit (7.11.2026: "hold under 2M"), $9 past it. The pace: the month so far
+// over its elapsed days, as the month card's projection.
+function OpsChart({ sp, k, free, price, cap = 0, title }) {
+  const [hv, setHv] = useState(null);
+  const svgRef = useRef(null);
+  const m = sp.month, start = Date.parse(m.from + "T00:00:00Z"), today = sp.days.length ? sp.days[sp.days.length - 1].day : "";
+  const byDay = new Map(sp.days.map((d) => [d.day, d]));
+  const slots = Array.from({ length: Math.round(m.length) }, (_, i) => {
+    const day = new Date(start + i * 864e5).toISOString().slice(0, 10), d = byDay.get(day);
+    return { day, v: d ? d.use[k] : null };
+  });
+  const used = slots.reduce((a, s1) => a + (s1.v || 0), 0), month = free * 30;
+  const pace = used / m.elapsed, end = pace * m.length;
+  const bill = (v) => Math.ceil(Math.max(0, v - month) / 1e6) * price;
+  const n = (v) => v >= 1e6 ? (v / 1e6).toFixed(2).replace(/\.?0+$/, "") + "M" : v >= 1e3 ? Math.round(v / 1e3) + "k" : String(Math.round(v));
+  const pct = (v) => Math.round(v * 100) + "%";
+  const X0 = 15, X1 = 495, B = 150, w = (X1 - X0) / slots.length;
+  const top = Math.max((cap || free) * 1.15, pace * 1.1, ...slots.map((s1) => s1.v || 0));
+  const y = (v) => B - v / top * 130;
+  const label = (x, v, anchor, colour, text) => html`<text x=${x} y=${y(v) - 5} text-anchor=${anchor} paint-order="stroke" stroke="var(--panel)"
+    stroke-width="4" stroke-linejoin="round" style=${`fill:${colour}`}>${text}</text>`;
+  const at = (ev) => {
+    const r = svgRef.current.getBoundingClientRect(), i = Math.floor(((ev.clientX - r.left) * 500 / r.width - X0) / w);
+    return i < 0 || i >= slots.length ? null : { i, left: ev.clientX - r.left, top: ev.clientY - r.top, w: r.width };
+  };
+  let tip = null;
+  if (hv) {
+    const s1 = slots[hv.i], upto = slots.slice(0, hv.i + 1).reduce((a, x) => a + (x.v || 0), 0);
+    const date = new Date(s1.day + "T00:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+    const what = k === "a" ? "writes" : "reads";
+    const lines = [html`<b>${date}</b>${s1.day === today ? " · today so far" : s1.v == null ? " · to come" : ""}`];
+    if (s1.v != null) {
+      lines.push(html`<span class="k">${what}</span> ${s1.v.toLocaleString("en")} · ${pct(s1.v / free)} of the ${n(free)} free share`);
+      lines.push(s1.v > free ? html`<span class="k">over it by</span> ${n(s1.v - free)}` : html`<span class="k">under it by</span> ${n(free - s1.v)}`);
+      lines.push(html`<span class="k">month to here</span> ${n(upto)} · ${pct(upto / month)} of the free ${n(month)}`);
+    } else {
+      lines.push(html`<span class="k">at this pace</span> ~${n(pace * (hv.i + 1))} by the end of it · ${pct(pace * (hv.i + 1) / month)} of the free ${n(month)}`);
+    }
+    tip = { lines, left: hv.left, top: hv.top, w: hv.w, flip: hv.left > hv.w * 0.55 };
+  }
+  const over = slots.filter((s1) => s1.v > free).length, had = slots.filter((s1) => s1.v != null).length;
+  const cost = bill(end);
+  return html`<div class="panel s6"><h2>${title} · ${m.from.slice(5)} to ${m.to.slice(5)} (UTC)</h2>
+    <div class="opsc"><svg ref=${svgRef} class="chart" viewBox="0 0 500 172" onPointerMove=${(ev) => setHv(at(ev))} onPointerDown=${(ev) => setHv(at(ev))}
+        onPointerLeave=${() => setHv(null)} role="img" aria-label=${`${title}: this month so far ${n(used)}, at this pace ${n(end)}`}>
+      ${hv ? html`<rect x=${X0 + hv.i * w} y="8" width=${w} height=${B - 8} fill="var(--line)"/>` : null}
+      ${slots.map((s1, i) => {
+        if (s1.v == null) return html`<rect x=${X0 + i * w + 2} y=${B - 1} width=${Math.max(w - 4, 2)} height="1" fill="var(--line)"/>`;
+        const h = Math.max(B - y(s1.v), 1);
+        return html`<rect x=${X0 + i * w + 2} y=${B - h} width=${Math.max(w - 4, 2)} height=${h} rx="2" opacity=${hv && hv.i !== i ? 0.6 : 1}
+          fill=${cap && s1.v > cap ? "var(--bad)" : s1.v > free ? "var(--warn)" : "var(--accent)"}/>`;
+      })}
+      ${slots.map((s1, i) => html`<text x=${X0 + i * w + w / 2} y="166" text-anchor="middle" style=${s1.day === today ? "fill:var(--ink)" : ""}>${+s1.day.slice(8)}</text>`)}
+      <line x1=${X0} x2=${X1} y1=${y(free)} y2=${y(free)} stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="5 4"/>
+      ${label(X1, free, "end", "var(--ink)", `${n(free)} free a day`)}
+      ${cap ? html`<line x1=${X0} x2=${X1} y1=${y(cap)} y2=${y(cap)} stroke="var(--bad)" stroke-width="1.5" stroke-dasharray="5 4"/>
+        ${label(X1, cap, "end", "var(--bad)", `${n(cap)} a day: 2M a month, $9`)}` : null}
+      ${used ? html`<line x1=${X0} x2=${X1} y1=${y(pace)} y2=${y(pace)} stroke="var(--wrf)" stroke-width="2"/>
+        ${label(X0 + 2, pace, "start", "var(--wrf)", `pace ${n(pace)} a day → ${n(end)}`)}` : null}
+    </svg>${tip ? html`<div class="ttip" style=${`${tip.flip ? `right:${tip.w - tip.left + 12}px` : `left:${tip.left + 12}px`};top:${Math.max(0, tip.top - 10)}px`}>${tip.lines.map((l1, j) => html`${j ? html`<br/>` : null}${l1}`)}</div>` : null}</div>
+    <p class="whytxt">This month so far ${used.toLocaleString("en")} (Cloudflare's count); at this pace ${n(end)} by ${m.to.slice(5)} of the free ${n(month)}: ${cost ? `$${cost.toFixed(2)}` : "free"}.
+      Over the day's free share on ${over} of ${had} days${cap ? `, over the 2M line on ${slots.filter((s1) => s1.v > cap).length}` : ""}.</p></div>`;
 }
 
 function Costs({ ad, now }) {

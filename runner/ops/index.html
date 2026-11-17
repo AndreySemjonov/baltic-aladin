@@ -324,9 +324,9 @@ tr.group td { font: 600 12px var(--display); letter-spacing: .08em; text-transfo
 .lanes .bpop.pinned { pointer-events: auto } .lanes .bpop.pinned .ph { padding-right: 34px }
 .lanes .bpop.pinned .px { display: block; position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border: 0; border-radius: 50%;
   background: var(--line); color: var(--muted); font: 600 14px/28px var(--body); padding: 0; cursor: pointer }
-.bpop .pchart { position: relative } .bpop .ttip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line);
+.bpop .pchart, .opsc { position: relative } .bpop .ttip, .opsc .ttip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line);
   border-radius: 6px; padding: 5px 8px; font: 11.5px/1.5 var(--mono); white-space: nowrap; box-shadow: 0 4px 14px var(--sh-tip); z-index: 6 }
-.bpop .ttip .k { color: var(--muted) }
+.bpop .ttip .k, .opsc .ttip .k { color: var(--muted) }
 .bpop .pfoot { display: flex; flex-wrap: wrap; gap: 2px 14px; font: 12px var(--mono); color: var(--muted); border-top: 1px solid var(--line);
   padding-top: 6px; margin-top: 2px } .bpop .pfoot b { color: var(--ink); font-weight: 500 }
 .bpop .pchart text.ink, .bpop .pchart tspan.ink { fill: var(--ink) }
