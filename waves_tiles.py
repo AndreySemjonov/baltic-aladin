@@ -97,6 +97,11 @@ def encode_hour(placement, sample, height, period, direction):
     return tiler.pack(placement, sample, encode, valid=lambda at: np.isfinite(at(height)))
 
 
+# EWAM's files the tiles read: the shared ones and the swell's mean direction (MDTS, optional: an hour without it has
+# no swelldir pack).
+EWAM_VARIABLES = wave_map.VARIABLES + ("MDTS",)
+
+
 def swell_hour(placement, sample, swell, period, chop):
     """The swell and the wind waves apart (the owner, 16.11.2026, "make point 5"; EWAM only: ECMWF's open data has no
     split): red the swell's height m x 20 + 1 (0 unknown), green its peak period s x 10, blue the wind waves' height
@@ -233,12 +238,12 @@ def run_ewam(args):
     placement = sample = None
     for k in range(0, len(steps), 12):
         chunk = steps[k:k + 12]
-        jobs = [(s, v) for s in chunk for v in wave_map.VARIABLES]
+        jobs = [(s, v) for s in chunk for v in EWAM_VARIABLES]
         with ThreadPoolExecutor(8) as pool:
             raw = dict(zip(jobs, pool.map(lambda job: _ewam_get(run, *job), jobs)))
         for step in chunk:
-            messages = {variable: raw.get((step, variable)) for variable in wave_map.VARIABLES}
-            if any(data is None for data in messages.values()):
+            messages = {variable: raw.get((step, variable)) for variable in EWAM_VARIABLES}
+            if any(messages[variable] is None for variable in wave_map.VARIABLES):
                 continue
             fields, missing, grid = ewam_decode(messages)
             if placement is None:
@@ -265,6 +270,11 @@ def run_ewam(args):
             # The parts are blank where there is none: 0 at sea, then the coast filled as the rest.
             sw, sp, ww = (filled(np.where(missing, np.nan, np.nan_to_num(fields[name])), missing) for name in ("SHTS", "PPTS", "SHWW"))
             out.put(t, swell_hour(placement, sample, sw, sp, ww), kind="swell")
+            # The swell's direction (the owner, 17.11.2026: "add swell direction to the swell rows"): its own pack in the
+            # waves' format (the swell's height, period, direction), as the swell pack's blue is the wind waves the map reads.
+            if "MDTS" in fields:
+                sd = filled(np.where(missing, np.nan, np.nan_to_num(fields["MDTS"])), missing)
+                out.put(t, encode_hour(placement, sample, sw, sp, sd), kind="swelldir")
         print(f"  +{chunk[-1]} h, {len(out.frames)} hours, {out.bytes / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
     if out.frames:
         out.finish()
@@ -274,8 +284,10 @@ def ewam_decode(messages):
     """EWAM's hour from its GRIB messages {variable: bytes}: the fields (PERIOD the peak period), the land and the
     grid. The land from the height and direction only: the swell and wind-sea parts are blank where there is none."""
     fields, missing, grid = {}, None, None
-    for variable in wave_map.VARIABLES:
-        values, m, grid = decode_masked(messages[variable])
+    for variable, data in messages.items():
+        if data is None:  # an optional one (MDTS) missing: its pack is left out
+            continue
+        values, m, grid = decode_masked(data)
         if variable in ("SWH", "MWD"):
             missing = m if missing is None else missing | m
         fields[variable] = np.where(m, np.nan, values)

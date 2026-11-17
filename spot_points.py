@@ -349,13 +349,25 @@ def main():
     # The swell and wind waves apart at every spot: the table's Swell rows (the owner, 17.11.2026: "add the swell row
     # to the table", then "Yes, world swell"): EWAM's (Europe's seas, its frames' "swell" pack) and Copernicus' global
     # one (swell_world.py, its frames' own pack); station-history takes EWAM's where it has the hour.
+    # Each hour [swell m, period s, wind waves m, direction degrees]: the direction from the frame's "swelldir" pack (the
+    # owner, 17.11.2026: "add swell direction to the swell rows"), left off where the run has none.
+    def swell_values(f, zooms, sizes, folder, layer, search):
+        if not f.get(layer):
+            return {k: None for k in sea}
+        out = frame_values(FILES + f"tiles/{folder}/{f[layer]}", sea, zooms, sizes, swell, search)
+        if f.get("swelldir"):
+            heading = frame_values(FILES + f"tiles/{folder}/{f['swelldir']}", sea, zooms, sizes, waves, search)
+            for k, v in out.items():
+                if v is not None:
+                    v.append(heading[k][2] if heading.get(k) else None)
+        return out
+
     for name, (folder, layer, search) in {"ewam-swell": ("ewam", "swell", 8), "swell-world": ("swell-world", "file", 1)}.items():
         if chosen and name not in chosen:
             continue
         publish(name, make(name, sea, force, folder,
                            lambda f, zooms, sizes, folder=folder, layer=layer, search=search:
-                           frame_values(FILES + f"tiles/{folder}/{f[layer]}", sea, zooms, sizes, swell, search)
-                           if f.get(layer) else {k: None for k in sea}))
+                           swell_values(f, zooms, sizes, folder, layer, search)))
 
 
 if __name__ == "__main__":

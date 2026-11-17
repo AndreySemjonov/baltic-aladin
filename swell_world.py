@@ -28,6 +28,9 @@ from waves_tiles import encode_hour, filled, regular_grid, swell_hour
 DATASET = "cmems_mod_glo_wav_anfc_0.083deg_PT3H-i"
 VARIABLES = ("VHM0_SW1", "VTM01_SW1", "VHM0_WW")
 TOTAL = ("VHM0", "VTPK", "VMDR")
+# The main swell's direction, degrees it comes from (the owner, 17.11.2026: "add swell direction to the swell rows"): each
+# frame's "swelldir" pack, in the waves' format (the swell's height, period, direction).
+DIRECTION = "VMDR_SW1"
 ZOOMS = range(0, 5)
 CREDIT = "E.U. Copernicus Marine Service Information (global wave forecast)"
 
@@ -40,7 +43,7 @@ def main():
     started = time.time()
     now = datetime.now(timezone.utc)
     run_time = now.replace(hour=now.hour // 3 * 3, minute=0, second=0, microsecond=0)
-    ds = copernicusmarine.open_dataset(dataset_id=DATASET, variables=list(VARIABLES + TOTAL), service="arco-geo-series")
+    ds = copernicusmarine.open_dataset(dataset_id=DATASET, variables=list(VARIABLES + TOTAL + (DIRECTION,)), service="arco-geo-series")
     stamps = ds["time"].values.astype("datetime64[s]").astype(np.int64)
     hours = [i for i, t in enumerate(stamps) if t >= int(run_time.timestamp())][:limit]
     if not hours:
@@ -68,6 +71,9 @@ def main():
         # No swell over the sea: 0 m (as EWAM's), not unknown.
         swell = np.where(~missing & ~np.isfinite(swell), 0, swell)
         out.put(t, swell_hour(placement, sample, *(filled(v, missing) for v in (swell, period, chop))))
+        heading = hour[DIRECTION].values.astype(np.float32)
+        heading = np.where(~missing & ~np.isfinite(heading), 0, heading)
+        out.put(t, encode_hour(placement, sample, *(filled(v, missing) for v in (swell, period, heading))), kind="swelldir")
         print(f"  {datetime.fromtimestamp(t, timezone.utc):%d.%m %H} UTC, {time.time() - began:.0f} s, "
               f"{out.bytes / 1e6:.0f} MB", flush=True)
     for run in (out, total):
