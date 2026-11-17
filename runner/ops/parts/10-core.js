@@ -464,11 +464,6 @@ function NowTab({ f, s, now }) {
 // control-sections in docs/mockups). Admin's data and actions come through the home server's /admin/api/.
 
 const SECTIONS = [["pipeline", "Pipeline"], ["machine", "Machine"], ["quality", "Quality"], ["rain", "Rain & clouds"], ["app", "App & riders"], ["stations", "Stations"], ["costs", "Costs"]];
-const JOB_SET = { "icon-eu": "icon-eu", "world-gfs": "gfs", "world-ecmwf": "ecmwf", "world-icon": "icon", "world-gdps": "gdps", "nordic-1km": "metnordic-1km",
-  "mix": "mix", "mix-world": "mix-world", "weather-mix-europe": "mix-wx", "weather-mix-world": "mix-world-wx", "bucket-knmi-eu": "knmi-eu",
-  "bucket-arome25": "arome25", "bucket-icon-ch2": "icon-ch2", "ukmo": "ukmo", "ewam": "ewam", "ecmwf-waves": "ecmwf-waves", "chance": "chance",
-  "harm-fi": "harm-fi", "aladin": "aladin", "regional-wind": "metnordic", "regional-weather": "metnordic-wx", "sea": "sea", "waves": "waves",
-  "water": "water", "meps-cloud": "meps-cloud" };
 
 // Each map's home jobs (regional_tiles.py's wind job makes the blend and each regional model's own set).
 const SET_JOBS = { metnordic: ["regional-wind"], "metnordic-wx": ["regional-weather"], dini: ["regional-dini"], arome: ["regional-arome"],
@@ -480,7 +475,13 @@ const SET_JOBS = { metnordic: ["regional-wind"], "metnordic-wx": ["regional-weat
   "knmi-eu": ["bucket-knmi-eu"], chance: ["chance"], sea: ["sea"], waves: ["waves"], water: ["water"],
   // MEPS's clouds in layers: the Tower's only, no GitHub workflow (the owner, 01.11.2026: the lane said "GitHub" and
   // showed only its publishes, no processing).
-  "meps-cloud": ["meps-cloud"] };
+  "meps-cloud": ["meps-cloud"],
+  // Every set the admin's MAPS lists (the owner, 17.11.2026: "update ... pipeline so we see all info there. We added world
+  // swell now"): the regional models' air and rain, MET Nordic 1 km's, ECMWF's wind aloft, UKMO's world, the world's seas,
+  // swell and waves (swell_world.py makes both), the ice beside the water.
+  ...Object.fromEntries(["icon-d2", "dini", "harm-nl", "arome", "icon-ch1", "icon-2i"].map((m) => [m + "-wx", [`regional-${m}-wx`]])),
+  "metnordic-1km-wx": ["nordic-1km-wx"], "ecmwf-steer": ["ecmwf-steer"], "ukmo-global": ["world-ukmo-global"],
+  "sea-world": ["sea-world"], "swell-world": ["swell-world"], "waves-world": ["swell-world"], ice: ["water"] };
 
 async function adminGet(path) {
   const r = await fetch("/admin/api/" + path, { cache: "no-store" });

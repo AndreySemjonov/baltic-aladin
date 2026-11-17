@@ -15,14 +15,24 @@ const SET_SRC = { metnordic: ["metno_nordic_pp", "regional.yml"], "metnordic-wx"
   ecmwf: ["ecmwf_ifs", "world.yml", "ecmwf"], gfs: ["ncep_gfs025", "world.yml", "gfs"], icon: ["dwd_icon", "world.yml", "icon"],
   gdps: ["cmc_gem_gdps_15km", "world.yml", "gdps"], ewam: ["dwd_ewam", "world.yml", "ewam"], "ecmwf-waves": ["ecmwf_wam", "world.yml", "ecmwf-waves"],
   mix: [null, "mix.yml"], "mix-world": [null, "mix-world.yml"], "mix-wx": [null, "weather-mix.yml"], "mix-world-wx": [null, "weather-mix.yml"],
-  chance: [null, "chance.yml"], sea: [null, "sea.yml"], waves: [null, "waves.yml"], water: [null, "update.yml"], "wrf-tarifa": ["ncep_gfs025", null] };
+  chance: [null, "chance.yml"], sea: [null, "sea.yml"], waves: [null, "waves.yml"], water: [null, "update.yml"], "wrf-tarifa": ["ncep_gfs025", null],
+  // The sets added 17.11.2026 (the admin's MAPS): the regional models' air and rain from their own runs, as their wind.
+  "dini-wx": ["dmi_harmonie_arome_europe", "regional.yml"], "arome-wx": ["meteofrance_arome_france_hd", "regional.yml"],
+  "icon-d2-wx": ["dwd_icon_d2", "regional.yml"], "icon-ch1-wx": ["meteoswiss_icon_ch1", "regional.yml"],
+  "harm-nl-wx": ["knmi_harmonie_arome_netherlands", "regional.yml"], "icon-2i-wx": ["italia_meteo_arpae_icon_2i", "regional.yml"],
+  "metnordic-1km-wx": ["metno_nordic_pp", "nordic.yml"], "ecmwf-steer": ["ecmwf_ifs", "world.yml", "ecmwf-steer"],
+  "ukmo-global": ["ukmo_global_deterministic_10km", "world.yml", "ukmo-global"], "sea-world": [null, "sea-world.yml"],
+  "swell-world": [null, null], "waves-world": [null, null], ice: [null, "update.yml"] };
 // The model each home job watches (runner/jobs.py's watch).
 const JOB_WATCH = { "regional-wind": "metno_nordic_pp", "regional-weather": "metno_nordic_pp", "nordic-1km": "metno_nordic_pp",
   "regional-icon-d2": "dwd_icon_d2", "regional-dini": "dmi_harmonie_arome_europe", "regional-harm-nl": "knmi_harmonie_arome_netherlands",
   "regional-arome": "meteofrance_arome_france_hd", "regional-icon-ch1": "meteoswiss_icon_ch1", "regional-icon-2i": "italia_meteo_arpae_icon_2i",
   "icon-eu": "dwd_icon_eu", "world-gfs": "ncep_gfs025", "world-ecmwf": "ecmwf_ifs", "world-icon": "dwd_icon", "world-gdps": "cmc_gem_gdps_15km",
   "ecmwf-waves": "ecmwf_wam", ewam: "dwd_ewam", "bucket-icon-ch2": "meteoswiss_icon_ch2", "bucket-knmi-eu": "knmi_harmonie_arome_europe",
-  "bucket-arome25": "meteofrance_arome_france0025", ukmo: "ukmo_uk_deterministic_2km" };
+  "bucket-arome25": "meteofrance_arome_france0025", ukmo: "ukmo_uk_deterministic_2km", "world-ukmo-global": "ukmo_global_deterministic_10km",
+  "ecmwf-steer": "ecmwf_ifs",
+  ...Object.fromEntries([["icon-d2", "dwd_icon_d2"], ["dini", "dmi_harmonie_arome_europe"], ["harm-nl", "knmi_harmonie_arome_netherlands"],
+    ["arome", "meteofrance_arome_france_hd"], ["icon-ch1", "meteoswiss_icon_ch1"], ["icon-2i", "italia_meteo_arpae_icon_2i"]].map(([m, om]) => [`regional-${m}-wx`, om])) };
 // The mixes' inputs (views.PRODUCTS, weather_mix.py EUROPE/WORLD, mix_world.py WORLD_MODELS): their "available" is
 // the first input run published since the mix's previous run started (the owner, 22.10.2026: "available for the
 // mixes, from when a new input model run was published").
@@ -46,11 +56,13 @@ const FEED_ROWS = { radar: ["Mac · Tower · Cloudflare", 300, 1800], sat: ["Mac
 // Each feed's job (runner/jobs.py): its runs are the lane's bars (the tiny ones, Kolka and the radar's GeoTIFFs, keep
 // out of the runs' record: their lanes show the publishes only).
 const FEED_JOB = { radar: "opera", sat: "clouds", "rain-now": "rain-now", ens: "ens", "helper-aladin": "aladin-spots", "helper-gauges": "gauges" };
+// Our WRF's region from its set: the 1 km "wrf-<region>" and the 3 km box "wrf3-<region>" (from the same runs).
+const wrfRegion = (set) => (/^wrf3?-(.+)$/.exec(set) || [])[1] || null;
 // Every WRF of ours together (the owner, 1.11.2026: "put WRF Capetown below WRF tarifa so its in one place").
-const groupOf = (set) => set.startsWith("wrf-") ? "Our own"
-  : ["ewam", "ecmwf-waves", "waves", "sea", "water"].includes(set) ? "Waves and seas"
+const groupOf = (set) => wrfRegion(set) ? "Our own"
+  : ["ewam", "ecmwf-waves", "waves", "sea", "water", "ice", "sea-world", "swell-world", "waves-world"].includes(set) ? "Waves and seas"
   : set.startsWith("mix") || set === "chance" ? "Mixes and products"
-  : ["icon-eu", "icon-eu-wx", "icon-eu-steer", "ecmwf", "gfs", "icon", "gdps", "ukmo-global"].includes(set) ? "World and Europe" : "Regional";
+  : ["icon-eu", "icon-eu-wx", "icon-eu-steer", "ecmwf", "ecmwf-steer", "gfs", "icon", "gdps", "ukmo-global"].includes(set) ? "World and Europe" : "Regional";
 const med = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
 const mins = (s) => s == null ? "–" : s >= 3600 ? (s / 3600).toFixed(1) + " h" : Math.max(0, Math.round(s / 60)) + " min";
 
@@ -74,7 +86,7 @@ function laneData(maps, fr, f, now, s) {
   return maps.maps.map((m) => {
     const set = m.name.startsWith("tiles:") ? m.name.slice(6) : m.name;
     const [om, wf, word] = SET_SRC[set] || [];
-    const wrf = set.startsWith("wrf-");
+    const wrf = !!wrfRegion(set);
     const runs = (byMap[m.name] || []).sort((a, b) => a.run - b.run);
     const jobs = SET_JOBS[set] || [];
     // Made at home only (every job behind it live): GitHub shows only where it really stood in (the owner, 24.10.2026).
@@ -91,7 +103,7 @@ function laneData(maps, fr, f, now, s) {
       // WRF reads GFS from NOAA, hours before Open-Meteo's record: available is when its log had GFS in hand after
       // waiting for it, else WRF's start (GFS was out by then).
       // Each lane its own region's runs (the owner, 2.11.2026: Cape Town's lane showed only its publish).
-      for (const [a, b, ok, ready, waited, cycle, phases, host, region] of pipe.wrf) if (cycle && set === "wrf-" + (region || "tarifa")) byRun[cycle] = { run: cycle, avail: waited && ready ? ready : a, early: !waited,
+      for (const [a, b, ok, ready, waited, cycle, phases, host, region] of pipe.wrf) if (cycle && wrfRegion(set) === (region || "tarifa")) byRun[cycle] = { run: cycle, avail: waited && ready ? ready : a, early: !waited,
         tower: { start: a, end: b, ok: ok !== false, going: ok === "going", waiting: ok === "waiting", live: true, job: "wrf", host: host || "tower", phases } };
     } else for (const [r, d] of Object.entries(avails)) byRun[+r] = { run: +r, avail: d };
     for (const r of runs) if ((r.published || r.run) >= since) {
@@ -165,7 +177,7 @@ function laneData(maps, fr, f, now, s) {
     }
     const recent = entries.filter((e) => (e.avail || e.pub || e.run) >= day);
     const runTimes = Object.keys(avails).map(Number).sort((a, b) => a - b);
-    const cad = wrf ? (set === "wrf-tarifa" ? 12 : 24) * 3600 : runTimes.length > 1 ? med(runTimes.slice(1).map((r, i) => r - runTimes[i])) : null;
+    const cad = wrf ? (wrfRegion(set) === "tarifa" ? 12 : 24) * 3600 : runTimes.length > 1 ? med(runTimes.slice(1).map((r, i) => r - runTimes[i])) : null;
     const lastAvail = runTimes.length ? avails[runTimes[runTimes.length - 1]] : null;
     const last = runs[runs.length - 1];
     // Without a source's rhythm (a job on a clock: chance of rain, the seas): the Tower's own planned start, the
@@ -173,7 +185,7 @@ function laneData(maps, fr, f, now, s) {
     // the past and drew nothing).
     const towerNext = ((f && f.next) || []).filter((n) => jobs.includes(n.job) && n.at).map((n) => n.at).sort((a, b) => a - b)[0] || null;
     // Cape Town has no clock of its own: it follows the evening Tarifa.
-    const next = wrf ? (set === "wrf-tarifa" && ((f && f.wrf && f.wrf.next) || [])[0]) || null
+    const next = wrf ? (wrfRegion(set) === "tarifa" && ((f && f.wrf && f.wrf.next) || [])[0]) || null
       : cad && lastAvail ? lastAvail + cad : towerNext || (last ? last.run + (m.interval + m.delay) * 3600 : null);
     const fresh = freshBySet[set];
     let status = "ok";
@@ -1009,7 +1021,7 @@ function LaneDetail({ l, now, cap, all }) {
         <span>· waited, then the run</span><span>${mins(tw)} · ${mins(t.end - Math.max(t.start, last.avail))}</span>` : null}
       ${l.wrf && last.pub ? html`<span>Published</span><span>${clock(last.pub)} · ${mins(last.pub - last.avail)}</span>` : null}
       ${l.om && !l.wrf ? html`<span>Open-Meteo had it</span><span>${clock(last.avail)} · 0 min</span>` : null}</div>
-      <div class="hint">${l.wrf && l.set !== "wrf-tarifa" ? `Runs once a day after the evening Tarifa run, then waits for GFS if it isn't out yet.`
+      <div class="hint">${l.wrf && wrfRegion(l.set) !== "tarifa" ? `Runs once a day after the evening Tarifa run, then waits for GFS if it isn't out yet.`
         : l.wrf ? `WRF starts at fixed times (11:45 and 23:45 Riga) and waits there for GFS, so GFS being available earlier or later moves the wait, not the run.`
         : gw != null && tw != null ? `GitHub waited ${mins(gw)} for its job to start (its cron); at home the job started ${mins(tw)} after the run was available.`
         : gw != null ? `GitHub waited ${mins(gw)} for its job to start (its cron).` : `"Available" is Open-Meteo's record of the run being complete on its open data, where our jobs read it; so Open-Meteo has every run at that same moment.`}</div></div>` : null}
