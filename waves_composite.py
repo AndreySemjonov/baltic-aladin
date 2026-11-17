@@ -10,8 +10,12 @@ the finest model that reaches it, fading into the next over its area's edge (as 
 6. EWAM (DWD, about 5 km, 78 hours) under them all
 
 Hourly for 2 days, every 3 hours to 6 days and every 6 to 10, as far as each model goes; zooms
-3-7. The app draws ECMWF's world waves (tiles/ecmwf-waves) under it and after it. The height,
+3-7. The app draws the world's waves (tiles/waves-world) under it and after it. The height,
 the period (peak) and the direction it comes from, as waves_tiles.py; the weight as alpha.
+Each hour's swell too, blended the same way, as the frame's "swell" pack (waves_tiles.swell_hour's format: the main
+swell m, its period, the wind waves m; the Copernicus models' VHM0_SW1, VTM01_SW1 the swell part's mean period, VHM0_WW,
+EWAM's SHTS, PPTS its peak, SHWW): the wave map's Swell view, as fine as the heights (the owner, 17.11.2026: "swell map
+not full and low resolution", EWAM's 5 km alone before); tiles/swell-world under it.
 The hours are made in 4 processes, each reading its own hours of each model.
 
 Free data, but Copernicus needs our account (COPERNICUSMARINE_SERVICE_USERNAME and _PASSWORD,
@@ -43,6 +47,7 @@ MODELS = [
     ("MED", "cmems_mod_med_wav_anfc_4.2km_PT1H-i"),
 ]
 VARIABLES = ("VHM0", "VTPK", "VMDR")  # VTPK: the peak period (the owner, 16.11.2026), not the mean VTM10
+SWELL = ("VHM0_SW1", "VTM01_SW1", "VHM0_WW")
 ZOOMS = range(3, 8)
 FADE_KM = 40
 STEPS = list(range(0, 48)) + list(range(48, 145, 3)) + list(range(150, 241, 6))
@@ -53,10 +58,11 @@ CREDIT = "E.U. Copernicus Marine Service Information (BAL, NWS, IBI, BS, MED wav
 class Grid:
     """One model's hour: its fields (land filled 3 cells out), where it lies and how much it counts."""
 
-    def __init__(self, name, box, place, sample, height, period, direction):
+    def __init__(self, name, box, place, sample, height, period, direction, swell=None):
         self.name, self.box, self.place, self.sample = name, box, place, sample
         self.height, self.period = height, period
         self.east, self.north = direction_parts(direction)
+        self.swell = swell  # (swell m, its period s, wind waves m), land filled as the rest; None: not read
 
     def touches(self, lon, lat):
         south, north, west, east = self.box
@@ -72,19 +78,27 @@ class Grid:
         weight = np.where(np.isfinite(h) & (weight > 0), weight, 0).astype(np.float32)
         if not np.any(weight > 0):
             return None
+        parts = [self.sample(v, col, row) for v in self.swell] if self.swell else [np.zeros_like(h)] * 3
         return (np.nan_to_num(h), np.nan_to_num(self.sample(self.period, col, row)),
-                np.nan_to_num(self.sample(self.east, col, row)), np.nan_to_num(self.sample(self.north, col, row)), weight)
+                np.nan_to_num(self.sample(self.east, col, row)), np.nan_to_num(self.sample(self.north, col, row)),
+                *(np.nan_to_num(v) for v in parts), weight)
+
+
+def swell_parts(swell, period, chop, missing):
+    """The swell parts filled as the rest: blank at sea where there is none, so 0 there first."""
+    return tuple(filled(np.where(missing, np.nan, np.nan_to_num(v)), missing) for v in (swell, period, chop))
 
 
 def cmems_grid(name, ds, index):
     """A Copernicus model's hour `index` of `ds` (loaded) as a Grid."""
     lats, lons = ds["latitude"].values.astype(np.float64), ds["longitude"].values.astype(np.float64)
-    fields = {v: ds[v].values[index].astype(np.float32) for v in VARIABLES}
+    fields = {v: ds[v].values[index].astype(np.float32) for v in VARIABLES + SWELL if v in ds}
     missing = ~np.isfinite(fields["VHM0"])
     place, sample = regular_grid(lats[0], lons[0], lats[1] - lats[0], lons[1] - lons[0], len(lats), len(lons), False)
     box = (float(lats.min()), float(lats.max()), float(lons.min()), float(lons.max()))
     h, p, d = (filled(fields[v], missing) for v in VARIABLES)
-    return Grid(name, box, place, sample, h, p, d), np.where(missing, np.nan, fields["VHM0"]), np.where(missing, np.nan, fields["VTPK"])
+    swell = swell_parts(*(fields[v] for v in SWELL), missing) if all(v in fields for v in SWELL) else None
+    return Grid(name, box, place, sample, h, p, d, swell), np.where(missing, np.nan, fields["VHM0"]), np.where(missing, np.nan, fields["VTPK"])
 
 
 def ewam_grid(run, step):
@@ -104,17 +118,18 @@ def ewam_grid(run, step):
     place, sample = regular_grid(lat0, lon0, dlat, dlon, nj, ni, False)
     box = (min(lat0, lat0 + dlat * (nj - 1)), max(lat0, lat0 + dlat * (nj - 1)), lon0, lon0 + dlon * (ni - 1))
     h, p, d = (filled(fields[name], missing) for name in ("SWH", "PERIOD", "MWD"))
-    return Grid("EWAM", box, place, sample, h, p, d), np.where(missing, np.nan, fields["SWH"]), np.where(missing, np.nan, fields["PERIOD"])
+    swell = swell_parts(*(fields[name] for name in ("SHTS", "PPTS", "SHWW")), missing)
+    return Grid("EWAM", box, place, sample, h, p, d, swell), np.where(missing, np.nan, fields["SWH"]), np.where(missing, np.nan, fields["PERIOD"])
 
 
 def composite(grids, keys):
-    """The hour's pack: each tile blended from the grids in order (each over the ones after it by
-    its weight); tiles with nothing left out."""
-    tiles = {}
+    """The hour's packs (the waves, the swell): each tile blended from the grids in order (each over the ones after it
+    by its weight); tiles with nothing left out."""
+    tiles, swells = {}, {}
     for key in keys:
         lon, lat = tiler.tile_lonlat(*key)
         shape = lon.shape
-        acc = [np.zeros(shape, np.float32) for _ in range(4)]
+        acc = [np.zeros(shape, np.float32) for _ in range(7)]
         remaining = np.ones(shape, np.float32)
         for grid in grids:
             if not grid.touches(lon, lat):
@@ -138,7 +153,13 @@ def composite(grids, keys):
         rgb = tiler.waves_rgb(height, acc[1] / safe, direction)
         alpha = np.where(total > 0.004, np.clip(np.rint(total * 255), 1, 255), 0)
         tiles[key] = world_tiles.png(np.concatenate([rgb, alpha[..., None]], axis=-1).astype(np.uint8), "RGBA")
-    return world_tiles.encode(tiles, {z: tiler.SIZE for z in ZOOMS})
+        # The swell pack (waves_tiles.swell_hour): red the swell m x 20 + 1, green its period s x 10, blue the wind waves.
+        swell, chop = (np.where(total > 0.004, acc[i] / safe, np.nan) for i in (4, 6))
+        metres = [np.where(np.isfinite(v), np.clip(np.rint(np.nan_to_num(v) * 20) + 1, 1, 255), 0) for v in (swell, chop)]
+        swells[key] = world_tiles.png(np.stack([metres[0], np.clip(np.rint(acc[5] / safe * 10), 0, 255), metres[1], alpha],
+                                               axis=-1).astype(np.uint8), "RGBA")
+    sizes = {z: tiler.SIZE for z in ZOOMS}
+    return world_tiles.encode(tiles, sizes), world_tiles.encode(swells, sizes)
 
 
 def make_block(job):
@@ -151,7 +172,7 @@ def make_block(job):
         if not wanted:
             continue
         try:
-            ds = copernicusmarine.open_dataset(dataset_id=dataset, variables=list(VARIABLES), service="arco-geo-series")
+            ds = copernicusmarine.open_dataset(dataset_id=dataset, variables=list(VARIABLES + SWELL), service="arco-geo-series")
             stamps = ds["time"].values.astype("datetime64[s]").astype(np.int64)
             index = [int(np.nonzero(stamps == t)[0][0]) for t in wanted]
             began = time.time()
@@ -182,7 +203,7 @@ def make_block(job):
                     failures.append(("EWAM", reason))
                 else:
                     grids.append(grid)
-        out.append((t, composite(grids, keys) if grids else None, [g.name for g in grids], failures))
+        out.append((t, composite(grids, keys) if grids else (None, None), [g.name for g in grids], failures))
         print(f"  {datetime.fromtimestamp(t, timezone.utc):%d.%m %H} UTC: {', '.join(g.name for g in grids) or 'nothing'}", flush=True)
     return out
 
@@ -255,13 +276,14 @@ def main():
     # Fresh processes (spawned): forked after the Copernicus toolbox's threads they hung.
     with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("spawn")) as pool:
         for results in pool.map(make_block, jobs):
-            for t, data, models, failures in results:
+            for t, (data, swell), models, failures in results:
                 for name, reason in failures:
                     out.report.fail(name, t, reason)
                 out.report.count()
                 if data is None:
                     continue
                 out.put(t, data)
+                out.put(t, swell, kind="swell")
             print(f"  {len(out.frames)} hours, {out.bytes / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
     if not out.frames:
         raise SystemExit("no hours made")
