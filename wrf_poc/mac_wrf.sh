@@ -15,15 +15,12 @@ HOURS=${2:-48}
 # Cape Town after the night's Tarifa (the owner, 1.11.2026: "option A for now, but later we will need to go with B"):
 # the evening start runs both, one after the other; for B, drop the hour's test. All inside one if, read by bash before
 # it runs, so the git pull in the runs can't change what this script reads next.
-# Then the ECMWF-driven Tarifa test, moved here from the Tower (the owner, 2.11.2026: "WRF ECMWF on tower takes to much
-# time to calculate and because of that other jobs waiting too, lets move WRF ECMWF on mac mini calculation after WRF
-# Capetown"): the evening's GFS cycle (18 UTC, three hours before this start) as EC_START, so ecmwf.py takes ECMWF's run
-# that was out then; its tiles as wrf-tarifa-ec, scored by the app repo's backend/lab/tarifa_check.py.
+# The ECMWF-driven Tarifa test that ran third here (2.11-17.11.2026) is stopped (the owner, 17.11.2026: "Stop WRF
+# ecmwf"): 15 days scored worse than WRF from GFS (1.82 vs 1.57 m/s, harbour 1.89 vs 1.34). By hand if ever needed:
+# CHAINED=1 EC_START=<GFS cycle, YYYYMMDDHH> bash mac_wrf.sh tarifa-ec 48.
 if [ "$REGION" = tarifa ] && [ -z "${CHAINED:-}" ] && [ "$(date +%H)" -ge 18 ]; then
-  start=$(date -u -v-3H +%Y%m%d%H); start=${start:0:8}$(printf %02d $(( 10#${start:8:2} / 6 * 6 )))
   CHAINED=1 bash "$0" tarifa "$HOURS"
   CHAINED=1 bash "$0" capetown "$HOURS"
-  CHAINED=1 EC_START=$start bash "$0" tarifa-ec "$HOURS"
   exit
 fi
 HERE=$HOME/baltic-aladin
