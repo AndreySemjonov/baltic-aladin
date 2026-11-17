@@ -61,10 +61,10 @@ WEATHER = {
     "icon-wx": ("icon", "icon_global", ("temp", "rain")),
     "gdps-wx": ("gdps", "gem_global", ("temp", "rain")),
 }
-WAVES = ("ewam", "ecmwf-waves")
+WAVES = ("ewam", "ecmwf-waves", "waves-world")
 # Waves: the nearest sea pixel within this many pixels at the set's finest zoom (EWAM's zoom 6 about
 # 1.3 km a pixel in the Baltic: 8 pixels about 10 km; ECMWF's zoom 3 about 15 km: 1).
-WAVE_SEARCH = {"ewam": 8, "ecmwf-waves": 1}
+WAVE_SEARCH = {"ewam": 8, "ecmwf-waves": 1, "waves-world": 1}
 
 
 def get(url, start=None, length=None, tries=4):
