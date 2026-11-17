@@ -83,7 +83,8 @@ function laneData(maps, fr, f, now, s) {
   const live = new Set((f && f.live) || []);
   const since = now - 40 * 3600, day = now - 24 * 3600;
   const labels = Object.fromEntries(maps.maps.map((m) => [m.name.replace(/^tiles:/, ""), m.label]));
-  return maps.maps.map((m) => {
+  // An unlisted set that's a live feed (rain-now) already has its row under the feeds.
+  return maps.maps.filter((m) => !(m.unlisted && FEED_ROWS[m.name.replace(/^tiles:/, "")])).map((m) => {
     const set = m.name.startsWith("tiles:") ? m.name.slice(6) : m.name;
     const [om, wf, word] = SET_SRC[set] || [];
     const wrf = !!wrfRegion(set);
