@@ -185,12 +185,13 @@ function laneData(maps, fr, f, now, s) {
     // the past and drew nothing).
     const towerNext = ((f && f.next) || []).filter((n) => jobs.includes(n.job) && n.at).map((n) => n.at).sort((a, b) => a - b)[0] || null;
     // Cape Town has no clock of its own: it follows the evening Tarifa.
-    const next = wrf ? (wrfRegion(set) === "tarifa" && ((f && f.wrf && f.wrf.next) || [])[0]) || null
+    // A set the admin's MAPS doesn't list yet (m.unlisted): no schedule, so no next run and never late.
+    const next = m.unlisted ? null : wrf ? (wrfRegion(set) === "tarifa" && ((f && f.wrf && f.wrf.next) || [])[0]) || null
       : cad && lastAvail ? lastAvail + cad : towerNext || (last ? last.run + (m.interval + m.delay) * 3600 : null);
     const fresh = freshBySet[set];
     let status = "ok";
     if (fresh) status = fresh.status;
-    else if (last && now - (runs.filter((r) => r.published).pop() || last).run > (m.interval + m.delay) * 3600 + 3600) status = "bad";
+    else if (!m.unlisted && last && now - (runs.filter((r) => r.published).pop() || last).run > (m.interval + m.delay) * 3600 + 3600) status = "bad";
     // Without an "available" moment (our own products, sources Open-Meteo doesn't have): the jobs' own minutes.
     const procOnly = !wrf && !runTimes.length && !inputs;
     return { ...m, set, om, wf, wrf, group: groupOf(set), entries, jobs, towerRuns, fresh, status, cad, next, procOnly,
@@ -917,7 +918,7 @@ function Lanes({ lanes, now, sel, setSel, back, ahead, band, slots, wrf, head })
     ${rows.map(({ g, l, y: y0, lay }) => { if (g) return html`<text class="grp" x="0" y=${y0 + 16}>${g.toUpperCase()}</text>
       ${compact ? html`<text class="grp" x=${W} y=${y0 + 16} text-anchor="end"><tspan style="fill:var(--home)">TOWER</tspan> · <tspan style="fill:var(--mac)">MAC</tspan> · GITHUB · <tspan style="fill:var(--bad)">SKIPPED</tspan></text>` : null}`;
       // On a phone the lane's name line, then its bars from y (below it).
-      const y = y0 + NAME_H, dot = l.status === "bad" ? "var(--bad)" : l.status === "proc" ? "var(--accent)" : l.status === "wait" ? "var(--warn)" : "var(--ok)";
+      const y = y0 + NAME_H, dot = l.unlisted ? "var(--muted)" : l.status === "bad" ? "var(--bad)" : l.status === "proc" ? "var(--accent)" : l.status === "wait" ? "var(--warn)" : "var(--ok)";
       // The lane's details below open from its name only (the left column; a phone: its name line), not its bars or
       // the empty time (the owner, 25.10.2026: a click pins a bar's card instead of jumping to them).
       const onName = (ev) => { const b = ev.currentTarget.ownerSVGElement.getBoundingClientRect();
