@@ -7,6 +7,8 @@ site/
 nemo-coast.json
 water-site/
 lines-cache/
+breakwaters-cache/
+breakwaters-out/
 osm-cache/
 ice-site/
 lab-cache/

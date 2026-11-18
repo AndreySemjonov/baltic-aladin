@@ -1,0 +1,40 @@
+name: Breakwaters
+run-name: Breakwaters${{ inputs.dry && ' (dry run)' || '' }}
+
+# Breakwaters and groynes for the web map's waves (build_breakwaters.py; the owner, 19.11.2026: Liepaja's outer
+# breakwater missing from our base map, the waves ran through it). OpenStreetMap through Overpass, Europe's and North
+# Africa's coasts, as zoom-8 JSON tiles on our file store. Made once in a while, so this runs only by hand; a dry run
+# makes everything but uploads nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      dry:
+        description: "Make the tiles but don't upload them"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  breakwaters:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    concurrency:
+      group: breakwaters
+      cancel-in-progress: false
+    steps:
+      - name: Check out
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Make (and upload) the tiles
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          DRY: ${{ inputs.dry }}
+        run: |
+          if [ "$DRY" = "true" ]; then
+            python3 build_breakwaters.py --local breakwaters-out
+            du -sh breakwaters-out
+          else
+            python3 build_breakwaters.py
+          fi
