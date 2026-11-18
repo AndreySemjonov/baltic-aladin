@@ -4,14 +4,16 @@ OpenMapTiles schema) keeps piers but leaves man_made=breakwater out: Liepaja's d
 sea, wasn't there, and the waves ran through it. The map reads these as land (the waves' lee, their fronts, the surf)
 and draws them.
 
-OpenStreetMap through the Overpass API (as build_lines.py), 5 degree cells over Europe's and North Africa's coasts
-(breakwaters are few: a cell is one query), cached in breakwaters-cache/. © OpenStreetMap contributors, ODbL.
+OpenStreetMap through the Overpass API (as build_lines.py), the world's (the owner, 19.11.2026: "we have to add it
+worldwide ... So we not have same issue in future"): one query a zoom-5 square with a coast (our coast tiles' index:
+sea and lake shores), split in four where it's too much for one, cached in breakwaters-cache/. © OpenStreetMap
+contributors, ODbL.
 
     tiles/breakwaters/v1/8-x-y.json   the ones in that zoom-8 tile: {"p": [polygon rings ([[lon, lat], ...] outer first)],
                                       "l": [[width m, [[lon, lat], ...]], ...]} (lines: a breakwater 10 m wide, a groyne 4 m)
     tiles/breakwaters/v1/index.json   {"tiles": ["x-y", ...], "zoom": 8, "source": ..., "made": ...}
 
-    python build_breakwaters.py [--local DIR] [--box south,west,north,east]
+    python build_breakwaters.py [--local DIR] [--box south,west,north,east (5 degree cells; default the world's coasts)]
 """
 import json
 import math
@@ -30,8 +32,7 @@ CACHE = HERE / "breakwaters-cache"
 OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter",
             "https://maps.mail.ru/osm/tools/overpass/api/interpreter"]
 USER_AGENT = "MeteoGust breakwaters (one-time build; https://github.com/AndreySemjonov/baltic-aladin)"
-# Europe's and North Africa's coasts (Tarifa, Morocco, the Canaries' north).
-BOX = (27, -25, 72, 45)
+COAST_INDEX = "https://files.meteogust.com/tiles/coast/index.json"
 CELL = 5
 ZOOM = 8
 WIDTH = {"breakwater": 10, "groyne": 4}
@@ -63,43 +64,78 @@ def query(south, west, north, east):
             ");out geom qt;")
 
 
+def ask(s, w, n, e):
+    """One box's answer (bytes), or None when no server could give it whole (busy, or too much: Overpass says so in
+    its "remark" with a 200)."""
+    for attempt in range(6):
+        server = OVERPASS[attempt % len(OVERPASS)]
+        try:
+            data = urllib.parse.urlencode({"data": query(s, w, n, e)}).encode()
+            request = urllib.request.Request(server, data=data, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(request, timeout=400) as reply:
+                body = reply.read()
+            answer = json.loads(body)
+            if "error" in answer.get("remark", "") or "timed out" in answer.get("remark", ""):
+                print(f"box {s:.2f},{w:.2f}: {answer['remark'][:80]}", flush=True)
+                return None
+            return body
+        except Exception as error:  # busy (429/504): the next server, waiting a little more each round
+            print(f"box {s:.2f},{w:.2f} ({server.split('/')[2]}): {error}", flush=True)
+            time.sleep(15 * (attempt // len(OVERPASS) + 1))
+    return None
+
+
 def fetch(cells):
+    """Each cell's answer cached (split in four, twice at most, where one query can't take it); the cache files."""
     CACHE.mkdir(exist_ok=True)
-    for k, (s, w, n, e) in enumerate(cells):
-        path = CACHE / f"{s}_{w}.json"
+    files = []
+
+    def get(s, w, n, e, depth, label):
+        path = CACHE / f"{s:.4f}_{w:.4f}_{n:.4f}_{e:.4f}.json"
         if path.exists():
-            continue
-        for attempt in range(9):
-            server = OVERPASS[attempt % len(OVERPASS)]
-            try:
-                data = urllib.parse.urlencode({"data": query(s, w, n, e)}).encode()
-                request = urllib.request.Request(server, data=data, headers={"User-Agent": USER_AGENT})
-                with urllib.request.urlopen(request, timeout=400) as reply:
-                    body = reply.read()
-                json.loads(body)
-                path.write_bytes(body)
-                print(f"cell {k + 1}/{len(cells)} {s},{w}: {len(body) / 1e6:.2f} MB", flush=True)
-                break
-            except Exception as error:  # busy (429/504): the next server, waiting a little more each round
-                print(f"cell {s},{w} ({server.split('/')[2]}): {error}", flush=True)
-                time.sleep(15 * (attempt // len(OVERPASS) + 1))
-        else:
-            raise SystemExit(f"cell {s},{w}: no answer")
+            files.append(path)
+            return
+        body = ask(s, w, n, e)
         time.sleep(3)
+        if body is not None:
+            path.write_bytes(body)
+            files.append(path)
+            print(f"{label} {s:.2f},{w:.2f}: {len(body) / 1e6:.2f} MB", flush=True)
+            return
+        if depth >= 2:
+            raise SystemExit(f"box {s},{w},{n},{e}: no answer")
+        ms, mw = (s + n) / 2, (w + e) / 2
+        for box in ((s, w, ms, mw), (s, mw, ms, e), (ms, w, n, mw), (ms, mw, n, e)):
+            get(*box, depth + 1, label + "+")
+
+    for k, cell in enumerate(cells):
+        get(*cell, 0, f"cell {k + 1}/{len(cells)}")
+    return files
+
+
+def coast_cells():
+    """The zoom-5 squares with a coast (our coast tiles' packs: land and water both), as (south, west, north, east)."""
+    request = urllib.request.Request(COAST_INDEX, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(request, timeout=60) as reply:
+        packs = json.loads(reply.read())["packs"]
+    lat = lambda y: math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / 32))))
+    return [(lat(int(y) + 1), int(x) * 11.25 - 180, lat(int(y)), (int(x) + 1) * 11.25 - 180)
+            for x, y in (p.split("-") for p in packs)]
 
 
 def tile_of(lon, lat):
     n = 2 ** ZOOM
+    lat = min(max(lat, -85.05), 85.05)
     x = int((lon + 180) / 360 * n)
     y = int((1 - math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi) / 2 * n)
     return min(max(x, 0), n - 1), min(max(y, 0), n - 1)
 
 
-def shapes(cells):
-    """Each breakwater once (cells overlap on their edges): ("p", rings) or ("l", width, points)."""
+def shapes(files):
+    """Each breakwater once (boxes overlap on their edges): ("p", rings) or ("l", width, points)."""
     seen = set()
-    for s, w, n, e in cells:
-        for el in json.loads((CACHE / f"{s}_{w}.json").read_text())["elements"]:
+    for path in files:
+        for el in json.loads(path.read_text())["elements"]:
             key = (el["type"], el["id"])
             if key in seen:
                 continue
@@ -127,14 +163,18 @@ def shapes(cells):
 def main():
     args = sys.argv[1:]
     local = Path(args[args.index("--local") + 1]) if "--local" in args else None
-    box = tuple(float(v) for v in args[args.index("--box") + 1].split(",")) if "--box" in args else BOX
-    s0, w0, n0, e0 = box
-    cells = [(s, w, min(s + CELL, n0), min(w + CELL, e0))
-             for s in range(math.floor(s0), math.ceil(n0), CELL) for w in range(math.floor(w0), math.ceil(e0), CELL)]
-    fetch(cells)
+    if "--box" in args:
+        box = tuple(float(v) for v in args[args.index("--box") + 1].split(","))
+        s0, w0, n0, e0 = box
+        cells = [(s, w, min(s + CELL, n0), min(w + CELL, e0))
+                 for s in range(math.floor(s0), math.ceil(n0), CELL) for w in range(math.floor(w0), math.ceil(e0), CELL)]
+    else:
+        box, cells = "world", coast_cells()
+    print(f"{len(cells)} cells", flush=True)
+    files = fetch(cells)
     tiles = defaultdict(lambda: {"p": [], "l": []})
     count = 0
-    for shape in shapes(cells):
+    for shape in shapes(files):
         pts = shape[1][0] if shape[0] == "p" else shape[2]
         # In every zoom-8 tile it touches (by its points' box: a breakwater is short).
         xs, ys = zip(*(tile_of(lon, lat) for lon, lat in pts))
