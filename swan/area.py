@@ -119,8 +119,9 @@ def _sample(kind, z, mx, my):
     return (total / wsum, True) if wsum > 0.5 else (0.0, False)
 
 
-def build(box, W, H):
-    """The depth (m, H x W, row 0 the box's north edge; -1 land) over box (world 0-1: x, y, width, height)."""
+def build(box, W, H, outlines=None):
+    """The depth (m, H x W, row 0 the box's north edge; -1 land, -2 reeds) over box (world 0-1: x, y, width, height);
+    the reeds' outlines added to outlines (a list) if given (_worldcover)."""
     lat = math.atan(math.sinh(math.pi * (1 - 2 * (box[1] + box[3] / 2))))
     coast_m = EARTH * math.cos(lat) / (256 * 2 ** 10)
     zd = _finest("depth", box[0] + box[2] / 2, box[1] + box[3] / 2)
@@ -146,12 +147,12 @@ def build(box, W, H):
             else:
                 h = dean
             depth[r, c] = h if h >= 0.1 else -1
-    _worldcover(depth, box, W, H)
+    _worldcover(depth, box, W, H, outlines)
     _breakwaters(depth, box, W, H)
     return depth
 
 
-def _worldcover(depth, box, W, H, sub=3):
+def _worldcover(depth, box, W, H, outlines=None, sub=3):
     """The shore and the reeds from ESA WorldCover (sub x sub points a cell):
       - land cells mostly open water there made sea (the owner, 19.11.2026: "take the shoreline from WorldCover too":
         Haademeeste's lagoon one cell wide), the depth a beach's (as build's) from WorldCover's own shore; its bare sand
@@ -159,7 +160,8 @@ def _worldcover(depth, box, W, H, sub=3):
       - sea cells mostly plants there land, -2 (the owner, 19.11.2026, Haademeeste: "There is reeds what block chop and
         make flat water behind it ... usually it is only green land/grass/reed what blocks chop"). OpenStreetMap had the
         reed islands only as a marsh with its lagoon in, and 7 ha of islets; WorldCover the islands, the lagoon water.
-    Breakwaters are marked after, so a pier WorldCover sees as water stays land."""
+    Breakwaters are marked after, so a pier WorldCover sees as water stays land. The reeds' outlines (for the map: the
+    owner, 19.11.2026: "Can we draw reed on map too?", "Yes, build A") from its points round the reed cells."""
     import rasterio  # (lazily: only these jobs install it)
     from scipy.ndimage import distance_transform_edt
     from rasterio.windows import from_bounds
@@ -193,6 +195,37 @@ def _worldcover(depth, box, W, H, sub=3):
         d = distance_transform_edt(water) * cell
         depth[new] = np.minimum(0.2 + 0.12 * d[new] ** (2 / 3), 200.0)
     depth[(depth >= 0) & green] = -2
+    if outlines is not None and (depth == -2).any():
+        outlines += _outline(np.isin(wc, GREEN), depth == -2, box, sub)
+
+
+def _outline(fine, reeds, box, sub):
+    """The reeds' outlines ([[ring, ...], ...], rings of [lon, lat]): WorldCover's plant points (sub x sub a cell) in and
+    next to the reed cells, traced and rounded off (Chaikin's corners, twice: its 11 m steps showed zoomed in)."""
+    from rasterio.features import shapes
+    from scipy.ndimage import binary_dilation
+
+    near = np.kron(binary_dilation(reeds), np.ones((sub, sub), bool))
+    mask = fine & near
+    H, W = mask.shape
+
+    def smooth(ring):
+        p = np.asarray(ring, float)[:-1]
+        for _ in range(2):
+            q = np.roll(p, -1, axis=0)
+            p = np.stack([0.75 * p + 0.25 * q, 0.25 * p + 0.75 * q], 1).reshape(-1, 2)
+        lon = (box[0] + p[:, 0] / W * box[2]) * 360 - 180
+        lat = np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * (box[1] + p[:, 1] / H * box[3])))))
+        out = [[round(float(a), 5), round(float(b), 5)] for a, b in zip(lon, lat)]
+        return out + out[:1]
+
+    polys = []
+    for geom, _ in shapes(mask.astype(np.uint8), mask=mask):
+        rings = geom["coordinates"]
+        # (Specks of a few points left out.)
+        if len(rings[0]) >= 6:
+            polys.append([smooth(r) for r in rings if len(r) >= 6])
+    return polys
 
 
 def _breakwaters(depth, box, W, H):

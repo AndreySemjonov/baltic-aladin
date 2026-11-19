@@ -17,7 +17,8 @@ hour's open sea at the area's offshore point (its deepest cell) and blends the r
   python3 swan/tables.py plan [--only id,id] [--max N]   what to make: JSON [{area, lat, lon, spots, box, level}] (stdout):
                                                          new spots' areas at every level, the index's areas' missing levels
   python3 swan/tables.py make 'AREA_JSON' OUT            OUT/<area>/: area.json and out/<run>.bin.gz, out/reeds.bin.gz
-                                                         (the reed cells, W x H bytes, 1 reeds; SWAN_EXE: swan.exe)
+                                                         (the reed cells, W x H bytes, 1 reeds) and out/reeds.json (their
+                                                         outlines for the map; SWAN_EXE: swan.exe)
   python3 swan/tables.py publish OUT/<area>...           their runs up (INGEST_TOKEN)
   python3 swan/tables.py index OUT/<area>...             the index of areas: the store's own with these in, up
 
@@ -129,7 +130,8 @@ def make(spec, out):
     box, W, H = spec.get("box") or A.box_round(spec["lat"], spec["lon"], SIDE_M), CELLS, CELLS
     level = float(spec.get("level", 0)); ldir = level_dir(level)
     t0 = time.time()
-    depth = A.build(box, W, H)
+    outlines = []
+    depth = A.build(box, W, H, outlines)
     lat = math.atan(math.sinh(math.pi * (1 - 2 * (box[1] + box[3] / 2))))
     dx = dy = box[2] * A.EARTH * math.cos(lat) / W
     sea = depth >= 0
@@ -144,6 +146,8 @@ def make(spec, out):
     if reeds.any():
         (home / "out").mkdir(exist_ok=True)
         (home / "out" / "reeds.bin.gz").write_bytes(gzip.compress(reeds.astype(np.uint8).tobytes(), 9))
+        # (Their outlines for the map: {"p": [[ring, ...], ...]}, as the breakwaters' tiles.)
+        (home / "out" / "reeds.json").write_text(json.dumps({"p": outlines}, separators=(",", ":")))
     print(spec["area"], f"level {level:g} grid {time.time() - t0:.0f} s: reeds {reeds.sum()} cells, sea {sea.mean() * 100:.0f} %, deepest {depth.max():.0f} m at {off}", flush=True)
     (home / "bottom.dat").write_text("\n".join(" ".join("-9" if d < 0 else f"{d:.2f}" for d in row) for row in depth) + "\n")
     x0, y0, xl, yl = dx / 2, dy / 2, (W - 1) * dx, (H - 1) * dy
@@ -249,7 +253,7 @@ def publish(homes):
     key = _token()
     for home in map(Path, homes):
         name = json.loads((home / "area.json").read_text())["area"]
-        runs = sorted((home / "out").rglob("*.bin.gz"))
+        runs = sorted([*(home / "out").rglob("*.bin.gz"), *(home / "out").glob("reeds.json")])
         for run in runs:
             _put(f"{name}/{run.relative_to(home / 'out').as_posix()}", run.read_bytes(), key)
         print(name, len(runs), "runs up", flush=True)
