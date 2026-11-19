@@ -1,0 +1,102 @@
+name: SWAN tables
+run-name: SWAN tables${{ inputs.only && format(' ({0})', inputs.only) || '' }}${{ inputs.dry && ' (dry run)' || '' }}
+
+# SWAN's wave tables for the spots (swan/tables.py; the owner, 19.11.2026: "Yes, build it", run here at 18 at a time:
+# "Why run on github max 4 if we can 20?"). One job an area round a catalog spot not in an area yet: SWAN built, the
+# area's 144 runs, packed and uploaded; the index last, once every area is up. Made once (again when spots or depths
+# change), so only by hand. Two of the account's 20 slots stay free for deploys and the helper's fallback jobs.
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Only these spots (ids, comma-separated), made again even if in an area; empty: every spot not in one"
+        type: string
+        default: ""
+      max:
+        description: "At most this many areas"
+        type: string
+        default: "80"
+      dry:
+        description: "Make the tables but don't upload them"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      areas: ${{ steps.plan.outputs.areas }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: plan
+        env:
+          ONLY: ${{ inputs.only }}
+          MAX: ${{ inputs.max }}
+        run: |
+          pip install -q numpy pillow
+          areas=$(python3 swan/tables.py plan --only "$ONLY" --max "$MAX")
+          echo "areas=$areas" >> "$GITHUB_OUTPUT"
+          echo "$areas" | python3 -c "import json,sys; a=json.load(sys.stdin); print(len(a), 'areas:', ', '.join(x['area'] for x in a))"
+
+  area:
+    needs: plan
+    if: needs.plan.outputs.areas != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 18
+      matrix:
+        spec: ${{ fromJSON(needs.plan.outputs.areas) }}
+    name: ${{ matrix.spec.area }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: SWAN 41.51 (TU Delft, GPL) built
+        run: |
+          sudo apt-get -qq update && sudo apt-get -qq install -y gfortran > /dev/null
+          curl -sL -o swan.tar.gz https://swanmodel.sourceforge.io/download/zip/swan4151.tar.gz
+          tar xzf swan.tar.gz && cd swan4151 && make config > /dev/null && make omp > /dev/null 2>&1
+          ls -l swan.exe
+      - name: The area's runs
+        env:
+          SPEC: ${{ toJSON(matrix.spec) }}
+          SWAN_EXE: ${{ github.workspace }}/swan4151/swan.exe
+        run: |
+          pip install -q numpy scipy pillow
+          python3 swan/tables.py make "$SPEC" out
+      - name: Up
+        if: ${{ !inputs.dry }}
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+        run: |
+          [ -f out/*/area.json ] || { echo "no sea: nothing to upload"; exit 0; }
+          python3 swan/tables.py publish out/*
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: area-${{ matrix.spec.area }}
+          path: out/*/area.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  index:
+    needs: area
+    if: ${{ always() && !inputs.dry && needs.area.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: area-*
+          path: made
+      - name: The index of areas (the store's own with these in)
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+        run: |
+          ls made
+          pip install -q numpy pillow
+          python3 swan/tables.py index made/area-*
