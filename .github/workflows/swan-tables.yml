@@ -4,7 +4,9 @@ run-name: SWAN tables${{ inputs.only && format(' ({0})', inputs.only) || '' }}${
 # SWAN's wave tables for the spots (swan/tables.py; the owner, 19.11.2026: "Yes, build it", run here at 18 at a time:
 # "Why run on github max 4 if we can 20?"). One job an area round a catalog spot not in an area yet: SWAN built, the
 # area's 144 runs, packed and uploaded; the index last, once every area is up. Made once (again when spots or depths
-# change), so only by hand. Two of the account's 20 slots stay free for deploys and the helper's fallback jobs.
+# change), so only by hand. Two of the account's 20 slots stay free for deploys and the helper's fallback jobs. One job
+# an area and water level (the owner, 19.11.2026: "we have to take into account the water level as well"): new spots'
+# areas at every level, the made areas' missing levels.
 on:
   workflow_dispatch:
     inputs:
@@ -13,9 +15,9 @@ on:
         type: string
         default: ""
       max:
-        description: "At most this many areas"
+        description: "At most this many jobs (an area at a level each; GitHub takes 256)"
         type: string
-        default: "80"
+        default: "250"
       dry:
         description: "Make the tables but don't upload them"
         type: boolean
@@ -40,7 +42,7 @@ jobs:
           pip install -q numpy pillow
           areas=$(python3 swan/tables.py plan --only "$ONLY" --max "$MAX")
           echo "areas=$areas" >> "$GITHUB_OUTPUT"
-          echo "$areas" | python3 -c "import json,sys; a=json.load(sys.stdin); print(len(a), 'areas:', ', '.join(x['area'] for x in a))"
+          echo "$areas" | python3 -c "import json,sys; a=json.load(sys.stdin); print(len(a), 'jobs:', ', '.join(f\"{x['area']} {x['level']:g}\" for x in a))"
 
   area:
     needs: plan
@@ -52,7 +54,7 @@ jobs:
       max-parallel: 18
       matrix:
         spec: ${{ fromJSON(needs.plan.outputs.areas) }}
-    name: ${{ matrix.spec.area }}
+    name: ${{ matrix.spec.area }} ${{ matrix.spec.level }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: SWAN 41.51 (TU Delft, GPL) built
@@ -77,7 +79,7 @@ jobs:
           python3 swan/tables.py publish out/*
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: area-${{ matrix.spec.area }}
+          name: area-${{ matrix.spec.area }}-${{ matrix.spec.level }}
           path: out/*/area.json
           if-no-files-found: ignore
           retention-days: 7
