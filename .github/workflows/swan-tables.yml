@@ -97,6 +97,7 @@ jobs:
         env:
           INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
         run: |
-          ls made
+          ls made/*
           pip install -q numpy pillow
-          python3 swan/tables.py index made/area-*
+          # (Each artifact keeps its area's folder: made/area-<area>/<area>/area.json.)
+          python3 swan/tables.py index made/area-*/*/
