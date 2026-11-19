@@ -2,7 +2,7 @@ name: Breakwaters
 run-name: Breakwaters${{ inputs.dry && ' (dry run)' || '' }}
 
 # Breakwaters and groynes for the web map's waves (build_breakwaters.py; the owner, 19.11.2026: Liepaja's outer
-# breakwater missing from our base map, the waves ran through it; "add it worldwide"). OpenStreetMap through Overpass, the world's
+# breakwater missing from our base map, the waves ran through it; "add it worldwide"). OpenStreetMap through Overpass, worldwide
 # coasts (and lakes), as zoom-8 JSON tiles on our file store. Made once in a while, so this runs only by hand; a dry run
 # makes everything but uploads nothing.
 on:
@@ -19,7 +19,7 @@ permissions:
 jobs:
   breakwaters:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 90
     concurrency:
       group: breakwaters
       cancel-in-progress: false
