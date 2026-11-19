@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       only:
-        description: "Only these spots (ids, comma-separated), made again even if in an area; empty: every spot not in one"
+        description: "Only these spots (ids, comma-separated; all: every spot), made again even if in an area; empty: every spot not in one"
         type: string
         default: ""
       max:
@@ -68,7 +68,7 @@ jobs:
           SPEC: ${{ toJSON(matrix.spec) }}
           SWAN_EXE: ${{ github.workspace }}/swan4151/swan.exe
         run: |
-          pip install -q numpy scipy pillow
+          pip install -q numpy scipy pillow rasterio
           python3 swan/tables.py make "$SPEC" out
       - name: Up
         if: ${{ !inputs.dry }}

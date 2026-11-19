@@ -7,8 +7,10 @@ breakwaterLand), so SWAN sees the coast and walls the map draws:
   - the depth (tiles/depth: 1 + sqrt(depth / 200 m) x 254, 0 land or unknown; the finest zoom a square's pack has):
     near the shore (200-800 m) blended with a beach (0.2 + 0.12 d^(2/3)), where unknown the beach alone;
   - land where the coast says so, the bed under 0.1 m, or a breakwater or groyne (tiles/breakwaters) within 3/4 of a
-    cell of the cell's middle.
-The tide is 0 (the Baltic's; a big tide's levels later).
+    cell of the cell's middle;
+  - reeds: sea cells most of whose 10 m pixels ESA WorldCover 2021 calls plants (reed islands, a reed belt), -2: they
+    stand above the water at every level and leave flat water behind (_reeds).
+The water level is SWAN's (tables.py SET LEVEL).
 
   python3 swan/area.py LAT LON [SIDE_M] [CELLS]   prints the grid's sums (a check), e.g. 56.5505 20.986
 """
@@ -24,6 +26,10 @@ import numpy as np
 from PIL import Image
 
 FILES = "https://files.meteogust.com/tiles/"
+# ESA WorldCover 2021 (10 m, CC BY 4.0), 3-degree tiles named by their south-west corner, on AWS.
+WORLDCOVER = "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_{}_Map.tif"
+# Its plants: trees, shrubs, grass, herbaceous wetland (reeds), mangroves, moss and lichen.
+GREEN = (10, 20, 30, 90, 95, 100)
 UA = {"User-Agent": "meteogust-swan/1"}
 EARTH = 40075016.686
 
@@ -140,7 +146,40 @@ def build(box, W, H):
                 h = dean
             depth[r, c] = h if h >= 0.1 else -1
     _breakwaters(depth, box, W, H)
+    _reeds(depth, box, W, H)
     return depth
+
+
+def _reeds(depth, box, W, H, sub=3):
+    """Reeds and other plants standing in the sea as land, -2 (the owner, 19.11.2026, Haademeeste: "There is reeds what
+    block chop and make flat water behind it ... usually it is only green land/grass/reed what blocks chop"): a sea cell
+    whose sub x sub points are mostly plants in ESA WorldCover. OpenStreetMap had Haademeeste's reed islands only as a
+    marsh with its lagoon in, and 7 ha of islets; WorldCover the islands, the lagoon water."""
+    import rasterio  # (lazily: only these jobs install it)
+    from rasterio.windows import from_bounds
+
+    lat_of = lambda my: np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * my))))  # noqa: E731
+    lons = (box[0] + (np.arange(W * sub) + 0.5) / (W * sub) * box[2]) * 360 - 180
+    lats = lat_of(box[1] + (np.arange(H * sub) + 0.5) / (H * sub) * box[3])
+    green = np.zeros((H * sub, W * sub), bool)
+    for la in range(int(math.floor(lats.min() / 3) * 3), int(math.floor(lats.max() / 3) * 3) + 1, 3):
+        for lo in range(int(math.floor(lons.min() / 3) * 3), int(math.floor(lons.max() / 3) * 3) + 1, 3):
+            url = WORLDCOVER.format(f"{'N' if la >= 0 else 'S'}{abs(la):02d}{'E' if lo >= 0 else 'W'}{abs(lo):03d}")
+            # (No tile over open ocean.)
+            if _get(url, (0, 16)) is None:
+                continue
+            rows, cols = np.nonzero((lats >= la) & (lats < la + 3))[0], np.nonzero((lons >= lo) & (lons < lo + 3))[0]
+            if not len(rows) or not len(cols):
+                continue
+            with rasterio.Env(GDAL_HTTP_MAX_RETRY=4, GDAL_HTTP_RETRY_DELAY=5), rasterio.open(url) as f:
+                w = from_bounds(lons[cols].min(), lats[rows].min(), lons[cols].max(), lats[rows].max(), f.transform)
+                w = w.round_offsets().round_lengths()
+                a, t = f.read(1, window=w, boundless=True, fill_value=0), f.window_transform(w)
+            py = np.clip(((lats[rows] - t.f) / t.e).astype(int), 0, a.shape[0] - 1)
+            px = np.clip(((lons[cols] - t.c) / t.a).astype(int), 0, a.shape[1] - 1)
+            green[np.ix_(rows, cols)] = np.isin(a[np.ix_(py, px)], GREEN)
+    share = green.reshape(H, sub, W, sub).mean(axis=(1, 3))
+    depth[(depth >= 0) & (share > 0.5)] = -2
 
 
 def _breakwaters(depth, box, W, H):
@@ -192,4 +231,4 @@ if __name__ == "__main__":
     cells = int(sys.argv[4]) if len(sys.argv) > 4 else 256
     d = build(box_round(lat, lon, side), cells, cells)
     sea = d >= 0
-    print(f"{cells}x{cells} cells of {side / cells:.0f} m: sea {sea.mean() * 100:.0f} %, depth max {d[sea].max():.1f} m, mean {d[sea].mean():.1f} m")
+    print(f"{cells}x{cells} cells of {side / cells:.0f} m: sea {sea.mean() * 100:.0f} %, depth max {d[sea].max():.1f} m, mean {d[sea].mean():.1f} m, reeds {(d == -2).sum()} cells")

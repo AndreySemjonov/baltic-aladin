@@ -16,7 +16,8 @@ hour's open sea at the area's offshore point (its deepest cell) and blends the r
 
   python3 swan/tables.py plan [--only id,id] [--max N]   what to make: JSON [{area, lat, lon, spots, box, level}] (stdout):
                                                          new spots' areas at every level, the index's areas' missing levels
-  python3 swan/tables.py make 'AREA_JSON' OUT            OUT/<area>/: area.json and out/<run>.bin.gz (SWAN_EXE: swan.exe)
+  python3 swan/tables.py make 'AREA_JSON' OUT            OUT/<area>/: area.json and out/<run>.bin.gz, out/reeds.bin.gz
+                                                         (the reed cells, W x H bytes, 1 reeds; SWAN_EXE: swan.exe)
   python3 swan/tables.py publish OUT/<area>...           their runs up (INGEST_TOKEN)
   python3 swan/tables.py index OUT/<area>...             the index of areas: the store's own with these in, up
 
@@ -91,6 +92,8 @@ def plan(only=None, most=250):
     (not with only). One job each (GitHub takes 256 a run)."""
     have = (_json(STORE + "index.json") or {}).get("areas", [])
     spots = [(s["id"], s["spot"]["lat"], s["spot"]["lon"]) for s in _json(CATALOG)["spots"] if not s.get("hidden")]
+    if only == ["all"]:
+        only = [s[0] for s in spots]
     if only:
         spots = [s for s in spots if s[0] in only]
 
@@ -137,7 +140,11 @@ def make(spec, out):
     r, c = np.unravel_index(np.argmax(np.where(sea, depth, -1)), depth.shape)
     mx, my = box[0] + (c + 0.5) / W * box[2], box[1] + (r + 0.5) / H * box[3]
     off = [round(math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * my)))), 5), round(mx * 360 - 180, 5)]
-    print(spec["area"], f"level {level:g} grid {time.time() - t0:.0f} s: sea {sea.mean() * 100:.0f} %, deepest {depth.max():.0f} m at {off}", flush=True)
+    reeds = depth == -2
+    if reeds.any():
+        (home / "out").mkdir(exist_ok=True)
+        (home / "out" / "reeds.bin.gz").write_bytes(gzip.compress(reeds.astype(np.uint8).tobytes(), 9))
+    print(spec["area"], f"level {level:g} grid {time.time() - t0:.0f} s: reeds {reeds.sum()} cells, sea {sea.mean() * 100:.0f} %, deepest {depth.max():.0f} m at {off}", flush=True)
     (home / "bottom.dat").write_text("\n".join(" ".join("-9" if d < 0 else f"{d:.2f}" for d in row) for row in depth) + "\n")
     x0, y0, xl, yl = dx / 2, dy / 2, (W - 1) * dx, (H - 1) * dy
     head = f"""SET LEVEL {level:g} NAUTICAL
@@ -184,6 +191,7 @@ STOP
             print(f"{spec['area']} {k + 1}/{len(runs)} {name} {time.time() - t:.0f} s", flush=True)
     meta = {"area": spec["area"], "spots": spec.get("spots", []), "box": box, "W": W, "H": H, "dx": dx, "dy": dy, "offshore": off,
             "ways": WAYS, "sea": [0, 337.5], "periods": PERIODS, "heights": HEIGHTS, "winds": WINDS, "scales": SCALES, "levels": [level],
+            "reeds": int(reeds.sum()),
             "made": time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())}
     (home / "area.json").write_text(json.dumps(meta))
     print(spec["area"], f"done in {(time.time() - t0) / 60:.0f} min, {failed} failed", flush=True)
