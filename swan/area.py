@@ -8,8 +8,9 @@ breakwaterLand), so SWAN sees the coast and walls the map draws:
     near the shore (200-800 m) blended with a beach (0.2 + 0.12 d^(2/3)), where unknown the beach alone;
   - land where the coast says so, the bed under 0.1 m, or a breakwater or groyne (tiles/breakwaters) within 3/4 of a
     cell of the cell's middle;
-  - reeds: sea cells most of whose 10 m pixels ESA WorldCover 2021 calls plants (reed islands, a reed belt), -2: they
-    stand above the water at every level and leave flat water behind (_reeds).
+  - ESA WorldCover 2021's 10 m pixels (_worldcover): the shore, land cells it mostly sees as open water made sea (our
+    coast's zoom-10 pixels put Haademeeste's beach ~200 m too far out); reeds, sea cells it mostly calls plants (reed
+    islands, a reed belt), -2: they stand above the water at every level and leave flat water behind.
 The water level is SWAN's (tables.py SET LEVEL).
 
   python3 swan/area.py LAT LON [SIDE_M] [CELLS]   prints the grid's sums (a check), e.g. 56.5505 20.986
@@ -145,23 +146,28 @@ def build(box, W, H):
             else:
                 h = dean
             depth[r, c] = h if h >= 0.1 else -1
+    _worldcover(depth, box, W, H)
     _breakwaters(depth, box, W, H)
-    _reeds(depth, box, W, H)
     return depth
 
 
-def _reeds(depth, box, W, H, sub=3):
-    """Reeds and other plants standing in the sea as land, -2 (the owner, 19.11.2026, Haademeeste: "There is reeds what
-    block chop and make flat water behind it ... usually it is only green land/grass/reed what blocks chop"): a sea cell
-    whose sub x sub points are mostly plants in ESA WorldCover. OpenStreetMap had Haademeeste's reed islands only as a
-    marsh with its lagoon in, and 7 ha of islets; WorldCover the islands, the lagoon water."""
+def _worldcover(depth, box, W, H, sub=3):
+    """The shore and the reeds from ESA WorldCover (sub x sub points a cell):
+      - land cells mostly open water there made sea (the owner, 19.11.2026: "take the shoreline from WorldCover too":
+        Haademeeste's lagoon one cell wide), the depth a beach's (as build's) from WorldCover's own shore; its bare sand
+        not land (the picture may be at low water);
+      - sea cells mostly plants there land, -2 (the owner, 19.11.2026, Haademeeste: "There is reeds what block chop and
+        make flat water behind it ... usually it is only green land/grass/reed what blocks chop"). OpenStreetMap had the
+        reed islands only as a marsh with its lagoon in, and 7 ha of islets; WorldCover the islands, the lagoon water.
+    Breakwaters are marked after, so a pier WorldCover sees as water stays land."""
     import rasterio  # (lazily: only these jobs install it)
+    from scipy.ndimage import distance_transform_edt
     from rasterio.windows import from_bounds
 
     lat_of = lambda my: np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * my))))  # noqa: E731
     lons = (box[0] + (np.arange(W * sub) + 0.5) / (W * sub) * box[2]) * 360 - 180
     lats = lat_of(box[1] + (np.arange(H * sub) + 0.5) / (H * sub) * box[3])
-    green = np.zeros((H * sub, W * sub), bool)
+    wc = np.zeros((H * sub, W * sub), np.uint8)
     for la in range(int(math.floor(lats.min() / 3) * 3), int(math.floor(lats.max() / 3) * 3) + 1, 3):
         for lo in range(int(math.floor(lons.min() / 3) * 3), int(math.floor(lons.max() / 3) * 3) + 1, 3):
             url = WORLDCOVER.format(f"{'N' if la >= 0 else 'S'}{abs(la):02d}{'E' if lo >= 0 else 'W'}{abs(lo):03d}")
@@ -177,9 +183,16 @@ def _reeds(depth, box, W, H, sub=3):
                 a, t = f.read(1, window=w, boundless=True, fill_value=0), f.window_transform(w)
             py = np.clip(((lats[rows] - t.f) / t.e).astype(int), 0, a.shape[0] - 1)
             px = np.clip(((lons[cols] - t.c) / t.a).astype(int), 0, a.shape[1] - 1)
-            green[np.ix_(rows, cols)] = np.isin(a[np.ix_(py, px)], GREEN)
-    share = green.reshape(H, sub, W, sub).mean(axis=(1, 3))
-    depth[(depth >= 0) & (share > 0.5)] = -2
+            wc[np.ix_(rows, cols)] = a[np.ix_(py, px)]
+    share = lambda m: m.reshape(H, sub, W, sub).mean(axis=(1, 3))  # noqa: E731
+    water, green = share(wc == 80) > 0.5, share(np.isin(wc, GREEN)) > 0.5
+    # (Within ~400 m of our coast's sea: its shore's errors, not a lake inland, Liepaja's 2 km^2.)
+    new = (depth == -1) & water & (distance_transform_edt(depth < 0) <= 12)
+    if new.any():
+        cell = box[2] * EARTH * math.cos(math.radians(float(lats.mean()))) / W
+        d = distance_transform_edt(water) * cell
+        depth[new] = np.minimum(0.2 + 0.12 * d[new] ** (2 / 3), 200.0)
+    depth[(depth >= 0) & green] = -2
 
 
 def _breakwaters(depth, box, W, H):
