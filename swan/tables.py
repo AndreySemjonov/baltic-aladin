@@ -138,20 +138,23 @@ def bars_for(area):
 
 # The map's depth bytes start this far below mean sea level (negative: above it), so a bank above it fits (index "depthBase").
 DEPTH_BASE = -0.5
+# Its bytes' step (index "depthStep"; without it the map reads 0.01): 2 cm reach ~4.5 m below mean sea level, the
+# deeper bars too (the owner, 20.11.2026: "Yes, extend it"; 1 cm ended at ~2 m and Pavilosta's second bar at 2.2 m with it).
+DEPTH_STEP = 0.02
 
 
 def depth_bytes(depth):
     """The bed for the map's shallows (the owner, 20.11.2026: "show lagoon with sandbags on map too depending on water
-    level", then "Yes, build A"): a byte a cell (W x H, rows from the north), centimetres below DEPTH_BASE (a sandbank's
-    crest up to 0.5 m above mean sea level: Berzciems's, "Usually bank appears at 20-30cm water level") to 2.03 m below
+    level", then "Yes, build A"): a byte a cell (W x H, rows from the north), DEPTH_STEPs below DEPTH_BASE (a sandbank's
+    crest up to 0.5 m above mean sea level: Berzciems's, "Usually bank appears at 20-30cm water level") to 4.56 m below
     mean sea level, 254 deeper; land and reeds the nearest sea cell's (the map's own shore mask says where the water is,
     and the shore's cells don't dip). shortcut: only the shallows kept, a byte; deeper beds need 16 bits if the map wants them."""
     from scipy.ndimage import distance_transform_edt
 
     sea = depth > -1  # (-1 land, -2 reeds; a bank's bed above mean sea level between -1 and 0)
     _, (r, c) = distance_transform_edt(~sea, return_indices=True)
-    cm = np.round((np.where(sea, depth, depth[r, c]) - DEPTH_BASE) * 100)
-    return np.where(cm > 253, 254, np.clip(cm, 0, 253)).astype(np.uint8).tobytes()
+    n = np.round((np.where(sea, depth, depth[r, c]) - DEPTH_BASE) / DEPTH_STEP)
+    return np.where(n > 253, 254, np.clip(n, 0, 253)).astype(np.uint8).tobytes()
 
 
 def depths(names=None):
@@ -172,6 +175,7 @@ def depths(names=None):
         if a["area"] in now:
             now[a["area"]]["depth"] = stamp
             now[a["area"]]["depthBase"] = DEPTH_BASE
+            now[a["area"]]["depthStep"] = DEPTH_STEP
             # (Its bars for the map's lines: [[metres from the waterline, crest depth], ...].)
             if (bars_for(a["area"]) or {}).get("bars"):
                 now[a["area"]]["bars"] = bars_for(a["area"])["bars"]
@@ -265,7 +269,7 @@ STOP
             "reeds": int(reeds.sum()),
             "made": time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())}
     if not ldir:
-        meta["depth"], meta["depthBase"] = meta["made"], DEPTH_BASE
+        meta["depth"], meta["depthBase"], meta["depthStep"] = meta["made"], DEPTH_BASE, DEPTH_STEP
         if (bars_for(spec["area"]) or {}).get("bars"):
             meta["bars"] = bars_for(spec["area"])["bars"]
     (home / "area.json").write_text(json.dumps(meta))
@@ -346,7 +350,7 @@ def index(homes, drop=()):
         # (Its depth grid's stamp kept when only other levels were made.)
         if "depth" not in meta and old and "depth" in old:
             meta["depth"] = old["depth"]
-            for k in ("depthBase", "bars"):
+            for k in ("depthBase", "depthStep", "bars"):
                 if k in old:
                     meta[k] = old[k]
         areas[meta["area"]] = meta
