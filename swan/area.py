@@ -123,7 +123,8 @@ def _sample(kind, z, mx, my):
 
 def build(box, W, H, outlines=None, bars=None):
     """The depth (m, H x W, row 0 the box's north edge; -1 land, -2 reeds) over box (world 0-1: x, y, width, height);
-    the reeds' outlines added to outlines (a list) if given (_worldcover); a beach's sandbars if given (_bars, bars.json)."""
+    the reeds' outlines added to outlines (a list) if given (_worldcover); a beach's sandbars and outlined shallows if given
+    (bars.json: _bars, _shallows)."""
     lat = math.atan(math.sinh(math.pi * (1 - 2 * (box[1] + box[3] / 2))))
     coast_m = EARTH * math.cos(lat) / (256 * 2 ** 10)
     zd = _finest("depth", box[0] + box[2] / 2, box[1] + box[3] / 2)
@@ -152,12 +153,32 @@ def build(box, W, H, outlines=None, bars=None):
     _worldcover(depth, box, W, H, outlines)
     shore = depth < 0
     _breakwaters(depth, box, W, H)
-    if bars:
+    if bars and bars.get("bars"):
         # (The breakwaters' own cells, land before them or not: Pavilosta's moles are in the coast already.)
         walls = np.zeros_like(depth)
         _breakwaters(walls, box, W, H)
         _bars(depth, box, W, H, bars, shore & (walls == 0), walls < 0)
+    if bars and bars.get("shallows"):
+        _shallows(depth, box, W, H, bars["shallows"])
     return depth
+
+
+def _shallows(depth, box, W, H, shallows):
+    """Outlined shallows at the depth they usually have (bars.json "shallows": [{"name", "depth", "ring": [[lat, lon], ...]}]):
+    the sea cells whose middles are inside an outline at most that deep, e.g. a lagoon behind an offshore sandbank and the
+    bank's crest (the owner, 20.11.2026, Berzciems: "A sandbank offshore"), where the depth tiles' ~100 m pixels have it
+    metres too deep."""
+    from PIL import Image, ImageDraw
+
+    for s in shallows:
+        img = Image.new("L", (W, H), 0)
+        pts = []
+        for lat, lon in s["ring"]:
+            my = (1 - math.log(math.tan(math.pi / 4 + math.radians(lat) / 2)) / math.pi) / 2
+            pts.append(((((lon + 180) / 360) - box[0]) / box[2] * W - 0.5, (my - box[1]) / box[3] * H - 0.5))
+        ImageDraw.Draw(img).polygon(pts, fill=1)
+        inside = (np.asarray(img) > 0) & (depth >= 0)
+        depth[inside] = np.minimum(depth[inside], s["depth"])
 
 
 def _bars(depth, box, W, H, bars, shore, walls):
