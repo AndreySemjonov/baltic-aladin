@@ -21,6 +21,7 @@ hour's open sea at the area's offshore point (its deepest cell) and blends the r
                                                          outlines for the map; SWAN_EXE: swan.exe)
   python3 swan/tables.py publish OUT/<area>...           their runs up (INGEST_TOKEN)
   python3 swan/tables.py index OUT/<area>...             the index of areas: the store's own with these in, up
+  python3 swan/tables.py index --drop area,area          the store's index without these areas (their files left), up
 
 Speed (19.11.2026): an open sea run 3-7 s, a wind run 10-60 s on 6 of the Mac mini's efficiency cores.
 """
@@ -259,11 +260,15 @@ def publish(homes):
         print(name, len(runs), "runs up", flush=True)
 
 
-def index(homes):
+def index(homes, drop=()):
     """The store's index with these areas in (a made area replacing its old self, its levels added to the old's), up
-    last: the map never lists an area or a level whose runs aren't there yet."""
+    last: the map never lists an area or a level whose runs aren't there yet. Areas in drop left out (the owner,
+    20.11.2026: "remove the old liepaja area from the index", the Mac pilot's beside liepaja-dr and liepaja-mols)."""
     key = _token()
     areas = {a["area"]: a for a in (_json(STORE + "index.json") or {}).get("areas", [])}
+    for name in drop:
+        if areas.pop(name, None) is None:
+            raise SystemExit(f"{name}: not in the index")
     for home in map(Path, homes):
         meta = json.loads((home / "area.json").read_text())
         old = areas.get(meta["area"])
@@ -283,4 +288,8 @@ if __name__ == "__main__":
     elif cmd == "publish":
         publish(rest)
     elif cmd == "index":
-        index(rest)
+        if "--drop" in rest:
+            i = rest.index("--drop")
+            index(rest[:i] + rest[i + 2:], [a for a in rest[i + 1].split(",") if a])
+        else:
+            index(rest)

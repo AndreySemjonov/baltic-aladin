@@ -22,12 +22,17 @@ on:
         description: "Make the tables but don't upload them"
         type: boolean
         default: false
+      drop:
+        description: "Only take these areas (comma-separated) out of the index, nothing made"
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 jobs:
   plan:
+    if: ${{ !inputs.drop }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -83,6 +88,20 @@ jobs:
           path: out/*/area.json
           if-no-files-found: ignore
           retention-days: 7
+
+  drop:
+    if: ${{ inputs.drop && !inputs.dry }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: These areas out of the index
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          DROP: ${{ inputs.drop }}
+        run: |
+          pip install -q numpy pillow
+          python3 swan/tables.py index --drop "$DROP"
 
   index:
     needs: area
