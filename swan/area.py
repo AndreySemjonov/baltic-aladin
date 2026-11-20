@@ -31,6 +31,8 @@ FILES = "https://files.meteogust.com/tiles/"
 WORLDCOVER = "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_{}_Map.tif"
 # Its plants: trees, shrubs, grass, herbaceous wetland (reeds), mangroves, moss and lichen.
 GREEN = (10, 20, 30, 90, 95, 100)
+# The water reeds shut in, at most this deep (m) at the mean level (_worldcover).
+LAGOON = 0.2
 UA = {"User-Agent": "meteogust-swan/1"}
 EARTH = 40075016.686
 
@@ -160,10 +162,14 @@ def _worldcover(depth, box, W, H, outlines=None, sub=3):
       - sea cells mostly plants there land, -2 (the owner, 19.11.2026, Haademeeste: "There is reeds what block chop and
         make flat water behind it ... usually it is only green land/grass/reed what blocks chop"). OpenStreetMap had the
         reed islands only as a marsh with its lagoon in, and 7 ha of islets; WorldCover the islands, the lagoon water.
+      - the water the reeds shut in (with the land: between them and the shore, or gaps between them under ~350 m; not
+        what land alone shuts in, a harbour's canal) at most LAGOON deep (the owner, 19.11.2026, Haademeeste: "it is big
+        lagoon ankle deep usually what makes it flat water there"; 20.11.2026: "model the lagoon depth at Haademeeste"):
+        the depth tiles' ~100 m pixels gave its 150-250 m 2-4 m. Reeds grow only in shallow water, so everywhere.
     Breakwaters are marked after, so a pier WorldCover sees as water stays land. The reeds' outlines (for the map: the
     owner, 19.11.2026: "Can we draw reed on map too?", "Yes, build A") from its points round the reed cells."""
     import rasterio  # (lazily: only these jobs install it)
-    from scipy.ndimage import distance_transform_edt
+    from scipy.ndimage import binary_closing, distance_transform_edt
     from rasterio.windows import from_bounds
 
     lat_of = lambda my: np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * my))))  # noqa: E731
@@ -190,11 +196,18 @@ def _worldcover(depth, box, W, H, outlines=None, sub=3):
     water, green = share(wc == 80) > 0.5, share(np.isin(wc, GREEN)) > 0.5
     # (Within ~400 m of our coast's sea: its shore's errors, not a lake inland, Liepaja's 2 km^2.)
     new = (depth == -1) & water & (distance_transform_edt(depth < 0) <= 12)
+    cell = box[2] * EARTH * math.cos(math.radians(float(lats.mean()))) / W
     if new.any():
-        cell = box[2] * EARTH * math.cos(math.radians(float(lats.mean()))) / W
         d = distance_transform_edt(water) * cell
         depth[new] = np.minimum(0.2 + 0.12 * d[new] ** (2 / 3), 200.0)
     depth[(depth >= 0) & green] = -2
+    if (depth == -2).any():
+        r = max(1, round(170 / cell))
+        y, x = np.ogrid[-r:r + 1, -r:r + 1]
+        disk = x * x + y * y <= r * r
+        land = depth == -1
+        shut = binary_closing(land | (depth == -2), disk) & ~binary_closing(land, disk) & (depth >= 0)
+        depth[shut] = np.minimum(depth[shut], LAGOON)
     if outlines is not None and (depth == -2).any():
         outlines += _outline(np.isin(wc, GREEN), depth == -2, box, sub)
 
