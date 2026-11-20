@@ -1,7 +1,25 @@
 {
   "_about": "Longshore sandbars by area (area.py _bars): each beach's crest distances from the waterline (m) found from Sentinel-2 L2A calm days' water colour, 2023-26 scenes, profiles every 50 m along ~3.6 km round 'at' (lat, lon); only crests within 400 m and seen on half the profiles or more. Crest depths are a rule, not measured: the first bar 1.2 m, the second 2.2 m below mean sea level. 'clear': circles (lat, lon, metres) kept free, a harbour's mouth whose moles aren't in the breakwater tiles. The owner, 20.11.2026: 'build B,C,D,E', then 'Yes, add the bars'.",
   "liepaja-dr": {"at": [56.505, 20.995], "scenes": 27, "bars": [[190, 1.2], [330, 2.2]]},
-  "pavilosta": {"at": [56.888, 21.170], "scenes": 45, "bars": [[140, 1.2], [270, 2.2]], "clear": [[56.8905, 21.1675, 400]]},
-  "uzava": {"at": [57.214, 21.420], "scenes": 45, "bars": [[110, 1.2]]},
-  "saulkrasti": {"at": [57.26, 24.40], "scenes": 79, "bars": [[110, 1.2]]}
+  "pavilosta": {"at": [56.888, 21.17], "scenes": 45, "bars": [[140, 1.2], [270, 2.2]], "clear": [[56.8905, 21.1675, 400]]},
+  "uzava": {"at": [57.214, 21.42], "scenes": 45, "bars": [[110, 1.2]]},
+  "saulkrasti": {"at": [57.26, 24.4], "scenes": 79, "bars": [[110, 1.2]]},
+  "daugavgriva": {"at": [57.0602, 24.02069], "scenes": 72, "bars": [[270, 1.2]], "clear": [[57.06043, 24.02094, 175]]},
+  "kolka": {"at": [57.7592, 22.6072], "scenes": 69, "bars": [[230, 1.2], [385, 2.2]]},
+  "lielupes-ieteka": {"at": [57.0077, 23.9319], "scenes": 40, "bars": [[140, 1.2], [305, 2.2]]},
+  "engures-mols": {"at": [57.1622, 23.2378], "scenes": 42, "bars": [[230, 1.2]], "clear": [[57.16602, 23.23294, 175], [57.16462, 23.23238, 225], [57.16172, 23.23588, 275]]},
+  "gauja": {"at": [57.161, 24.2649], "scenes": 53, "bars": [[260, 1.2]]},
+  "mm-eo4mtwuq": {"at": [56.03086, 21.06655], "scenes": 33, "bars": [[180, 1.2]], "clear": [[56.02941, 21.068, 250]]},
+  "ragaciems": {"at": [57.0311, 23.4933], "scenes": 54, "bars": [[120, 1.2]]},
+  "rider-9an5qgu4": {"at": [58.76421, 22.80289], "scenes": 36, "bars": [[210, 1.2]], "clear": [[58.76681, 22.80932, 325], [58.76786, 22.82042, 225], [58.77102, 22.81951, 175]]},
+  "rider-a6bhnbwq": {"at": [57.51034, 22.80644], "scenes": 39, "bars": [[190, 1.2], [300, 2.2]], "clear": [[57.51006, 22.80393, 175], [57.50721, 22.80483, 275], [57.50755, 22.81095, 225]]},
+  "rider-fksgy2zv": {"at": [59.47006, 24.82676], "scenes": 58, "bars": [[190, 1.2]], "clear": [[59.4677, 24.82733, 375]]},
+  "rider-mnbyvcbv": {"at": [36.00775, -5.60994], "scenes": 51, "bars": [[200, 1.2], [390, 2.2]], "clear": [[36.00539, -5.60948, 200]]},
+  "rider-ow2d8p8k": {"at": [59.21113, 23.50079], "scenes": 94, "bars": [[180, 1.2]]},
+  "rider-psgtkpjx": {"at": [59.42652, 24.33866], "scenes": 57, "bars": [[250, 1.2]], "clear": [[59.42367, 24.33189, 250]]},
+  "rider-sdjqguhy": {"at": [58.98828, 27.22757], "scenes": 37, "bars": [[160, 1.2], [390, 2.2]]},
+  "rider-svcs2qxp": {"at": [59.02689, 22.69724], "scenes": 20, "bars": [[85, 1.2], [190, 2.2]]},
+  "rider-vzycetmv": {"at": [58.47152, 21.89524], "scenes": 72, "bars": [[120, 1.2]], "clear": [[58.47431, 21.88986, 200]]},
+  "rider-ybdeg2s2": {"at": [59.57297, 24.79449], "scenes": 91, "bars": [[290, 1.2]]},
+  "svetciems": {"at": [57.6975, 24.3421], "scenes": 25, "bars": [[130, 1.2]], "clear": [[57.70055, 24.34313, 350]]}
 }
