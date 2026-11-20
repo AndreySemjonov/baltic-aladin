@@ -120,9 +120,12 @@ JOBS = [
         live_needs=KNMI),
     Job("regional-weather", ["regional_tiles.py", "--set", "weather", "--blend"], inputs=[METNORDIC_LATEST], every=60, min_gap=20, heavy=True,
         live_needs=KNMI),
-    *[Job(f"regional-{name}", ["regional_tiles.py", "--set", "wind", "--only", name], watch=[(model, 1)], priority=1,
+    # A look every 30 min too (as GFS's every=60): these read the maker's own files, whose listing can lag Open-Meteo's copy
+    # that starts them; the job then saw the run before, "published already", and the run was lost (the owner, 20.11.2026,
+    # "Look into why DINI's 06Z run was late": DINI 17.11 06Z, AROME 6 runs in 14 days).
+    *[Job(f"regional-{name}", ["regional_tiles.py", "--set", "wind", "--only", name], watch=[(model, 1)], every=30, priority=1,
           needs=KNMI if name == "harm-nl" else []) for name, model in REGIONAL_MODELS],
-    *[Job(f"regional-{name}-wx", ["regional_tiles.py", "--set", "weather", "--only", name], watch=[(model, 1)],
+    *[Job(f"regional-{name}-wx", ["regional_tiles.py", "--set", "weather", "--only", name], watch=[(model, 1)], every=30,
           needs=KNMI if name == "harm-nl" else []) for name, model in REGIONAL_MODELS],
     Job("harm-fi", ["harmfi_tiles.py"], every=180),
     Job("aladin", ["aladin_tiles.py"], every=360),
