@@ -162,7 +162,9 @@ def main():
             out.put(int(times[s]), tiler.pack(placement, sample, lambda at: tiler.wind_rgb(at(east), at(north), at(gust)),
                                               valid=lambda at: np.isfinite(at(raw))))
         print(f"  {len(out.frames)} hours, {out.bytes / 1e6:.0f} MB, {time.time() - started:.0f} s", flush=True)
-    out.finish()
+    # The air and rain's past day kept, each hour from the run made at it (the owner, 20.11.2026: the temperature map
+    # fell back to ICON-EU before this run's first hour, and the frost patches popped in at it).
+    out.finish(past=24 if weather else 0)
     if cells is not None:
         try:
             cells.publish(out.folder, local and local + "/points")

@@ -260,6 +260,17 @@ def published(set_name):
         return None
 
 
+def own_start(index, folder):
+    """MET Nordic's own run's start (its index keeps the past day's hours from earlier runs for the map, the owner
+    20.11.2026; the points and series read only the run's own, as before), else 0: every hour."""
+    if not folder.startswith("metnordic"):
+        return 0
+    try:
+        return datetime.strptime(index["run"], "%Y-%m-%dT%H:%MZ").replace(tzinfo=timezone.utc).timestamp()
+    except (KeyError, ValueError):
+        return 0
+
+
 def make(set_name, points, force=False, folder=None, values_of=None):
     """The set's points file, or None when the newest run's is published for these points; `folder`:
     its tiles' (when the file's name differs), `values_of(frame, zooms, sizes)`: an hour's values."""
@@ -280,7 +291,7 @@ def make(set_name, points, force=False, folder=None, values_of=None):
     if not force and mine and theirs and theirs > mine:
         print(f"{set_name}: {before.get('run')} is newer than {run}, kept", flush=True)
         return None
-    frames = sorted((f for f in index["frames"] if f.get("file")), key=lambda f: f["time"])
+    frames = sorted((f for f in index["frames"] if f.get("file") and f["time"] >= own_start(index, folder)), key=lambda f: f["time"])
     zooms = index.get("zooms") or [0, 6]
     sizes = {int(z): s for z, s in (index.get("tileSizes") or {}).items()}
     started = time.time()

@@ -197,7 +197,8 @@ def make(spec, local, limit, force, places=None):
     if local is not None and SHADOW and not force and shadow_made().get(set_name) == run:
         print(f"{set_name} {run}: series made already (shadow)", flush=True)
         return
-    frames = sorted((f for f in index["frames"] if f.get(layer)), key=lambda f: f["time"])
+    start = spot_points.own_start(index, folder)
+    frames = sorted((f for f in index["frames"] if f.get(layer) and f["time"] >= start), key=lambda f: f["time"])
     if not frames:
         print(f"{set_name} {run}: no {layer} packs", flush=True)
         return
