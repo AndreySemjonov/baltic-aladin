@@ -1,0 +1,41 @@
+name: Wave model at points
+run-name: Wave model at points (${{ inputs.days }} days)
+
+# The Copernicus Baltic wave model's past hours at a few points, kept as the run's artifact, never uploaded: checking
+# its wave direction against buoys (the owner, 20.11.2026: "Yes, compare"). wave_points.py.
+on:
+  workflow_dispatch:
+    inputs:
+      points:
+        description: 'JSON: [["name", lat, lon], ...]'
+        type: string
+      days:
+        description: "How many days back"
+        type: string
+        default: "30"
+
+permissions:
+  contents: read
+
+jobs:
+  points:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install NumPy and the Copernicus Marine toolbox
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet numpy copernicusmarine
+      - name: The model at the points
+        env:
+          COPERNICUSMARINE_SERVICE_USERNAME: ${{ secrets.COPERNICUSMARINE_SERVICE_USERNAME }}
+          COPERNICUSMARINE_SERVICE_PASSWORD: ${{ secrets.COPERNICUSMARINE_SERVICE_PASSWORD }}
+          POINTS: ${{ inputs.points }}
+          DAYS: ${{ inputs.days }}
+        run: .venv/bin/python wave_points.py --points "$POINTS" --days "$DAYS" --out wave-points
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: wave-points
+          path: wave-points
+          retention-days: 7
