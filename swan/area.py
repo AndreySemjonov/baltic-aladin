@@ -150,14 +150,18 @@ def build(box, W, H, outlines=None, bars=None):
             else:
                 h = dean
             depth[r, c] = h if h >= 0.1 else -1
-    _worldcover(depth, box, W, H, outlines)
+    opened = _worldcover(depth, box, W, H, outlines, river=(bars or {}).get("river", 0))
     shore = depth < 0
     _breakwaters(depth, box, W, H)
     if bars and bars.get("bars"):
         # (The breakwaters' own cells, land before them or not: Pavilosta's moles are in the coast already.)
         walls = np.zeros_like(depth)
         _breakwaters(walls, box, W, H)
+        river = depth[opened].copy() if bars.get("river") else None
         _bars(depth, box, W, H, bars, shore & (walls == 0), walls < 0)
+        # (None carved up a river: by the distance to its banks they ran down the channel's middle.)
+        if river is not None:
+            depth[opened] = river
     if bars and bars.get("shallows"):
         _shallows(depth, box, W, H, bars["shallows"])
     return depth
@@ -212,7 +216,7 @@ def _bars(depth, box, W, H, bars, shore, walls):
         depth[:] = np.where(w > 0, depth - w * np.maximum(depth - crest, 0) * ridge + w * trough, depth)
 
 
-def _worldcover(depth, box, W, H, outlines=None, sub=3):
+def _worldcover(depth, box, W, H, outlines=None, sub=3, river=0):
     """The shore and the reeds from ESA WorldCover (sub x sub points a cell):
       - land cells mostly open water there made sea (the owner, 19.11.2026: "take the shoreline from WorldCover too":
         Haademeeste's lagoon one cell wide), the depth a beach's (as build's) from WorldCover's own shore; its bare sand
@@ -224,10 +228,13 @@ def _worldcover(depth, box, W, H, outlines=None, sub=3):
         what land alone shuts in, a harbour's canal) at most LAGOON deep (the owner, 19.11.2026, Haademeeste: "it is big
         lagoon ankle deep usually what makes it flat water there"; 20.11.2026: "model the lagoon depth at Haademeeste"):
         the depth tiles' ~100 m pixels gave its 150-250 m 2-4 m. Reeds grow only in shallow water, so everywhere.
+    A river mouth's spot (river: metres, bars.json "river"; the owner, 20.11.2026, Lielupe and Gauja: "kiting inside in
+    river behind sand", then "Yes, do A, river first"): its water joined to the sea that far up the river made sea too,
+    a channel's depth by the distance to its banks. Elsewhere only ~400 m: Liepaja's lake meets the sea by a canal.
     Breakwaters are marked after, so a pier WorldCover sees as water stays land. The reeds' outlines (for the map: the
     owner, 19.11.2026: "Can we draw reed on map too?", "Yes, build A") from its points round the reed cells."""
     import rasterio  # (lazily: only these jobs install it)
-    from scipy.ndimage import binary_closing, distance_transform_edt
+    from scipy.ndimage import binary_closing, binary_dilation, distance_transform_edt
     from rasterio.windows import from_bounds
 
     lat_of = lambda my: np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * my))))  # noqa: E731
@@ -253,8 +260,18 @@ def _worldcover(depth, box, W, H, outlines=None, sub=3):
     share = lambda m: m.reshape(H, sub, W, sub).mean(axis=(1, 3))  # noqa: E731
     water, green = share(wc == 80) > 0.5, share(np.isin(wc, GREEN)) > 0.5
     # (Within ~400 m of our coast's sea: its shore's errors, not a lake inland, Liepaja's 2 km^2.)
-    new = (depth == -1) & water & (distance_transform_edt(depth < 0) <= 12)
     cell = box[2] * EARTH * math.cos(math.radians(float(lats.mean()))) / W
+    new = (depth == -1) & water & (distance_transform_edt(depth < 0) <= 12)
+    if river:
+        # (Up the water from the sea, river metres along it: the Lielupe runs behind Jurmala's dunes within 2.5 km of the
+        # sea for 30 km, and by the straight distance 4 km^2 of it opened; a lake or pond near it not at all.)
+        reach, wet = depth >= 0, ((depth == -1) & water) | (depth >= 0)
+        for _ in range(round(river / cell)):
+            grown = binary_dilation(reach) & wet
+            if (grown == reach).all():
+                break
+            reach = grown
+        new |= reach & (depth == -1)
     if new.any():
         d = distance_transform_edt(water) * cell
         depth[new] = np.minimum(0.2 + 0.12 * d[new] ** (2 / 3), 200.0)
@@ -268,6 +285,7 @@ def _worldcover(depth, box, W, H, outlines=None, sub=3):
         depth[shut] = np.minimum(depth[shut], LAGOON)
     if outlines is not None and (depth == -2).any():
         outlines += _outline(np.isin(wc, GREEN), depth == -2, box, sub)
+    return new
 
 
 def _outline(fine, reeds, box, sub):

@@ -272,6 +272,9 @@ STOP
         meta["depth"], meta["depthBase"], meta["depthStep"] = meta["made"], DEPTH_BASE, DEPTH_STEP
         if (bars_for(spec["area"]) or {}).get("bars"):
             meta["bars"] = bars_for(spec["area"])["bars"]
+        # (A river mouth's: the map draws its waves on the base map's river water too.)
+        if (bars_for(spec["area"]) or {}).get("river"):
+            meta["river"] = True
     (home / "area.json").write_text(json.dumps(meta))
     print(spec["area"], f"done in {(time.time() - t0) / 60:.0f} min, {failed} failed", flush=True)
     if failed > len(runs) // 10:
@@ -350,7 +353,7 @@ def index(homes, drop=()):
         # (Its depth grid's stamp kept when only other levels were made.)
         if "depth" not in meta and old and "depth" in old:
             meta["depth"] = old["depth"]
-            for k in ("depthBase", "depthStep", "bars"):
+            for k in ("depthBase", "depthStep", "bars", "river"):
                 if k in old:
                     meta[k] = old[k]
         areas[meta["area"]] = meta
