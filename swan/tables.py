@@ -172,6 +172,9 @@ def depths(names=None):
         if a["area"] in now:
             now[a["area"]]["depth"] = stamp
             now[a["area"]]["depthBase"] = DEPTH_BASE
+            # (Its bars for the map's lines: [[metres from the waterline, crest depth], ...].)
+            if (bars_for(a["area"]) or {}).get("bars"):
+                now[a["area"]]["bars"] = bars_for(a["area"])["bars"]
     print("index:", _put("index.json", json.dumps({"areas": list(now.values())}).encode(), key), len(todo), "depths stamped")
 
 
@@ -263,6 +266,8 @@ STOP
             "made": time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())}
     if not ldir:
         meta["depth"], meta["depthBase"] = meta["made"], DEPTH_BASE
+        if (bars_for(spec["area"]) or {}).get("bars"):
+            meta["bars"] = bars_for(spec["area"])["bars"]
     (home / "area.json").write_text(json.dumps(meta))
     print(spec["area"], f"done in {(time.time() - t0) / 60:.0f} min, {failed} failed", flush=True)
     if failed > len(runs) // 10:
@@ -341,8 +346,9 @@ def index(homes, drop=()):
         # (Its depth grid's stamp kept when only other levels were made.)
         if "depth" not in meta and old and "depth" in old:
             meta["depth"] = old["depth"]
-            if "depthBase" in old:
-                meta["depthBase"] = old["depthBase"]
+            for k in ("depthBase", "bars"):
+                if k in old:
+                    meta[k] = old[k]
         areas[meta["area"]] = meta
     print("index:", _put("index.json", json.dumps({"areas": list(areas.values())}).encode(), key), len(areas), "areas")
 
