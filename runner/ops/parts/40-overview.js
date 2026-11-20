@@ -189,6 +189,9 @@ function Costs({ ad, now }) {
   if (!o) return html`<p class="empty">Reading admin's data…</p>`;
   const folders = Object.entries((o.storage || {}).folders || {}).map(([k, v]) => [k, v[0], v[1]]).sort((a, b) => b[1] - a[1]);
   const total = folders.reduce((a, f) => a + f[1], 0);
+  // Every folder (the owner, 20.11.2026: "Do we show here all files/folders?": 18 of 154 shown, 51 GB hidden), with its files.
+  const folderRow = ([k, b, n]) => html`<div style="display:grid;grid-template-columns:minmax(0,1fr) 1fr 80px 72px;gap:8px;align-items:center;font-size:13.5px">
+      <span style="overflow-wrap:anywhere">${k}</span><div class="hbar"><i style=${`width:${(b / folders[0][1] * 100).toFixed(1)}%`}></i></div><span class="num" style="text-align:right">${(b / 1e9).toFixed(2)} GB</span><span class="num" style="text-align:right;color:var(--muted)">${n != null ? n.toLocaleString("en") : ""}</span></div>`;
   const storeCost = Math.max(0, total / 1e9 - 10) * 0.015;
   const om = o.openMeteo || [];
   const days = [...new Set(om.map((x) => x.day))].sort((a, b) => a - b).slice(-14);
@@ -200,8 +203,9 @@ function Costs({ ad, now }) {
     <div class="panel s3"><h2>File store</h2><div class="big">${(total / 1e9).toFixed(1)} <small>GB · 10 free</small></div><p class="whytxt">$0.015 a GB a month after 10; counted ${o.storage && o.storage.time ? hrs(now - o.storage.time) + " ago" : "–"}.</p></div>
     <div class="panel s3"><h2>Open-Meteo weight</h2><div class="big">${month.toLocaleString("en")} <small>14 days</small></div><p class="whytxt">Admins' vs OM and the server's comparisons; none for riders.</p></div>
     <div class="panel s3"><h2>Database</h2><div class="big">${((o.collector || []).find((c) => c.key === "readings_rows") || {}).value?.toLocaleString?.("en") ?? "–"} <small>readings rows</small></div><p class="whytxt">Free tier: 5M rows read a day.</p></div>
-    <div class="panel s6"><h2>File store by folder</h2><div style="display:grid;gap:6px">${folders.slice(0, 18).map(([k, b, n]) => html`<div style="display:grid;grid-template-columns:minmax(0,1fr) 1fr 80px;gap:8px;align-items:center;font-size:13.5px">
-      <span style="overflow-wrap:anywhere">${k}</span><div class="hbar"><i style=${`width:${(b / folders[0][1] * 100).toFixed(1)}%`}></i></div><span class="num" style="text-align:right">${(b / 1e9).toFixed(2)} GB</span></div>`)}</div></div>
+    <div class="panel s6"><h2>File store by folder · ${folders.length}</h2><div style="display:grid;gap:6px">${folders.slice(0, 18).map(folderRow)}</div>
+      ${folders.length > 18 ? html`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:13.5px;color:var(--muted)">${folders.length - 18} more folders · ${(folders.slice(18).reduce((a, f) => a + f[1], 0) / 1e9).toFixed(2)} GB</summary>
+        <div style="display:grid;gap:6px;margin-top:6px">${folders.slice(18).map(folderRow)}</div></details>` : null}</div>
     <div class="panel s6"><h2>Open-Meteo weight per day · 14 days (UTC)</h2>
       <svg class="chart" viewBox="0 0 500 180">${perDay.map((v, i) => { const h = v / maxDay * 140; return html`<rect x=${20 + i * 34} y=${155 - h} width="24" height=${Math.max(h, 1)} rx="3" fill="var(--accent)"><title>${v}</title></rect>`; })}
         <line x1="15" x2="495" y1=${155 - 9000 / maxDay * 140} y2=${155 - 9000 / maxDay * 140} stroke="var(--warn)" stroke-dasharray="4 4"/><text x="490" y=${150 - 9000 / maxDay * 140} text-anchor="end">9,000 a day</text></svg></div>
