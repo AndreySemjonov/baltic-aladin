@@ -33,7 +33,19 @@ def test_bank_bytes():
     assert abs(back[1] + 0.25) < T.DEPTH_STEP / 2 + 1e-6 and abs(back[2] - 0.12) < T.DEPTH_STEP / 2 + 1e-6 and b[3] == 254 and b[0] == b[1] and abs(back[4] - 2.2) < 0.011
 
 
+def test_survey_ring():
+    """survey.py's outline of a pixel block: its four corners (metres from the window's corner, rows south), closed."""
+    import survey as S
+
+    comp = np.zeros((30, 30), bool)
+    comp[5:15, 3:23] = True
+    ring = S._ring(comp, {"x0": 0.0, "y0": 0.0}, lambda x, y: (list(x), list(y)))
+    assert ring[0] == ring[-1] and len(ring) == 5, ring
+    assert sorted({(lat, lon) for lat, lon in ring}) == [(-150, 30), (-150, 230), (-50, 30), (-50, 230)], ring
+
+
 if __name__ == "__main__":
     test_shallows()
     test_bank_bytes()
+    test_survey_ring()
     print("ok")
