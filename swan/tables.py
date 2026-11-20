@@ -136,16 +136,21 @@ def bars_for(area):
     return json.loads((Path(__file__).parent / "bars.json").read_text()).get(area)
 
 
+# The map's depth bytes start this far below mean sea level (negative: above it), so a bank above it fits (index "depthBase").
+DEPTH_BASE = -0.5
+
+
 def depth_bytes(depth):
     """The bed for the map's shallows (the owner, 20.11.2026: "show lagoon with sandbags on map too depending on water
-    level", then "Yes, build A"): a byte a cell (W x H, rows from the north), centimetres below mean sea level to 2.53 m,
-    254 deeper; land and reeds the nearest sea cell's (the map's own shore mask says where the water is, and the shore's
-    cells don't dip). shortcut: only the shallows' 0-2.5 m kept, a byte; the bed deeper needs 16 bits if the map ever wants it."""
+    level", then "Yes, build A"): a byte a cell (W x H, rows from the north), centimetres below DEPTH_BASE (a sandbank's
+    crest up to 0.5 m above mean sea level: Berzciems's, "Usually bank appears at 20-30cm water level") to 2.03 m below
+    mean sea level, 254 deeper; land and reeds the nearest sea cell's (the map's own shore mask says where the water is,
+    and the shore's cells don't dip). shortcut: only the shallows kept, a byte; deeper beds need 16 bits if the map wants them."""
     from scipy.ndimage import distance_transform_edt
 
-    sea = depth >= 0
+    sea = depth > -1  # (-1 land, -2 reeds; a bank's bed above mean sea level between -1 and 0)
     _, (r, c) = distance_transform_edt(~sea, return_indices=True)
-    cm = np.round(np.where(sea, depth, depth[r, c]) * 100)
+    cm = np.round((np.where(sea, depth, depth[r, c]) - DEPTH_BASE) * 100)
     return np.where(cm > 253, 254, np.clip(cm, 0, 253)).astype(np.uint8).tobytes()
 
 
@@ -166,6 +171,7 @@ def depths(names=None):
     for a in todo:
         if a["area"] in now:
             now[a["area"]]["depth"] = stamp
+            now[a["area"]]["depthBase"] = DEPTH_BASE
     print("index:", _put("index.json", json.dumps({"areas": list(now.values())}).encode(), key), len(todo), "depths stamped")
 
 
@@ -200,7 +206,8 @@ def make(spec, out):
         (home / "out" / "depth.bin.gz").write_bytes(gzip.compress(depth_bytes(depth), 9))
     print(spec["area"], f"level {level:g} grid {time.time() - t0:.0f} s: reeds {reeds.sum()} cells, sea {sea.mean() * 100:.0f} %, deepest {depth.max():.0f} m at {off}", flush=True)
     bed = np.where(reeds, REEDS["bed"], depth)
-    (home / "bottom.dat").write_text("\n".join(" ".join("-9" if d < 0 else f"{d:.2f}" for d in row) for row in bed) + "\n")
+    # (Land -9; a bank's bed above mean sea level as it is, negative: dry below its height, wet above.)
+    (home / "bottom.dat").write_text("\n".join(" ".join("-9" if d <= -1 else f"{d:.2f}" for d in row) for row in bed) + "\n")
     if reeds.any():
         (home / "plants.dat").write_text("\n".join(" ".join(str(REEDS["density"]) if r else "0" for r in row) for row in reeds) + "\n")
     x0, y0, xl, yl = dx / 2, dy / 2, (W - 1) * dx, (H - 1) * dy
@@ -255,7 +262,7 @@ STOP
             "reeds": int(reeds.sum()),
             "made": time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())}
     if not ldir:
-        meta["depth"] = meta["made"]
+        meta["depth"], meta["depthBase"] = meta["made"], DEPTH_BASE
     (home / "area.json").write_text(json.dumps(meta))
     print(spec["area"], f"done in {(time.time() - t0) / 60:.0f} min, {failed} failed", flush=True)
     if failed > len(runs) // 10:
@@ -334,6 +341,8 @@ def index(homes, drop=()):
         # (Its depth grid's stamp kept when only other levels were made.)
         if "depth" not in meta and old and "depth" in old:
             meta["depth"] = old["depth"]
+            if "depthBase" in old:
+                meta["depthBase"] = old["depthBase"]
         areas[meta["area"]] = meta
     print("index:", _put("index.json", json.dumps({"areas": list(areas.values())}).encode(), key), len(areas), "areas")
 

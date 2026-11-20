@@ -23,6 +23,17 @@ def test_shallows():
     assert capped[10:20, 5:20].all() and not capped[:9].any() and not capped[21:].any() and not capped[:, 21:].any()
 
 
+def test_bank_bytes():
+    """A bank 0.25 m above mean sea level and a 0.12 m lagoon round-trip through the map's bytes (DEPTH_BASE), land filled."""
+    import tables as T
+
+    d = np.array([[-1.0, -0.25, 0.12, 5.0]])
+    b = np.frombuffer(T.depth_bytes(d), np.uint8)
+    back = b / 100 + T.DEPTH_BASE
+    assert abs(back[1] + 0.25) < 0.006 and abs(back[2] - 0.12) < 0.006 and b[3] == 254 and b[0] == b[1]
+
+
 if __name__ == "__main__":
     test_shallows()
+    test_bank_bytes()
     print("ok")

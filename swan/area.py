@@ -167,10 +167,12 @@ def _shallows(depth, box, W, H, shallows):
     """Outlined shallows at the depth they usually have (bars.json "shallows": [{"name", "depth", "ring": [[lat, lon], ...]}]):
     the sea cells whose middles are inside an outline at most that deep, e.g. a lagoon behind an offshore sandbank and the
     bank's crest (the owner, 20.11.2026, Berzciems: "A sandbank offshore"), where the depth tiles' ~100 m pixels have it
-    metres too deep."""
+    metres too deep. A depth below 0 is a bed above mean sea level (to -0.9 m: -1 is land): dry below that level, wet above
+    ("Usually bank appears at 20-30cm water level": -0.25)."""
     from PIL import Image, ImageDraw
 
     for s in shallows:
+        assert -0.9 <= s["depth"], s
         img = Image.new("L", (W, H), 0)
         pts = []
         for lat, lon in s["ring"]:
