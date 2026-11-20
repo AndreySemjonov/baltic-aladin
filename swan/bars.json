@@ -428,7 +428,7 @@
   ]
  },
  "berzciems": {
-  "note": "The owner's outlines (20.11.2026: \"i marked all sandbars and behind it lagoons\"; then \"my marked region not exact region of sandbanks. I marked area where they are only\"): inside them the banks from Sentinel-2's calm colour, scaled on the brightest sand as +0.25 m (\"Usually bank appears at 20-30cm water level\") and the outside water as 2.4 m (the lagoon, darker than deep water behind the bar, can't anchor it), contoured at -0.25 / 0.1 / 0.3 / 0.6 m; the lagoons 0.12 m. Reeds and stones left out.",
+  "note": "The owner's outlines (20.11.2026: \"i marked all sandbars and behind it lagoons\"; then \"my marked region not exact region of sandbanks. I marked area where they are only\"): inside them the banks from Sentinel-2's calm colour, scaled on the brightest sand as +0.25 m (\"Usually bank appears at 20-30cm water level\") and the outside water as 2.4 m (the lagoon, darker than deep water behind the bar, can't anchor it), contoured at -0.25 (from the unsmoothed depths, water there 30 % of scenes or more) / 0.1 / 0.3 / 0.6 m; the lagoons 0.12 m. Reeds and stones left out.",
   "shallows": [
    {
     "name": "lagoon north",
@@ -817,6 +817,60 @@
     "depth": -0.25,
     "ring": [
      [
+      57.252826,
+      23.178854
+     ],
+     [
+      57.252886,
+      23.178671
+     ],
+     [
+      57.253044,
+      23.178639
+     ],
+     [
+      57.253227,
+      23.178443
+     ],
+     [
+      57.253586,
+      23.178464
+     ],
+     [
+      57.25375,
+      23.178701
+     ],
+     [
+      57.253648,
+      23.178758
+     ],
+     [
+      57.253582,
+      23.178671
+     ],
+     [
+      57.253398,
+      23.178909
+     ],
+     [
+      57.253127,
+      23.179017
+     ],
+     [
+      57.25288,
+      23.179002
+     ],
+     [
+      57.252826,
+      23.178854
+     ]
+    ]
+   },
+   {
+    "name": "bank north -0.25 #2",
+    "depth": -0.25,
+    "ring": [
+     [
       57.247474,
       23.179201
      ],
@@ -833,60 +887,16 @@
       23.17903
      ],
      [
-      57.248081,
-      23.179196
+      57.248069,
+      23.179216
      ],
      [
-      57.247909,
-      23.179372
+      57.247819,
+      23.179408
      ],
      [
-      57.247877,
-      23.179267
-     ],
-     [
-      57.247968,
-      23.17923
-     ],
-     [
-      57.24797,
-      23.179106
-     ],
-     [
-      57.247881,
-      23.17906
-     ],
-     [
-      57.247872,
-      23.178914
-     ],
-     [
-      57.247715,
-      23.178905
-     ],
-     [
-      57.247701,
-      23.179049
-     ],
-     [
-      57.247611,
-      23.179085
-     ],
-     [
-      57.247609,
-      23.179209
-     ],
-     [
-      57.247698,
-      23.179256
-     ],
-     [
-      57.247684,
-      23.1794
-     ],
-     [
-      57.24755,
-      23.179351
+      57.247617,
+      23.179396
      ],
      [
       57.247474,
@@ -895,7 +905,7 @@
     ]
    },
    {
-    "name": "bank north -0.25 #2",
+    "name": "bank north -0.25 #3",
     "depth": -0.25,
     "ring": [
      [
@@ -925,6 +935,52 @@
      [
       57.246569,
       23.179562
+     ]
+    ]
+   },
+   {
+    "name": "bank north -0.25 #4",
+    "depth": -0.25,
+    "ring": [
+     [
+      57.245718,
+      23.179388
+     ],
+     [
+      57.245778,
+      23.179205
+     ],
+     [
+      57.246166,
+      23.178855
+     ],
+     [
+      57.246458,
+      23.178831
+     ],
+     [
+      57.246599,
+      23.179108
+     ],
+     [
+      57.246203,
+      23.179313
+     ],
+     [
+      57.246109,
+      23.179556
+     ],
+     [
+      57.24593,
+      23.179504
+     ],
+     [
+      57.245839,
+      23.179581
+     ],
+     [
+      57.245718,
+      23.179388
      ]
     ]
    },
@@ -1815,6 +1871,82 @@
      [
       57.238985,
       23.179032
+     ]
+    ]
+   },
+   {
+    "name": "bank south B -0.25 #1",
+    "depth": -0.25,
+    "ring": [
+     [
+      57.238749,
+      23.179722
+     ],
+     [
+      57.238798,
+      23.179476
+     ],
+     [
+      57.238946,
+      23.17934
+     ],
+     [
+      57.23895,
+      23.179775
+     ],
+     [
+      57.238802,
+      23.17987
+     ],
+     [
+      57.238749,
+      23.179722
+     ]
+    ]
+   },
+   {
+    "name": "bank south B -0.25 #2",
+    "depth": -0.25,
+    "ring": [
+     [
+      57.234738,
+      23.181681
+     ],
+     [
+      57.234811,
+      23.181395
+     ],
+     [
+      57.234913,
+      23.181298
+     ],
+     [
+      57.235137,
+      23.181352
+     ],
+     [
+      57.235162,
+      23.18123
+     ],
+     [
+      57.235307,
+      23.181259
+     ],
+     [
+      57.235226,
+      23.181399
+     ],
+     [
+      57.235091,
+      23.181433
+     ],
+     [
+      57.234928,
+      23.181754
+     ],
+     [
+      57.234738,
+      23.181681
      ]
     ]
    },
