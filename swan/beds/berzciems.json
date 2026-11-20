@@ -1,0 +1,13 @@
+{
+ "box": [
+  0.5642315233440154,
+  0.30496553253885617,
+  0.0002883918606579824,
+  0.0003436408448329492
+ ],
+ "W": 736,
+ "H": 877,
+ "base": -0.5,
+ "step": 0.02,
+ "note": "Sentinel-2 L2A, 28 calm scenes 2023+, the median ln(green - deep green), depth = -9.08 - 3.23 L (the brightest sand -0.25 m, the water 50-150 m outside the banks our grid's 2.43 m), then on the owner's anchors (20.11.2026: the bank shallower than the 0.12 m lagoon): -0.25..0.6 m read as -0.25..0.05, 0.6..2.4 as 0.05..2.4; land, reeds and deeper than 2.5 m none. sandbars/scripts/berz_depth3.py, berz_bed.py (WindguruStationWatch session scratchpad)."
+}

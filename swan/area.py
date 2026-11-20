@@ -15,6 +15,7 @@ The water level is SWAN's (tables.py SET LEVEL).
 
   python3 swan/area.py LAT LON [SIDE_M] [CELLS]   prints the grid's sums (a check), e.g. 56.5505 20.986
 """
+import gzip
 import io
 import json
 import math
@@ -22,6 +23,7 @@ import struct
 import sys
 import urllib.request
 from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 from PIL import Image
@@ -162,9 +164,50 @@ def build(box, W, H, outlines=None, bars=None):
         # (None carved up a river: by the distance to its banks they ran down the channel's middle.)
         if river is not None:
             depth[opened] = river
+    if bars and bars.get("bed"):
+        _bed(depth, box, W, H, bed_for(bars["bed"]))
     if bars and bars.get("shallows"):
         _shallows(depth, box, W, H, bars["shallows"])
     return depth
+
+
+BEDS = Path(__file__).resolve().parent / "beds"
+
+
+def bed_for(name):
+    """A satellite bed (beds/NAME.json + NAME.bin.gz, survey.py): {"box": world 0-1 [x, y, width, height], "W", "H",
+    "base", "step"} and a byte a pixel (rows from the north): base + step x byte metres below mean sea level (negative:
+    above it), 255 none. As "z": metres, NaN none."""
+    meta = json.loads((BEDS / f"{name}.json").read_bytes().decode())
+    b = np.frombuffer(gzip.decompress((BEDS / f"{name}.bin.gz").read_bytes()), np.uint8).reshape(meta["H"], meta["W"])
+    return dict(meta, z=np.where(b == 255, np.nan, b * meta["step"] + meta["base"]).astype(np.float32))
+
+
+def _bed(depth, box, W, H, bed):
+    """A satellite bed (bed_for) over the grid's sea cells (the owner, 20.11.2026, the satellite's depth picture: "this is
+    what we need to implement in our sandbank", then "Yes, do A"): each cell the mean of the bed's pixels in it (k x k
+    points; a grid finer than the bed takes the nearest), blended in by the share it covers and trusted to ~1.2 m, our
+    depth tiles' by 2 m (the Baltic's brown water hides the bottom below ~1.5-2 m). Land stays land; a bed above mean sea
+    level is wet above its height (-0.9 at most: -1 is land)."""
+    bb, bw, bh, z = bed["box"], bed["W"], bed["H"], bed["z"]
+    k = max(1, int(round(box[2] / W / (bb[2] / bw) * 1.5)))
+    total, n = np.zeros((H, W)), np.zeros((H, W))
+    for sy in (np.arange(k) + 0.5) / k:
+        rr = np.floor(((box[1] + (np.arange(H) + sy) / H * box[3]) - bb[1]) / bb[3] * bh).astype(int)
+        for sx in (np.arange(k) + 0.5) / k:
+            cc = np.floor(((box[0] + (np.arange(W) + sx) / W * box[2]) - bb[0]) / bb[2] * bw).astype(int)
+            R, C = np.meshgrid(rr, cc, indexing="ij")
+            inside = (R >= 0) & (R < bh) & (C >= 0) & (C < bw)
+            v = np.full((H, W), np.nan, np.float32)
+            v[inside] = z[R[inside], C[inside]]
+            ok = np.isfinite(v)
+            total += np.where(ok, v, 0.0)
+            n += ok
+    zb = total / np.maximum(n, 1)
+    t = np.clip((zb - 1.2) / 0.8, 0, 1)
+    trust = n / (k * k) * (1 - t * t * (3 - 2 * t))
+    sea = depth > -1
+    depth[sea] = np.maximum(depth[sea] * (1 - trust[sea]) + zb[sea] * trust[sea], -0.9)
 
 
 def _shallows(depth, box, W, H, shallows):

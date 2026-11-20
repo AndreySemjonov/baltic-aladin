@@ -143,6 +143,19 @@ DEPTH_BASE = -0.5
 DEPTH_STEP = 0.02
 
 
+# An area with a satellite bed (bars.json "bed", area.py _bed) gets the map's depth grid this many times finer than
+# SWAN's: ~8.5 m on a 34 m grid, the bed's own 10 m (the owner, 20.11.2026: "Yes, do A"; index "depthW", "depthH").
+FINE = 4
+
+
+def map_depth(area, box, W, H, depth):
+    """The map's depth bytes (depth_bytes) and their grid's size: SWAN's grid, or with a satellite bed built FINE x finer."""
+    bars = bars_for(area)
+    if (bars or {}).get("bed"):
+        return depth_bytes(A.build(box, W * FINE, H * FINE, None, bars)), W * FINE, H * FINE
+    return depth_bytes(depth), W, H
+
+
 def depth_bytes(depth):
     """The bed for the map's shallows (the owner, 20.11.2026: "show lagoon with sandbags on map too depending on water
     level", then "Yes, build A"): a byte a cell (W x H, rows from the north), DEPTH_STEPs below DEPTH_BASE (a sandbank's
@@ -167,8 +180,10 @@ def depths(names=None):
     stamp = time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())
     for a in todo:
         t0 = time.time()
-        _put(f"{a['area']}/depth.bin.gz", gzip.compress(depth_bytes(A.build(a["box"], a["W"], a["H"], None, bars_for(a["area"]))), 9), key)
-        print(a["area"], f"depth up in {time.time() - t0:.0f} s", flush=True)
+        b, a["depthW"], a["depthH"] = map_depth(a["area"], a["box"], a["W"], a["H"],
+                                                A.build(a["box"], a["W"], a["H"], None, bars_for(a["area"])))
+        _put(f"{a['area']}/depth.bin.gz", gzip.compress(b, 9), key)
+        print(a["area"], f"depth up in {time.time() - t0:.0f} s ({a['depthW']} x {a['depthH']})", flush=True)
     # (The index read again: a remake's index may have come meanwhile.)
     now = {a["area"]: a for a in (_json(STORE + "index.json") or {}).get("areas", [])}
     for a in todo:
@@ -176,6 +191,10 @@ def depths(names=None):
             now[a["area"]]["depth"] = stamp
             now[a["area"]]["depthBase"] = DEPTH_BASE
             now[a["area"]]["depthStep"] = DEPTH_STEP
+            # (The map's grid's size where finer than SWAN's: a satellite bed's.)
+            now[a["area"]].pop("depthW", None), now[a["area"]].pop("depthH", None)
+            if a["depthW"] != a["W"]:
+                now[a["area"]]["depthW"], now[a["area"]]["depthH"] = a["depthW"], a["depthH"]
             # (Its bars for the map's lines: [[metres from the waterline, crest depth], ...].)
             if (bars_for(a["area"]) or {}).get("bars"):
                 now[a["area"]]["bars"] = bars_for(a["area"])["bars"]
@@ -210,7 +229,8 @@ def make(spec, out):
         (home / "out" / "reeds.json").write_text(json.dumps({"p": outlines}, separators=(",", ":")))
     if not ldir:
         (home / "out").mkdir(exist_ok=True)
-        (home / "out" / "depth.bin.gz").write_bytes(gzip.compress(depth_bytes(depth), 9))
+        b, depthW, depthH = map_depth(spec["area"], box, W, H, depth)
+        (home / "out" / "depth.bin.gz").write_bytes(gzip.compress(b, 9))
     print(spec["area"], f"level {level:g} grid {time.time() - t0:.0f} s: reeds {reeds.sum()} cells, sea {sea.mean() * 100:.0f} %, deepest {depth.max():.0f} m at {off}", flush=True)
     bed = np.where(reeds, REEDS["bed"], depth)
     # (Land -9; a bank's bed above mean sea level as it is, negative: dry below its height, wet above.)
@@ -270,6 +290,8 @@ STOP
             "made": time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())}
     if not ldir:
         meta["depth"], meta["depthBase"], meta["depthStep"] = meta["made"], DEPTH_BASE, DEPTH_STEP
+        if depthW != W:
+            meta["depthW"], meta["depthH"] = depthW, depthH
         if (bars_for(spec["area"]) or {}).get("bars"):
             meta["bars"] = bars_for(spec["area"])["bars"]
         # (A river mouth's: the map draws its waves on the base map's river water too.)
@@ -353,7 +375,7 @@ def index(homes, drop=()):
         # (Its depth grid's stamp kept when only other levels were made.)
         if "depth" not in meta and old and "depth" in old:
             meta["depth"] = old["depth"]
-            for k in ("depthBase", "depthStep", "bars", "river"):
+            for k in ("depthBase", "depthStep", "depthW", "depthH", "bars", "river"):
                 if k in old:
                     meta[k] = old[k]
         areas[meta["area"]] = meta
