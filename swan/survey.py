@@ -8,8 +8,14 @@ area's spot, 2023 on (bars move), clear scenes outside the ice months. Calm scen
 dark open sea) give the water's colour, the median of their ln(green - the deep water's green): brighter is shallower.
 Two anchors set its scale (depth = a + b L): the brightest water (p98, off the beach's mixed pixels) is the bars' crest,
 CREST below mean sea level (-0.25: dry below that level), and ordinary water where our depth grid (area.py, no bars) has
-1.5-3 m is that deep. Contoured at LEVELS into bars.json "shallows" (area.py _shallows: depth caps, never deeper than the
-grid); river channels (narrow water) and plants left out. A river joined to the sea near the spot is reported, not opened.
+1.5-3 m is that deep. The crest's height measured where it can be (the owner, 21.11.2026, Berzciems: "Use the measured
+value"; for spots nobody knows): the Baltic's level swings with the wind, so each scene sees the sand at another level;
+with the level at each scene's moment (EMODnet Physics' hourly gauges, open: the nearest within 40 km) the brightest
+sand's height is the level that splits its wet scenes from its dry ones. Else the owner's (bars.json "crest"), else CREST.
+The depths kept as a picture, not contours (the owner, 20.11.2026: "this is what we need to implement in our sandbank ...
+for new [spots] the same approach from the beginning"): OUT/AREA-bed.json + .bin.gz on the area's fine grid (area.py
+bed_for, _bed; --apply puts it in beds/ and bars.json "bed"); river channels (narrow water) and plants left out. A river
+joined to the sea near the spot is reported, not opened.
 
 Doubtful, so it waits for the owner (the owner, 20.11.2026: "Confident parts go live straight away"): few calm scenes, no
 1.5-3 m water to anchor on, a light fall-off with depth (2K) out of what clear to brown Baltic water gives, the two
@@ -41,7 +47,8 @@ ENV = dict(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", AWS_NO_SIGN_REQUEST="YES", 
            GDAL_HTTP_RETRY_DELAY="3", CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif")
 N = 400  # the window, 10 m pixels
 SINCE = "2023-01-01"
-LEVELS = (-0.25, 0.1, 0.3, 0.6, 1.0)
+LEVELS = (-0.25, 0.1, 0.3, 0.6, 1.0)  # (the picture's and the report's bands)
+GAUGES = "https://erddap.emodnet-physics.eu/erddap/tabledap/ERD_EP_SLEV_NRT_60m.csv?"
 CREST = -0.25
 MIN_CALM, TWO_K, HALVES, PLANTS = 8, (0.15, 1.5), 0.25, 0.2
 
@@ -163,6 +170,149 @@ def _ring(comp, meta, toLL):
     return ring if ring[0] == ring[-1] else ring + [ring[0]]
 
 
+def _erddap(q):
+    import urllib.parse
+
+    url = GAUGES + urllib.parse.quote(q, safe="&=(),")
+    req = urllib.request.Request(url, headers={"User-Agent": "baltic-aladin (https://github.com/AndreySemjonov/baltic-aladin)"})
+    with urllib.request.urlopen(req, timeout=300) as r:
+        return [line.split(",") for line in r.read().decode().splitlines()[2:]]
+
+
+def _copernicus_levels(lat, lon, days):
+    """Copernicus Marine's Baltic model's sea level (sla, the map's own: copernicus.py) at the spot's nearest sea cell at
+    each scene's moment (09-11 UTC): {day: m}; {} without a login (COPERNICUSMARINE_SERVICE_USERNAME/_PASSWORD)."""
+    import os
+
+    if not (os.environ.get("COPERNICUSMARINE_SERVICE_USERNAME") and os.environ.get("COPERNICUSMARINE_SERVICE_PASSWORD")):
+        return {}
+    try:
+        import copernicusmarine
+
+        ds = copernicusmarine.open_dataset(dataset_id="cmems_mod_bal_phy_anfc_PT1H-i", variables=["sla"],
+                                           minimum_latitude=lat - 0.03, maximum_latitude=lat + 0.03,
+                                           minimum_longitude=lon - 0.05, maximum_longitude=lon + 0.05, service="arco-time-series")
+        v = ds["sla"].values
+        cell = np.nanargmin(np.where(np.isfinite(v).all(0), 0, 1)) if np.isfinite(v).all(0).any() else None
+        if cell is None:
+            return {}
+        s = v.reshape(len(v), -1)[:, cell]
+        times = [str(x)[:13] for x in ds["time"].values]
+    except Exception as e:
+        print("Copernicus:", str(e)[:200], flush=True)
+        return {}
+    hour = dict(zip(times, s))
+    out = {}
+    for day in days:
+        x = [hour[f"{day}T{h:02d}"] for h in (9, 10, 11) if f"{day}T{h:02d}" in hour and np.isfinite(hour[f"{day}T{h:02d}"])]
+        if x:
+            out[day] = float(np.mean(x))
+    return out
+
+
+def levels_at(lat, lon, days, reach=40000):
+    """The sea's level (m, the gauges' zero: about mean sea level, as the map's) at each scene's moment (09-11 UTC,
+    Sentinel-2's pass over the Baltic): the nearest EMODnet gauge within reach metres where it has them (its hourly set
+    ends 2024-11), else Copernicus's model shifted to that gauge by their median difference on the days both have
+    (the map's level is the same model shifted to the gauges): {day: level}, and where from."""
+    k = math.cos(math.radians(lat))
+    q = (f"PLATFORMCODE,latitude,longitude&latitude>={lat - 0.5}&latitude<={lat + 0.5}&longitude>={lon - 0.5 / k}"
+         f"&longitude<={lon + 0.5 / k}&distinct()")
+    try:
+        gauges = sorted((math.hypot(float(g[1]) - lat, (float(g[2]) - lon) * k) * 111195.0, g[0]) for g in _erddap(q))
+    except Exception as e:
+        print("gauges:", e, flush=True)
+        gauges = []
+    gauge, name = {}, None
+    for dist, g in gauges:
+        if dist > reach:
+            break
+        try:
+            rows = _erddap(f'time,SLEV,SLEV_QC&PLATFORMCODE="{g}"&time>={SINCE}')
+        except Exception:
+            continue
+        hour = {r[0][:13]: float(r[1]) for r in rows if len(r) > 2 and r[2] in ("1", "2") and r[1]}
+        for day in days:
+            v = [hour[f"{day}T{h:02d}"] for h in (9, 10, 11) if f"{day}T{h:02d}" in hour]
+            if v:
+                gauge[day] = sum(v) / len(v)
+        if len(gauge) >= 12:
+            name = f"{g} ({dist / 1000:.0f} km)"
+            break
+        gauge = {}
+    cop = _copernicus_levels(lat, lon, days)
+    both = [d for d in gauge if d in cop]
+    if cop and len(both) >= 10:
+        shift = float(np.median([gauge[d] - cop[d] for d in both]))
+        out = {d: gauge.get(d, cop[d] + shift) for d in days if d in gauge or d in cop}
+        return out, f"{name}, Copernicus {shift:+.2f} m beyond it"
+    return gauge, name
+
+
+def waterline(G, NI, days, lv, top, L):
+    """The brightest offshore sand's height (m above the gauges' zero) from the scenes' wet and dry at their levels
+    (levels_at): each pixel of top (a mask) sometimes dry, sometimes wet, at the level that splits them with at most a
+    fifth of its scenes on the wrong side, inside the levels seen; the median, how many, and their colour's median (L):
+    the fit's anchor. None under 30 pixels."""
+    k = [i for i, d in enumerate(days) if d in lv]
+    if len(k) < 12:
+        return None, 0
+    LV = np.array([lv[days[i]] for i in k])
+    with np.errstate(invalid="ignore", divide="ignore"):
+        wet = (G[k] - NI[k]) / (G[k] + NI[k]) > 0
+    ok = np.isfinite(G[k]) & np.isfinite(NI[k])
+    nw, nd = (wet & ok).sum(0), (~wet & ok).sum(0)
+    lo, hi = np.sort(LV)[1], np.sort(LV)[-2]
+    hs, ls = [], []
+    for y, x in zip(*np.nonzero(top & (nw >= 3) & (nd >= 3))):
+        o = ok[:, y, x]
+        w, l = wet[o, y, x], LV[o]
+        if len(l) < 8:
+            continue
+        c = np.sort(l)
+        c = (c[:-1] + c[1:]) / 2
+        wrong = np.array([(w & (l < s)).sum() + (~w & (l > s)).sum() for s in c])
+        j = int(np.argmin(wrong))
+        if wrong[j] <= 0.2 * len(l) and lo < c[j] < hi:
+            hs.append(c[j])
+            ls.append(L[y, x])
+    return (float(np.median(hs)), len(hs), float(np.median(ls))) if len(hs) >= 30 else (None, len(hs), None)
+
+
+def _bed_out(name, a, Z, valid, meta, out):
+    """The depths (Z, m below mean sea level, UTM's 10 m pixels) where valid, on the area's fine grid (tables.FINE x
+    SWAN's) over the window: OUT/NAME-bed.json + .bin.gz (area.py bed_for: 2 cm steps from the depths' base, 255 none)."""
+    import gzip
+    from rasterio.warp import transform
+
+    import tables as T
+
+    box, F = a["box"], T.FINE
+    FW, FH = a["W"] * F, a["H"] * F
+    x0, y0, x1, y1 = meta["x0"], meta["y0"], meta["x0"] + N * 10, meta["y0"] - N * 10
+    lo, la = transform(meta["crs"], "EPSG:4326", [x0, x1, x0, x1], [y0, y0, y1, y1])
+    mx = (np.array(lo) + 180) / 360
+    my = (1 - np.log(np.tan(np.pi / 4 + np.radians(la) / 2)) / np.pi) / 2
+    c0, c1 = (int(np.clip(f((m - box[0]) / box[2] * FW), 0, FW)) for f, m in ((np.floor, mx.min()), (np.ceil, mx.max())))
+    r0, r1 = (int(np.clip(f((m - box[1]) / box[3] * FH), 0, FH)) for f, m in ((np.floor, my.min()), (np.ceil, my.max())))
+    bw, bh = c1 - c0, r1 - r0
+    bbox = [box[0] + c0 / FW * box[2], box[1] + r0 / FH * box[3], bw / FW * box[2], bh / FH * box[3]]
+    MX, MY = np.meshgrid(bbox[0] + (np.arange(bw) + 0.5) / bw * bbox[2], bbox[1] + (np.arange(bh) + 0.5) / bh * bbox[3])
+    LON, LAT = MX * 360 - 180, np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * MY))))
+    ux, uy = transform("EPSG:4326", meta["crs"], list(LON.ravel()), list(LAT.ravel()))
+    cc = np.floor((np.array(ux) - x0) / 10).astype(int).reshape(bh, bw)
+    rr = np.floor((y0 - np.array(uy)) / 10).astype(int).reshape(bh, bw)
+    inside = (rr >= 0) & (rr < N) & (cc >= 0) & (cc < N)
+    rr, cc = np.clip(rr, 0, N - 1), np.clip(cc, 0, N - 1)
+    z = Z[rr, cc]
+    good = inside & valid[rr, cc] & np.isfinite(z) & (z <= 2.5)
+    b = np.where(good, np.clip(np.round((np.maximum(z, -0.9) - T.DEPTH_BASE) / T.DEPTH_STEP), 0, 254), 255).astype(np.uint8)
+    (out / f"{name}-bed.json").write_text(json.dumps({"box": bbox, "W": bw, "H": bh, "base": T.DEPTH_BASE,
+                                                       "step": T.DEPTH_STEP, "note": f"survey.py {time.strftime('%Y-%m-%d')}"}, indent=1))
+    (out / f"{name}-bed.bin.gz").write_bytes(gzip.compress(b.tobytes(), 9))
+    return int(good.sum())
+
+
 def survey(name, a, data, out, crest=CREST):
     from rasterio.warp import transform
     from scipy.ndimage import binary_fill_holes, distance_transform_edt, gaussian_filter, label
@@ -172,9 +322,10 @@ def survey(name, a, data, out, crest=CREST):
     if not (d / "meta.json").exists():
         fetch(name, lat, lon, data)
     meta = json.loads((d / "meta.json").read_text())
-    G, NI = [], []
+    G, NI, days = [], [], []
     for f in sorted(d.glob("*.npz")):
         if f.stem >= SINCE:
+            days.append(f.stem[:10])
             b = np.load(f)["b"]
             v = b.astype(np.float32) * 1e-4
             v[:, b[0] == 0] = np.nan
@@ -229,6 +380,20 @@ def survey(name, a, data, out, crest=CREST):
     if dom.sum() < 2000:
         raise SystemExit(f"{name}: too little water near the shore in the window ({int(dom.sum())} pixels)")
     L_crest = float(np.percentile(L[dom & (dland > 30)], 98))
+    # (Offshore sand only, 60 m or more from the beach: at Svetciems the brightest was the beach's swash edge, pixels part
+    # dry sand, bright by the sand, not the depth; measured there it put the bars 0.3 m too high.)
+    lv, gauge = levels_at(lat, lon, days)
+    off60 = dom & (dland > 60)
+    # (Scenes without whitecaps out at sea only: breaking waves' white water reads as dry sand in the near infrared. Judged
+    # far out, not near the shore: there a dry bank is bright in the near infrared too, and the low-water scenes, where
+    # Berzciems's bank is dry, were all thrown out as foamy.)
+    still = np.array([np.nanmedian(x[off]) for x in NI]) < 0.015
+    top_h, top_n, L_top = waterline(G[still], NI[still], [d for d, s in zip(days, still) if s], lv,
+                                    off60 & (L >= np.percentile(L[off60], 98)), L) if lv and off60.any() else (None, 0, None)
+    if top_h is not None:
+        crest, how, L_crest = -top_h, f"measured at {gauge}: {top_n} pixels", L_top
+    else:
+        how = f"given ({top_n} pixels measured" + (f" at {gauge})" if gauge else ", no gauge)")
     lo, hi = np.percentile(L[dom], [20, 70])
     ok = dom & (gd >= 1.5) & (gd <= 3.0) & (L > lo) & (L < hi)
     if ok.sum() < 50:
@@ -256,27 +421,17 @@ def survey(name, a, data, out, crest=CREST):
     if river_ha >= 1:
         doubts.append(f"a river or channel near the spot ({river_ha:.0f} ha of narrow water): open it (bars.json river)?")
 
-    Zs = gaussian_filter(np.where(dom, Z, 5.0), 1.0)
-    shallows, stat = [], {}
-    for lev in LEVELS:
-        lab2, n2 = label((Zs <= lev) & dom & (dland > (20 if lev < 0 else 0)))
-        k = 0
-        for q in range(1, n2 + 1):
-            comp = binary_fill_holes(lab2 == q)
-            if comp.sum() * 100 < (500 if lev < 0 else 2000):
-                continue
-            k += 1
-            shallows.append({"name": f"{name} {lev:g} #{k}", "depth": lev, "ring": _ring(comp, meta, toLL)})
-            stat[lev] = stat.get(lev, 0.0) + float(comp.sum()) / 100
-    res = {"area": name, "made": time.strftime("%Y-%m-%d"), "scenes": len(G), "calm": int(calm.sum()),
-           "fit": {"a": round(a0, 3), "b": round(b, 3), "2K": round(two_k, 2), "crest": [round(L_crest, 3), crest],
-                   "water": [round(L_w, 3), round(D_w, 2), int(ok.sum())], "halves": round(split, 2)},
-           "ha": {f"{k:g}": round(v, 1) for k, v in stat.items()}, "doubts": doubts, "shallows": shallows}
+    stat = {lev: float(((Z <= lev) & dom).sum()) / 100 for lev in LEVELS}
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
+    pixels = _bed_out(name, a, Z, dom, meta, out)
+    res = {"area": name, "made": time.strftime("%Y-%m-%d"), "scenes": len(G), "calm": int(calm.sum()),
+           "fit": {"a": round(a0, 3), "b": round(b, 3), "2K": round(two_k, 2), "crest": [round(L_crest, 3), round(crest, 2), how],
+                   "water": [round(L_w, 3), round(D_w, 2), int(ok.sum())], "halves": round(split, 2)},
+           "ha": {f"{k:g}": round(v, 1) for k, v in stat.items()}, "doubts": doubts, "bed": pixels}
     (out / f"{name}.json").write_text(json.dumps(res, indent=1))
     _picture(out / f"{name}.png", Z, water, dom | river, plants, river, res, meta, LAT, LON)
-    print(name, {k: res[k] for k in ("scenes", "calm", "fit", "ha", "doubts")}, len(shallows), "shapes", flush=True)
+    print(name, {k: res[k] for k in ("scenes", "calm", "fit", "ha", "doubts")}, pixels, "bed pixels", flush=True)
     return res
 
 
@@ -292,16 +447,10 @@ def _picture(path, Z, water, shown, plants, river, res, meta, LAT, LON):
     rgb = np.where(river[..., None], [130, 100, 70], rgb)
     img = Image.fromarray(rgb.astype(np.uint8)).resize((2 * N, 2 * N), Image.NEAREST)
     dr = ImageDraw.Draw(img)
-    cols = {-0.25: (255, 255, 255), 0.1: (255, 160, 0), 0.3: (0, 220, 220), 0.6: (40, 90, 255), 1.0: (230, 0, 230)}
-    from rasterio.warp import transform
-
-    for s in res["shallows"]:
-        x, y = transform("EPSG:4326", meta["crs"], [p[1] for p in s["ring"]], [p[0] for p in s["ring"]])
-        dr.line([((u - meta["x0"]) / 5, (meta["y0"] - v) / 5) for u, v in zip(x, y)], fill=cols[s["depth"]], width=2)
     dr.line([(20, 2 * N - 20), (120, 2 * N - 20)], fill=(0, 0, 0), width=4)
     dr.text((20, 2 * N - 40), "500 m", fill=(0, 0, 0))
-    dr.text((10, 10), f"{res['area']}: {res['calm']} calm scenes, 2K {res['fit']['2K']}/m; caps " +
-            " ".join(f"{k}m" for k in res["ha"]), fill=(0, 0, 0))
+    dr.text((10, 10), f"{res['area']}: {res['calm']} calm scenes, 2K {res['fit']['2K']}/m; crest {res['fit']['crest'][1]} m "
+            f"({res['fit']['crest'][2]})", fill=(0, 0, 0))
     img.save(path)
 
 
@@ -312,19 +461,30 @@ def A_middle(box):
 
 
 def apply(name, out, force=False):
-    """The survey's shallows into bars.json: they replace the rule's bars (crest depths by rule) there; the river not
-    opened (the owner's call)."""
+    """The survey's bed into beds/ and bars.json "bed": it replaces the rule's bars (crest depths by rule) and the
+    survey's own earlier contour shapes there; the owner's own shapes (lagoons...) kept; the river not opened (the
+    owner's call)."""
+    import shutil
+
     res = json.loads((Path(out) / f"{name}.json").read_text())
     if res["doubts"] and not force:
         raise SystemExit(f"{name}: doubtful, for the owner: {res['doubts']}")
+    (HERE / "beds").mkdir(exist_ok=True)
+    for ext in ("json", "bin.gz"):
+        shutil.copy(Path(out) / f"{name}-bed.{ext}", HERE / "beds" / f"{name}.{ext}")
     p = HERE / "bars.json"
     bars = json.loads(p.read_bytes().decode("utf-8"))
     e = bars.setdefault(name, {})
     e.pop("bars", None)
-    e["shallows"] = res["shallows"]
+    kept = [s for s in e.get("shallows", []) if not s["name"].startswith(f"{name} ")]
+    if kept:
+        e["shallows"] = kept
+    else:
+        e.pop("shallows", None)
+    e["bed"] = name
     e["survey"] = {k: res[k] for k in ("made", "scenes", "calm", "fit", "doubts")}
     p.write_bytes((json.dumps(bars, indent=1) + "\n").encode("utf-8"))
-    print(name, "into bars.json:", len(res["shallows"]), "shapes")
+    print(name, "into beds/ and bars.json:", res["bed"], "bed pixels,", len(kept), "of the owner's shapes kept")
 
 
 if __name__ == "__main__":
