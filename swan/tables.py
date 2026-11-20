@@ -22,6 +22,8 @@ hour's open sea at the area's offshore point (its deepest cell) and blends the r
   python3 swan/tables.py publish OUT/<area>...           their runs up (INGEST_TOKEN)
   python3 swan/tables.py index OUT/<area>...             the index of areas: the store's own with these in, up
   python3 swan/tables.py index --drop area,area          the store's index without these areas (their files left), up
+  python3 swan/tables.py depths [area...]                the index's areas' (or these) depth grids up, no SWAN: AREA/
+                                                         depth.bin.gz (depth_bytes), the index's "depth" their stamp
 
 Speed (19.11.2026): an open sea run 3-7 s, a wind run 10-60 s on 6 of the Mac mini's efficiency cores.
 """
@@ -123,6 +125,39 @@ def plan(only=None, most=250):
     return out[:most]
 
 
+def depth_bytes(depth):
+    """The bed for the map's shallows (the owner, 20.11.2026: "show lagoon with sandbags on map too depending on water
+    level", then "Yes, build A"): a byte a cell (W x H, rows from the north), centimetres below mean sea level to 2.53 m,
+    254 deeper; land and reeds the nearest sea cell's (the map's own shore mask says where the water is, and the shore's
+    cells don't dip). shortcut: only the shallows' 0-2.5 m kept, a byte; the bed deeper needs 16 bits if the map ever wants it."""
+    from scipy.ndimage import distance_transform_edt
+
+    sea = depth >= 0
+    _, (r, c) = distance_transform_edt(~sea, return_indices=True)
+    cm = np.round(np.where(sea, depth, depth[r, c]) * 100)
+    return np.where(cm > 253, 254, np.clip(cm, 0, 253)).astype(np.uint8).tobytes()
+
+
+def depths(names=None):
+    """The index's areas' depth grids (or these areas'), built as make builds them, up; the index then stamps them."""
+    key = _token()
+    areas = (_json(STORE + "index.json") or {}).get("areas", [])
+    todo = [a for a in areas if not names or a["area"] in names]
+    if names and len(todo) != len(names):
+        raise SystemExit(f"not in the index: {sorted(set(names) - {a['area'] for a in todo})}")
+    stamp = time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())
+    for a in todo:
+        t0 = time.time()
+        _put(f"{a['area']}/depth.bin.gz", gzip.compress(depth_bytes(A.build(a["box"], a["W"], a["H"])), 9), key)
+        print(a["area"], f"depth up in {time.time() - t0:.0f} s", flush=True)
+    # (The index read again: a remake's index may have come meanwhile.)
+    now = {a["area"]: a for a in (_json(STORE + "index.json") or {}).get("areas", [])}
+    for a in todo:
+        if a["area"] in now:
+            now[a["area"]]["depth"] = stamp
+    print("index:", _put("index.json", json.dumps({"areas": list(now.values())}).encode(), key), len(todo), "depths stamped")
+
+
 def make(spec, out):
     spec = json.loads(spec) if isinstance(spec, str) else spec
     home = Path(out) / spec["area"]
@@ -149,6 +184,9 @@ def make(spec, out):
         (home / "out" / "reeds.bin.gz").write_bytes(gzip.compress(reeds.astype(np.uint8).tobytes(), 9))
         # (Their outlines for the map: {"p": [[ring, ...], ...]}, as the breakwaters' tiles.)
         (home / "out" / "reeds.json").write_text(json.dumps({"p": outlines}, separators=(",", ":")))
+    if not ldir:
+        (home / "out").mkdir(exist_ok=True)
+        (home / "out" / "depth.bin.gz").write_bytes(gzip.compress(depth_bytes(depth), 9))
     print(spec["area"], f"level {level:g} grid {time.time() - t0:.0f} s: reeds {reeds.sum()} cells, sea {sea.mean() * 100:.0f} %, deepest {depth.max():.0f} m at {off}", flush=True)
     (home / "bottom.dat").write_text("\n".join(" ".join("-9" if d < 0 else f"{d:.2f}" for d in row) for row in depth) + "\n")
     x0, y0, xl, yl = dx / 2, dy / 2, (W - 1) * dx, (H - 1) * dy
@@ -198,6 +236,8 @@ STOP
             "ways": WAYS, "sea": [0, 337.5], "periods": PERIODS, "heights": HEIGHTS, "winds": WINDS, "scales": SCALES, "levels": [level],
             "reeds": int(reeds.sum()),
             "made": time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())}
+    if not ldir:
+        meta["depth"] = meta["made"]
     (home / "area.json").write_text(json.dumps(meta))
     print(spec["area"], f"done in {(time.time() - t0) / 60:.0f} min, {failed} failed", flush=True)
     if failed > len(runs) // 10:
@@ -273,6 +313,9 @@ def index(homes, drop=()):
         meta = json.loads((home / "area.json").read_text())
         old = areas.get(meta["area"])
         meta["levels"] = sorted(set(old.get("levels", [0.0]) if old else []) | set(meta.get("levels", [0.0])))
+        # (Its depth grid's stamp kept when only other levels were made.)
+        if "depth" not in meta and old and "depth" in old:
+            meta["depth"] = old["depth"]
         areas[meta["area"]] = meta
     print("index:", _put("index.json", json.dumps({"areas": list(areas.values())}).encode(), key), len(areas), "areas")
 
@@ -287,6 +330,8 @@ if __name__ == "__main__":
         make(rest[0], rest[1])
     elif cmd == "publish":
         publish(rest)
+    elif cmd == "depths":
+        depths(rest or None)
     elif cmd == "index":
         if "--drop" in rest:
             i = rest.index("--drop")

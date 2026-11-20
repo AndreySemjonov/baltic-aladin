@@ -26,13 +26,17 @@ on:
         description: "Only take these areas (comma-separated) out of the index, nothing made"
         type: string
         default: ""
+      depths:
+        description: "Only these areas' depth grids for the map's shallows (comma-separated; all: every area), no SWAN"
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 jobs:
   plan:
-    if: ${{ !inputs.drop }}
+    if: ${{ !inputs.drop && !inputs.depths }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -102,6 +106,20 @@ jobs:
         run: |
           pip install -q numpy pillow
           python3 swan/tables.py index --drop "$DROP"
+
+  depths:
+    if: ${{ inputs.depths && !inputs.dry }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: The areas' depth grids
+        env:
+          INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
+          DEPTHS: ${{ inputs.depths }}
+        run: |
+          pip install -q numpy scipy pillow rasterio
+          if [ "$DEPTHS" = all ]; then python3 swan/tables.py depths; else python3 swan/tables.py depths ${DEPTHS//,/ }; fi
 
   index:
     needs: area
