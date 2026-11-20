@@ -260,10 +260,14 @@ def published(set_name):
         return None
 
 
+# The sets whose index keeps the past day's hours from earlier runs for the map (the owner, 20.11.2026).
+PAST_KEPT = ("metnordic-1km-wx", "metnordic-wx", "icon-eu-wx", "ecmwf")
+
+
 def own_start(index, folder):
-    """MET Nordic's own run's start (its index keeps the past day's hours from earlier runs for the map, the owner
-    20.11.2026; the points and series read only the run's own, as before), else 0: every hour."""
-    if not folder.startswith("metnordic"):
+    """A PAST_KEPT set's own run's start (the points and series read only the run's own hours, as before), else 0:
+    every hour."""
+    if folder not in PAST_KEPT:
         return 0
     try:
         return datetime.strptime(index["run"], "%Y-%m-%dT%H:%MZ").replace(tzinfo=timezone.utc).timestamp()

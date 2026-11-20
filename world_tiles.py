@@ -1037,6 +1037,14 @@ def main():
         own = len(frames)
         frames = with_tail(frames, published_index(model))
         print(f"{model} {run_name}: {own} hours of its own, {len(frames) - own} of the run before after them", flush=True)
+    # ECMWF's past day kept, each hour from the run made at it (tiler.finish's past; the owner, 20.11.2026: the map's past
+    # filled under MET Nordic's everywhere, not empty outside its area).
+    if model == "ecmwf" and not local:
+        first = min(f["time"] for f in frames)
+        earlier = sorted((f for f in (published_index(model) or {}).get("frames") or [] if first - 24 * 3600 <= f["time"] < first),
+                         key=lambda f: f["time"])
+        frames = earlier + frames
+        print(f"{model} {run_name}: {len(earlier)} past hours kept before its own", flush=True)
     index = {
         "model": info["name"], "credit": info["credit"], "run": run.strftime("%Y-%m-%dT%H:%MZ"), "runName": run_name,
         "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),

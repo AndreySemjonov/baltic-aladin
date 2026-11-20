@@ -187,7 +187,9 @@ def main():
     if wind.wanted and wind.frames:
         wind.finish(tail=short, area=area)
     if weather.wanted and weather.frames:
-        weather.finish(tail=short, area=area)
+        # The air and rain's past day kept, each hour from the run made at it (the owner, 20.11.2026: the map's past
+        # filled under MET Nordic's everywhere, not empty outside its area).
+        weather.finish(tail=short, area=area, past=24)
     if steer.wanted and steer.frames:
         steer.finish(tail=short, area=area)
     if cells is not None:
