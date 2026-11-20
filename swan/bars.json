@@ -4757,7 +4757,9 @@
     24.34313,
     350
    ]
-  ]
+  ],
+  "crest": 0.3,
+  "crest_note": "The bars' tops below mean sea level, for survey.py's scale (the owner, 20.11.2026: 'they dry at low water, around -0.3')."
  },
  "berzciems": {
   "note": "The owner's outlines (20.11.2026: \"i marked all sandbars and behind it lagoons\"; then \"my marked region not exact region of sandbanks. I marked area where they are only\"): inside them the banks from Sentinel-2's calm colour, scaled on the brightest sand as +0.25 m (\"Usually bank appears at 20-30cm water level\") and the outside water as 2.4 m (the lagoon, darker than deep water behind the bar, can't anchor it), contoured at -0.25 (from the unsmoothed depths, water there 30 % of scenes or more) / 0.1 / 0.3 / 0.6 m; the lagoons 0.12 m. Reeds and stones left out.",

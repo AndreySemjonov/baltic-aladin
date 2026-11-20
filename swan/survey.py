@@ -16,6 +16,7 @@ Doubtful, so it waits for the owner (the owner, 20.11.2026: "Confident parts go 
 halves of the scenes disagreeing, many plants, a river. Limits: an estimate; the Gulf of Riga's brown water and dark
 bottoms blur it below ~1.5-2 m; the scenes' water levels differ (the median's level is roughly mean sea level).
 
+  (The crest from bars.json's "crest" where the owner knew it: Svetciems's bars dry at -0.3, so 0.3.)
   python3 swan/survey.py AREA [--data DIR] [--out DIR] [--crest M]   the scenes into DIR/AREA (kept), OUT/AREA.json
                                                                      (the shallows, the fit, the doubts) and AREA.png
   python3 swan/survey.py AREA --apply [--force]                      that survey into bars.json (doubtful: only --force)
@@ -342,4 +343,4 @@ if __name__ == "__main__":
         a = next((x for x in (T._json(T.STORE + "index.json") or {}).get("areas", []) if x["area"] == name), None)
         if a is None:
             raise SystemExit(f"{name}: not in the index")
-        survey(name, a, opt("--data", str(Path.home() / "swan" / "sat")), out, float(opt("--crest", CREST)))
+        survey(name, a, opt("--data", str(Path.home() / "swan" / "sat")), out, float(opt("--crest", (T.bars_for(name) or {}).get("crest", CREST))))
