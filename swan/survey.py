@@ -25,7 +25,8 @@ bottoms blur it below ~1.5-2 m; the scenes' water levels differ (the median's le
   (The crest from bars.json's "crest" where the owner knew it: Svetciems's bars dry at -0.3, so 0.3.)
   python3 swan/survey.py AREA [--data DIR] [--out DIR] [--crest M]   the scenes into DIR/AREA (kept), OUT/AREA.json
                                                                      (the shallows, the fit, the doubts) and AREA.png
-  python3 swan/survey.py AREA --apply [--force]                      that survey into bars.json (doubtful: only --force)
+  python3 swan/survey.py AREA --apply [--force] [--keep-bars]        that survey into beds/ and bars.json (doubtful: only
+                                                                     --force; --keep-bars keeps the rule's bars beyond)
 """
 import collections
 import json
@@ -460,7 +461,7 @@ def A_middle(box):
     return lat, (box[0] + box[2] / 2) * 360 - 180
 
 
-def apply(name, out, force=False):
+def apply(name, out, force=False, keep_bars=False):
     """The survey's bed into beds/ and bars.json "bed": it replaces the rule's bars (crest depths by rule) and the
     survey's own earlier contour shapes there; the owner's own shapes (lagoons...) kept; the river not opened (the
     owner's call)."""
@@ -475,7 +476,8 @@ def apply(name, out, force=False):
     p = HERE / "bars.json"
     bars = json.loads(p.read_bytes().decode("utf-8"))
     e = bars.setdefault(name, {})
-    e.pop("bars", None)
+    if not keep_bars:  # (Lielupe's rule bars towards Bulduri kept: the owner, 20.11.2026, "leave it")
+        e.pop("bars", None)
     kept = [s for s in e.get("shallows", []) if not s["name"].startswith(f"{name} ")]
     if kept:
         e["shallows"] = kept
@@ -496,7 +498,7 @@ if __name__ == "__main__":
     name = args[0]
     out = opt("--out", str(HERE / "survey"))
     if "--apply" in args:
-        apply(name, out, "--force" in args)
+        apply(name, out, "--force" in args, "--keep-bars" in args)
     else:
         import tables as T
 
