@@ -121,9 +121,9 @@ def _sample(kind, z, mx, my):
     return (total / wsum, True) if wsum > 0.5 else (0.0, False)
 
 
-def build(box, W, H, outlines=None):
+def build(box, W, H, outlines=None, bars=None):
     """The depth (m, H x W, row 0 the box's north edge; -1 land, -2 reeds) over box (world 0-1: x, y, width, height);
-    the reeds' outlines added to outlines (a list) if given (_worldcover)."""
+    the reeds' outlines added to outlines (a list) if given (_worldcover); a beach's sandbars if given (_bars, bars.json)."""
     lat = math.atan(math.sinh(math.pi * (1 - 2 * (box[1] + box[3] / 2))))
     coast_m = EARTH * math.cos(lat) / (256 * 2 ** 10)
     zd = _finest("depth", box[0] + box[2] / 2, box[1] + box[3] / 2)
@@ -150,8 +150,43 @@ def build(box, W, H, outlines=None):
                 h = dean
             depth[r, c] = h if h >= 0.1 else -1
     _worldcover(depth, box, W, H, outlines)
+    shore = depth < 0
     _breakwaters(depth, box, W, H)
+    if bars:
+        # (The breakwaters' own cells, land before them or not: Pavilosta's moles are in the coast already.)
+        walls = np.zeros_like(depth)
+        _breakwaters(walls, box, W, H)
+        _bars(depth, box, W, H, bars, shore & (walls == 0), walls < 0)
     return depth
+
+
+def _bars(depth, box, W, H, bars, shore, walls):
+    """A beach's longshore sandbars (bars.json: {"at": [lat, lon], "bars": [[metres from the waterline, crest depth], ...]};
+    the owner, 20.11.2026: "Yes, add the bars"): a ridge ~60 m wide along the shore at each distance, the bed raised to the
+    crest's depth where deeper, and a trough ~0.4 m deeper ~55 m landward of it; within ~2 km of the beach measured (gone by
+    2.5 km), never within 250 m of a breakwater (walls: a harbour's mouth). The distance from the shore without the
+    breakwaters (shore: land and reeds, not the walls), as the pictures' waterline."""
+    from scipy.ndimage import distance_transform_edt
+
+    lat_of = lambda my: np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * my))))  # noqa: E731
+    lats = lat_of(box[1] + (np.arange(H) + 0.5) / H * box[3])
+    lons = (box[0] + (np.arange(W) + 0.5) / W * box[2]) * 360 - 180
+    cell = box[2] * EARTH * math.cos(math.radians(float(lats.mean()))) / W
+    d = distance_transform_edt(~shore) * cell
+    away = distance_transform_edt(~walls) * cell if walls.any() else np.full(depth.shape, 1e9)
+    lat0, lon0 = bars["at"]
+    north = (lats[:, None] - lat0) * 111195.0
+    east = (lons[None, :] - lon0) * 111195.0 * math.cos(math.radians(lat0))
+    near = np.hypot(north, east)
+    t = np.clip((near - 2000.0) / 500.0, 0, 1)
+    w = (1 - t * t * (3 - 2 * t)) * (depth >= 0) * (away > 250)
+    # shortcut: a harbour whose moles aren't in the breakwater tiles (Pavilosta) kept clear by hand; the tiles if more come.
+    for clat, clon, r in bars.get("clear", []):
+        w[np.hypot((lats[:, None] - clat) * 111195.0, (lons[None, :] - clon) * 111195.0 * math.cos(math.radians(clat))) < r] = 0
+    for x, crest in bars["bars"]:
+        ridge = np.exp(-(((d - x) / 30.0) ** 2))
+        trough = 0.4 * np.exp(-(((d - (x - 55.0)) / 22.0) ** 2))
+        depth[:] = np.where(w > 0, depth - w * np.maximum(depth - crest, 0) * ridge + w * trough, depth)
 
 
 def _worldcover(depth, box, W, H, outlines=None, sub=3):

@@ -1,0 +1,7 @@
+{
+  "_about": "Longshore sandbars by area (area.py _bars): each beach's crest distances from the waterline (m) found from Sentinel-2 L2A calm days' water colour, 2023-26 scenes, profiles every 50 m along ~3.6 km round 'at' (lat, lon); only crests within 400 m and seen on half the profiles or more. Crest depths are a rule, not measured: the first bar 1.2 m, the second 2.2 m below mean sea level. 'clear': circles (lat, lon, metres) kept free, a harbour's mouth whose moles aren't in the breakwater tiles. The owner, 20.11.2026: 'build B,C,D,E', then 'Yes, add the bars'.",
+  "liepaja-dr": {"at": [56.505, 20.995], "scenes": 27, "bars": [[190, 1.2], [330, 2.2]]},
+  "pavilosta": {"at": [56.888, 21.170], "scenes": 45, "bars": [[140, 1.2], [270, 2.2]], "clear": [[56.8905, 21.1675, 400]]},
+  "uzava": {"at": [57.214, 21.420], "scenes": 45, "bars": [[110, 1.2]]},
+  "saulkrasti": {"at": [57.26, 24.40], "scenes": 79, "bars": [[110, 1.2]]}
+}

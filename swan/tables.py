@@ -131,6 +131,11 @@ def plan(only=None, most=250):
 REEDS = {"height": 2.0, "diameter": 0.007, "density": 120, "drag": 1.0, "bed": 0.3}
 
 
+def bars_for(area):
+    """An area's sandbars (bars.json, area.py _bars), None without."""
+    return json.loads((Path(__file__).parent / "bars.json").read_text()).get(area)
+
+
 def depth_bytes(depth):
     """The bed for the map's shallows (the owner, 20.11.2026: "show lagoon with sandbags on map too depending on water
     level", then "Yes, build A"): a byte a cell (W x H, rows from the north), centimetres below mean sea level to 2.53 m,
@@ -154,7 +159,7 @@ def depths(names=None):
     stamp = time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())
     for a in todo:
         t0 = time.time()
-        _put(f"{a['area']}/depth.bin.gz", gzip.compress(depth_bytes(A.build(a["box"], a["W"], a["H"])), 9), key)
+        _put(f"{a['area']}/depth.bin.gz", gzip.compress(depth_bytes(A.build(a["box"], a["W"], a["H"], None, bars_for(a["area"]))), 9), key)
         print(a["area"], f"depth up in {time.time() - t0:.0f} s", flush=True)
     # (The index read again: a remake's index may have come meanwhile.)
     now = {a["area"]: a for a in (_json(STORE + "index.json") or {}).get("areas", [])}
@@ -173,7 +178,7 @@ def make(spec, out):
     level = float(spec.get("level", 0)); ldir = level_dir(level)
     t0 = time.time()
     outlines = []
-    depth = A.build(box, W, H, outlines)
+    depth = A.build(box, W, H, outlines, bars_for(spec["area"]))
     lat = math.atan(math.sinh(math.pi * (1 - 2 * (box[1] + box[3] / 2))))
     dx = dy = box[2] * A.EARTH * math.cos(lat) / W
     sea = depth >= 0
