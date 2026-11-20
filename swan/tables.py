@@ -125,6 +125,12 @@ def plan(only=None, most=250):
     return out[:most]
 
 
+# The reeds in SWAN as plants in shallow water, not land (the owner, 20.11.2026: "build B,C,D,E", E: reeds partly letting
+# waves through at high water): common reed (Phragmites) ~2 m tall, 7 mm stems, ~120 a square metre, drag 1, on a 0.3 m
+# bed (as the lagoons': dry below -0.3 m); SWAN's VEGETATION (Dalrymple's drag) with NPLANTS the density a cell.
+REEDS = {"height": 2.0, "diameter": 0.007, "density": 120, "drag": 1.0, "bed": 0.3}
+
+
 def depth_bytes(depth):
     """The bed for the map's shallows (the owner, 20.11.2026: "show lagoon with sandbags on map too depending on water
     level", then "Yes, build A"): a byte a cell (W x H, rows from the north), centimetres below mean sea level to 2.53 m,
@@ -188,7 +194,10 @@ def make(spec, out):
         (home / "out").mkdir(exist_ok=True)
         (home / "out" / "depth.bin.gz").write_bytes(gzip.compress(depth_bytes(depth), 9))
     print(spec["area"], f"level {level:g} grid {time.time() - t0:.0f} s: reeds {reeds.sum()} cells, sea {sea.mean() * 100:.0f} %, deepest {depth.max():.0f} m at {off}", flush=True)
-    (home / "bottom.dat").write_text("\n".join(" ".join("-9" if d < 0 else f"{d:.2f}" for d in row) for row in depth) + "\n")
+    bed = np.where(reeds, REEDS["bed"], depth)
+    (home / "bottom.dat").write_text("\n".join(" ".join("-9" if d < 0 else f"{d:.2f}" for d in row) for row in bed) + "\n")
+    if reeds.any():
+        (home / "plants.dat").write_text("\n".join(" ".join(str(REEDS["density"]) if r else "0" for r in row) for row in reeds) + "\n")
     x0, y0, xl, yl = dx / 2, dy / 2, (W - 1) * dx, (H - 1) * dy
     head = f"""SET LEVEL {level:g} NAUTICAL
 MODE STATIONARY TWODIMENSIONAL
@@ -197,7 +206,11 @@ CGRID REGULAR {x0:.1f} {y0:.1f} 0 {xl:.1f} {yl:.1f} {W - 1} {H - 1} CIRCLE 24 0.
 INPGRID BOTTOM REGULAR {x0:.1f} {y0:.1f} 0 {W - 1} {H - 1} {dx:.3f} {dy:.3f} EXCEPTION -9
 READINP BOTTOM 1 '../../bottom.dat' 1 0 FREE
 """
-    tail = """BREAKING
+    if reeds.any():
+        head += f"""INPGRID NPLANTS REGULAR {x0:.1f} {y0:.1f} 0 {W - 1} {H - 1} {dx:.3f} {dy:.3f}
+READINP NPLANTS 1 '../../plants.dat' 1 0 FREE
+"""
+    tail = (f"VEGETATION 1 {REEDS['height']} {REEDS['diameter']} 1 {REEDS['drag']}\n" if reeds.any() else "") + """BREAKING
 FRICTION JONSWAP
 TRIAD
 DIFFRACTION
