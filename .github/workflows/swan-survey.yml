@@ -57,7 +57,7 @@ jobs:
           pip install -q numpy scipy pillow rasterio copernicusmarine
           mkdir -p out
           # (A spot the survey can't do, little water in its window or nothing to anchor on, is a row in the summary.)
-          python3 swan/survey.py "$AREA" --data sat --out out 2> err.txt || { tail -5 err.txt; tail -3 err.txt > "out/$AREA.failed"; }
+          python3 swan/survey.py "$AREA" --data sat --out out 2> err.txt || { tail -5 err.txt; tail -1 err.txt > "out/$AREA.failed"; }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: survey-${{ matrix.area }}

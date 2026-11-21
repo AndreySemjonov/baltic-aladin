@@ -222,10 +222,12 @@ def _copernicus_levels(lat, lon, days):
 
 
 def levels_at(lat, lon, days, reach=40000):
-    """The sea's level (m, the gauges' zero: about mean sea level, as the map's) at each scene's moment (09-11 UTC,
-    Sentinel-2's pass over the Baltic): the nearest EMODnet gauge within reach metres where it has them (its hourly set
-    ends 2024-11), else Copernicus's model shifted to that gauge by their median difference on the days both have
-    (the map's level is the same model shifted to the gauges): {day: level}, and where from."""
+    """The sea's level at each scene's moment (09-11 UTC, Sentinel-2's pass over the Baltic) on the map's own zero:
+    Copernicus's model, the map's level as it is (station-history /sea: copernicus.py's sla, no shift); the nearest
+    EMODnet gauge within reach metres only where Copernicus has too few days (its zero then the gauge's, flagged).
+    {day: level}, where from (the gauge's difference from the model reported). (21.11.2026: the Latvian gauges in
+    EMODnet's set read ~0.30 m above the model, the Estonian ~0; measured on the gauges, the Latvian tops came out 0.3 m
+    too high on the map; on the model's zero Svetciems's bars dry at -0.28, the owner's "around -0.3".)"""
     k = math.cos(math.radians(lat))
     q = (f"PLATFORMCODE,latitude,longitude&latitude>={lat - 0.5}&latitude<={lat + 0.5}&longitude>={lon - 0.5 / k}"
          f"&longitude<={lon + 0.5 / k}&distinct()")
@@ -253,15 +255,14 @@ def levels_at(lat, lon, days, reach=40000):
         gauge = {}
     cop = _copernicus_levels(lat, lon, days)
     both = [d for d in gauge if d in cop]
-    if cop and len(both) >= 10:
-        shift = float(np.median([gauge[d] - cop[d] for d in both]))
-        out = {d: gauge.get(d, cop[d] + shift) for d in days if d in gauge or d in cop}
-        return out, f"{name}, Copernicus {shift:+.2f} m beyond it"
-    return gauge, name
+    note = f"; gauge {name} {float(np.median([gauge[d] - cop[d] for d in both])):+.2f} m from it" if len(both) >= 10 else ""
+    if len(cop) >= 12:
+        return cop, "Copernicus (the map's level)" + note
+    return gauge, (f"{name}: the gauge's zero, not the map's" if name else None)
 
 
 def waterline(G, NI, days, lv, top, L):
-    """The brightest offshore sand's height (m above the gauges' zero) from the scenes' wet and dry at their levels
+    """The brightest offshore sand's height (m above the map's zero, levels_at) from the scenes' wet and dry at their levels
     (levels_at): each pixel of top (a mask) sometimes dry, sometimes wet, at the level that splits them with at most a
     fifth of its scenes on the wrong side, inside the levels seen; the median, how many, and their colour's median (L):
     the fit's anchor. None under 30 pixels."""
@@ -400,6 +401,8 @@ def survey(name, a, data, out, crest=CREST):
     # (Offshore sand only, 60 m or more from the beach: at Svetciems the brightest was the beach's swash edge, pixels part
     # dry sand, bright by the sand, not the depth; measured there it put the bars 0.3 m too high.)
     lv, gauge = levels_at(lat, lon, days)
+    if gauge and "the gauge's zero" in gauge:
+        doubts.append(f"levels from {gauge} (Copernicus missing): the crest may be off by the gauge's datum")
     off60 = dom & (dland > 60)
     # (Scenes without whitecaps out at sea only: breaking waves' white water reads as dry sand in the near infrared. Judged
     # far out, not near the shore: there a dry bank is bright in the near infrared too, and the low-water scenes, where
@@ -413,6 +416,10 @@ def survey(name, a, data, out, crest=CREST):
         how = f"given ({top_n} pixels measured" + (f" at {gauge})" if gauge else ", no gauge)")
     lo, hi = np.percentile(L[dom], [20, 70])
     ok = dom & (gd >= 1.5) & (gd <= 3.0) & (L > lo) & (L < hi)
+    if ok.sum() < 50:  # (steep coasts: little 1.5-3 m water, and that in the bright band; one wider try)
+        ok = dom & (gd >= 1.0) & (gd <= 5.0) & np.isfinite(gd)
+        if ok.sum() >= 50:
+            doubts.append(f"anchored on 1-5 m water (little at 1.5-3 m on our grid): {int(ok.sum())} pixels")
     if ok.sum() < 50:
         doubts.append("no 1.5-3 m water on our grid to anchor on")
         raise SystemExit(f"{name}: {doubts[-1]}")
@@ -434,7 +441,8 @@ def survey(name, a, data, out, crest=CREST):
     red_w, dr_w = float(np.nanmedian(Lr[ok])), float(np.nanmedian(Dr[ok]))
     dr_s = float(np.nanmedian(Dr[dom & (Z < crest + 0.3)])) if (dom & (Z < crest + 0.3)).any() else np.nan
     reds = np.zeros_like(dom)
-    if np.isfinite(dr_s) and dr_s - dr_w >= 0.3:
+    red_on = bool(np.isfinite(dr_s) and dr_s - dr_w >= 0.3)
+    if red_on:
         reds = dom & np.isfinite(Dr) & (Z > 1.0) & (Lr > red_w) & (Dr > dr_w + RED * (dr_s - dr_w))
         # (a dark bottom is a patch, not a sprinkle: Svetciems's 1-2.5 m water flickered over the line pixel by pixel)
         reds &= uniform_filter(reds.astype(np.float32), 5) >= 0.5
@@ -450,9 +458,10 @@ def survey(name, a, data, out, crest=CREST):
     dark = _dark(Z, dom)
     Z = np.where(dark, _median_round(Z, dom, dark), Z)
     dark_ha = float(dark.sum() / 100)
-    # A wide dark band at the beach is beyond that filter (its own median is deep): flagged for the review.
+    # A wide deep band at the beach where red couldn't judge (red judged it deep elsewhere: a trough, steep coasts' close
+    # water): flagged for the review (in the first batch, 21.11.2026, it flagged 35 of 38 spots with red judging).
     band_ha = float((dom & (dland <= 150) & (Z > 1.5)).sum() / 100)
-    if band_ha >= 1 and (dom & (dland > 150) & (Z < 0.5)).sum() >= 100:
+    if not red_on and band_ha >= 1 and (dom & (dland > 150) & (Z < 0.5)).sum() >= 100:
         doubts.append(f"{band_ha:.0f} ha read deeper than 1.5 m within 150 m of the beach, shallower sand outside: a dark "
                       f"bottom (weed) or a real trough?")
     # The scenes' two halves (every other calm scene), on the one fit: the bed they agree on.
