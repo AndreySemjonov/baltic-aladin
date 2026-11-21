@@ -179,8 +179,17 @@ def bed_for(name):
     "base", "step"} and a byte a pixel (rows from the north): base + step x byte metres below mean sea level (negative:
     above it), 255 none. As "z": metres, NaN none."""
     meta = json.loads((BEDS / f"{name}.json").read_bytes().decode())
+    from scipy.ndimage import distance_transform_edt
     b = np.frombuffer(gzip.decompress((BEDS / f"{name}.bin.gz").read_bytes()), np.uint8).reshape(meta["H"], meta["W"])
-    return dict(meta, z=np.where(b == 255, np.nan, b * meta["step"] + meta["base"]).astype(np.float32))
+    z = np.where(b == 255, np.nan, b * meta["step"] + meta["base"]).astype(np.float32)
+    # pixels without a reading up to 8 from one (a dark weed patch, a cloud's speckle) take their nearest reading: left
+    # empty, the coarse depth tiles (2-3 m) showed through them as deep squares on the bank (21.11.2026, Berzciems).
+    # Water too deep to read borders ~2.4 m readings, which _bed doesn't trust anyway, so the tiles still decide there.
+    ok = ~np.isnan(z)
+    dist, (iy, ix) = distance_transform_edt(~ok, return_indices=True)
+    gap = ~ok & (dist <= 8)
+    z[gap] = z[iy[gap], ix[gap]]
+    return dict(meta, z=z)
 
 
 def _bed(depth, box, W, H, bed):
