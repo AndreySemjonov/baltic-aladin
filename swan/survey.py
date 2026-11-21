@@ -14,8 +14,13 @@ with the level at each scene's moment (EMODnet Physics' hourly gauges, open: the
 sand's height is the level that splits its wet scenes from its dry ones. Else the owner's (bars.json "crest"), else CREST.
 The depths kept as a picture, not contours (the owner, 20.11.2026: "this is what we need to implement in our sandbank ...
 for new [spots] the same approach from the beginning"): OUT/AREA-bed.json + .bin.gz on the area's fine grid (area.py
-bed_for, _bed; --apply puts it in beds/ and bars.json "bed"); river channels (narrow water) and plants left out. A river
-joined to the sea near the spot is reported, not opened.
+bed_for, _bed; --apply puts it in beds/ and bars.json "bed"); river channels (narrow water) and plants (near-infrared
+bright: reeds, mats) left out. A dark bottom (submerged weed, stones) reads as depth in green: where red (swallowed by
+1-2 m of brown water) still comes back, the depth from red against green; a reading 1.2 m deeper than the ~110 m round
+it evened to that; a wide deep band at the beach still left flagged. A river joined to the sea near the spot is
+reported, not opened. Every survey writes a review sheet (AREA.png: true colour beside the depth, the numbers, the
+doubts): the standard for every spot (the owner, 21.11.2026, "B"): the survey measures, a Claude review reads the sheets
+(live / fixed / ask the owner), the owner only for what it can't settle.
 
 Doubtful, so it waits for the owner (the owner, 20.11.2026: "Confident parts go live straight away"): few calm scenes, no
 1.5-3 m water to anchor on, a light fall-off with depth (2K) out of what clear to brown Baltic water gives, the two
@@ -52,6 +57,9 @@ LEVELS = (-0.25, 0.1, 0.3, 0.6, 1.0)  # (the picture's and the report's bands)
 GAUGES = "https://erddap.emodnet-physics.eu/erddap/tabledap/ERD_EP_SLEV_NRT_60m.csv?"
 CREST = -0.25
 MIN_CALM, TWO_K, HALVES, PLANTS = 8, (0.15, 1.5), 0.25, 0.2
+BANDS = ("green", "nir", "red", "blue")  # (green and near-infrared the depth's; red and blue the review's true colour)
+RED = 0.6  # red against green (log) this far from the 1.5-3 m water's towards the sand's: under ~1 m whatever green says
+DARK = 1.2  # a reading this much deeper than the ~110 m round it: a dark bottom (weed, stones), not a hole
 
 
 def _post(url, body):
@@ -80,16 +88,16 @@ def search(lat, lon):
     byday = {}
     for f in sorted(feats, key=lambda f: f["id"]):
         p, a = f["properties"], f["assets"]
-        if all(k in a for k in ("green", "nir", "scl")):
+        if all(k in a for k in BANDS + ("scl",)):
             tile = f"{p.get('mgrs:utm_zone')}{p.get('mgrs:latitude_band')}{p.get('mgrs:grid_square')}"
             byday[(p["datetime"][:10], tile)] = {"date": p["datetime"][:10], "tile": tile,
-                                                 **{k: a[k]["href"] for k in ("green", "nir", "scl")}}
+                                                 **{k: a[k]["href"] for k in BANDS + ("scl",)}}
     return list(byday.values())
 
 
 def fetch(name, lat, lon, data):
-    """The window's green and near-infrared (10 m) from every scene under 3 % cloud there, into data/name (kept: a
-    rerun fetches only new scenes)."""
+    """The window's green, near-infrared, red and blue (10 m) from every scene under 3 % cloud there, into data/name
+    (kept: a rerun fetches only new scenes, and scenes kept with two bands again)."""
     import rasterio
     from rasterio.warp import transform
     from rasterio.windows import Window
@@ -115,7 +123,7 @@ def fetch(name, lat, lon, data):
 
     def one(it):
         f = out / f"{it['date']}.npz"
-        if f.exists():
+        if f.exists() and len(np.load(f)["b"]) == len(BANDS):
             return "have"
         try:
             with rasterio.Env(**ENV):
@@ -123,7 +131,7 @@ def fetch(name, lat, lon, data):
                     if np.isin(d.read(1, window=swin), [0, 3, 8, 9, 10, 11]).mean() > 0.03:
                         return "cloudy"
                 bands = []
-                for k in ("green", "nir"):
+                for k in BANDS:
                     with rasterio.open(it[k]) as d:
                         bands.append(d.read(1, window=win))
             np.savez_compressed(f, b=np.stack(bands).astype(np.uint16))
@@ -316,14 +324,13 @@ def _bed_out(name, a, Z, valid, meta, out):
 
 def survey(name, a, data, out, crest=CREST):
     from rasterio.warp import transform
-    from scipy.ndimage import binary_fill_holes, distance_transform_edt, gaussian_filter, label
+    from scipy.ndimage import binary_fill_holes, distance_transform_edt, gaussian_filter, label, uniform_filter
 
     lat, lon = A_middle(a["box"])
     d = Path(data) / name
-    if not (d / "meta.json").exists():
-        fetch(name, lat, lon, data)
+    fetch(name, lat, lon, data)
     meta = json.loads((d / "meta.json").read_text())
-    G, NI, days = [], [], []
+    G, NI, RB, days = [], [], [], []
     for f in sorted(d.glob("*.npz")):
         if f.stem >= SINCE:
             days.append(f.stem[:10])
@@ -332,7 +339,8 @@ def survey(name, a, data, out, crest=CREST):
             v[:, b[0] == 0] = np.nan
             G.append(v[0])
             NI.append(v[1])
-    G, NI = np.array(G), np.array(NI)
+            RB.append(v[2:4] if len(v) >= 4 else np.full((2, N, N), np.nan, np.float32))
+    G, NI, RB = np.array(G), np.array(NI), np.array(RB)
     with np.errstate(invalid="ignore", divide="ignore"):
         wfrac = np.nanmean((G - NI) / (G + NI) > 0, 0)
     lab, _ = label(wfrac > 0.5)
@@ -351,6 +359,12 @@ def survey(name, a, data, out, crest=CREST):
             return np.nanmedian(np.log(np.clip(G[k] - gdeep[k, None, None], 1e-4, None)), 0)
 
     L = colour(calm)
+    rdeep = np.array([np.nanpercentile(x[0][off], 10) for x in RB])
+    with np.errstate(invalid="ignore", divide="ignore"):
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            Lr = np.nanmedian(np.log(np.clip(RB[calm, 0] - rdeep[calm, None, None], 1e-4, None)), 0)
     gc, nirc = np.nanmedian(G[calm], 0), np.nanmedian(NI[calm], 0)
     water = wfrac >= 0.3
     plants = (nirc / np.maximum(gc, 1e-3) > 1.3) & (wfrac < 0.9) & water  # reeds, grass, algae mats in the water
@@ -407,6 +421,38 @@ def survey(name, a, data, out, crest=CREST):
     if not TWO_K[0] <= two_k <= TWO_K[1]:
         doubts.append(f"light's fall-off 2K {two_k:.2f}/m (Baltic water {TWO_K[0]}-{TWO_K[1]})")
     Z = a0 + b * L
+    # A dark bottom in shallow water (weed, a reed band's mud) reads as depth in green, but red, which 1-2 m of brown
+    # Baltic water swallows, still comes back: where green says over 1 m, red is brighter than in the anchor's 1.5-3 m
+    # water and red against green (log) is RED of the way from that water's to the bank sand's, the depth from red
+    # against green instead, fitted on the spot's ordinary pixels, never above the measured crest. Each spot's own
+    # numbers (Berzciems, 21.11.2026: its near-beach band read 1.5-2.5 m had red - green +0.63, its 1.5-2.5 m water -0.95,
+    # the bank's sand -0.03, the owner's lagoon there 0.12 m; Svetciems's water -0.33, sand +0.14). Off where red hardly
+    # tells sand from that water (under 0.3 apart). (Open water deeper still has neither colour: red's floor.)
+    Dr = Lr - L
+    red_w, dr_w = float(np.nanmedian(Lr[ok])), float(np.nanmedian(Dr[ok]))
+    dr_s = float(np.nanmedian(Dr[dom & (Z < crest + 0.3)])) if (dom & (Z < crest + 0.3)).any() else np.nan
+    reds = np.zeros_like(dom)
+    if np.isfinite(dr_s) and dr_s - dr_w >= 0.3:
+        reds = dom & np.isfinite(Dr) & (Z > 1.0) & (Lr > red_w) & (Dr > dr_w + RED * (dr_s - dr_w))
+        # (a dark bottom is a patch, not a sprinkle: Svetciems's 1-2.5 m water flickered over the line pixel by pixel)
+        reds &= uniform_filter(reds.astype(np.float32), 5) >= 0.5
+    fitp = dom & np.isfinite(Dr) & (Z > 0) & (Z < 2.2) & ~reds
+    red_ha = 0.0
+    if reds.any() and fitp.sum() >= 500:
+        c1, c0 = np.polyfit(Dr[fitp], Z[fitp], 1)
+        Z = np.where(reds, np.maximum(c0 + c1 * Dr, crest), Z)
+        red_ha = float(reds.sum() / 100)
+    # A dark bottom (submerged weed, stones) reads as depth: a reading DARK m deeper than the median of the ~110 m round
+    # it is set to that median (the owner's Berzciems, 21.11.2026: 2.0-2.5 m patches beside 0.2 m sand at the reed band's
+    # edge). Troughs between bars stay (long, ~0.5 m deeper); a channel stays (deep round it too).
+    dark = _dark(Z, dom)
+    Z = np.where(dark, _median_round(Z, dom, dark), Z)
+    dark_ha = float(dark.sum() / 100)
+    # A wide dark band at the beach is beyond that filter (its own median is deep): flagged for the review.
+    band_ha = float((dom & (dland <= 150) & (Z > 1.5)).sum() / 100)
+    if band_ha >= 1 and (dom & (dland > 150) & (Z < 0.5)).sum() >= 100:
+        doubts.append(f"{band_ha:.0f} ha read deeper than 1.5 m within 150 m of the beach, shallower sand outside: a dark "
+                      f"bottom (weed) or a real trough?")
     # The scenes' two halves (every other calm scene), on the one fit: the bed they agree on.
     idx = np.nonzero(calm)[0]
     Z1, Z2 = a0 + b * colour(idx[0::2]), a0 + b * colour(idx[1::2])
@@ -426,19 +472,46 @@ def survey(name, a, data, out, crest=CREST):
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     pixels = _bed_out(name, a, Z, dom, meta, out)
+    rgb = np.nanmedian(RB[calm], 0) if np.isfinite(RB[calm]).any() else None
     res = {"area": name, "made": time.strftime("%Y-%m-%d"), "scenes": len(G), "calm": int(calm.sum()),
            "fit": {"a": round(a0, 3), "b": round(b, 3), "2K": round(two_k, 2), "crest": [round(L_crest, 3), round(crest, 2), how],
                    "water": [round(L_w, 3), round(D_w, 2), int(ok.sum())], "halves": round(split, 2)},
-           "ha": {f"{k:g}": round(v, 1) for k, v in stat.items()}, "doubts": doubts, "bed": pixels}
+           "ha": {f"{k:g}": round(v, 1) for k, v in stat.items()}, "dark_ha": round(dark_ha, 1), "red_ha": round(red_ha, 1), "doubts": doubts,
+           "bed": pixels, "sheet": f"{name}.png"}
     (out / f"{name}.json").write_text(json.dumps(res, indent=1))
-    _picture(out / f"{name}.png", Z, water, dom | river, plants, river, res, meta, LAT, LON)
+    _picture(out / f"{name}.png", Z, water, dom | river, plants, river, res, meta, LAT, LON,
+             None if rgb is None else (rgb[0], np.nanmedian(G[calm], 0), rgb[1]), dark | reds)
     print(name, {k: res[k] for k in ("scenes", "calm", "fit", "ha", "doubts")}, pixels, "bed pixels", flush=True)
     return res
 
 
-def _picture(path, Z, water, shown, plants, river, res, meta, LAT, LON):
-    """The check: depth (dark blue deep, pale shallow, white above mean sea level), land grey, plants green, river
-    channels brown, the shapes' outlines by level; north up (UTM's own grid, near enough)."""
+def _dark(Z, dom):
+    """Readings DARK m deeper than the median of the 11 x 11 pixels (~110 m) round them (dom only)."""
+    cand = dom & (Z > DARK - 0.5)
+    return cand & (Z - _median_round(Z, dom, cand) > DARK)
+
+
+def _median_round(Z, dom, where):
+    """The median of the 11 x 11 dom pixels round each pixel of where (NaN elsewhere)."""
+    from numpy.lib.stride_tricks import sliding_window_view
+
+    out = np.full(Z.shape, np.nan, np.float32)
+    ys, xs = np.nonzero(where)
+    if len(ys):
+        win = sliding_window_view(np.pad(np.where(dom, Z, np.nan), 5, constant_values=np.nan), (11, 11))
+        with np.errstate(all="ignore"):
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                out[ys, xs] = np.nanmedian(win[ys, xs].reshape(len(ys), -1), 1)
+    return out
+
+
+def _picture(path, Z, water, shown, plants, river, res, meta, LAT, LON, colour=None, dark=None):
+    """The review sheet (the owner, 21.11.2026, B: a Claude review per spot, the owner only for what it can't settle):
+    left the calm scenes' true colour (red, green, blue medians, stretched), right the depth (dark blue deep, pale
+    shallow, white above mean sea level; land grey, plants green, river channels brown, dark bottoms corrected tinted magenta),
+    under them the fit, the waterline's crest and the doubts; north up (UTM's own grid, near enough), 500 m bar."""
     from PIL import Image, ImageDraw
 
     t = np.clip((np.nan_to_num(Z, nan=3.0) + 0.25) / 3.25, 0, 1)[..., None]
@@ -446,12 +519,31 @@ def _picture(path, Z, water, shown, plants, river, res, meta, LAT, LON):
     rgb = np.where(shown[..., None], rgb, np.where(water[..., None], [70, 100, 150], [150, 150, 145]))
     rgb = np.where(plants[..., None], [60, 120, 60], rgb)
     rgb = np.where(river[..., None], [130, 100, 70], rgb)
-    img = Image.fromarray(rgb.astype(np.uint8)).resize((2 * N, 2 * N), Image.NEAREST)
+    if dark is not None:
+        rgb = np.where(dark[..., None], 0.55 * rgb + 0.45 * np.array([220, 40, 220]), rgb)  # (tinted: its depth still seen)
+    panels = [Image.fromarray(rgb.astype(np.uint8))]
+    if colour is not None:
+        c = np.stack(colour, -1)
+        lo, hi = np.nanpercentile(c, 1), np.nanpercentile(c, 99)
+        c = np.clip((np.nan_to_num(c, nan=lo) - lo) / max(hi - lo, 1e-4), 0, 1) ** 0.6 * 255
+        panels.insert(0, Image.fromarray(c.astype(np.uint8)))
+    S, gap, foot = N + N // 4, 12, 150  # (500 px a panel: 8 m a pixel, the 500 m bar 62 px)
+    img = Image.new("RGB", (len(panels) * (S + gap) - gap, S + foot), (255, 255, 255))
     dr = ImageDraw.Draw(img)
-    dr.line([(20, 2 * N - 20), (120, 2 * N - 20)], fill=(0, 0, 0), width=4)
-    dr.text((20, 2 * N - 40), "500 m", fill=(0, 0, 0))
-    dr.text((10, 10), f"{res['area']}: {res['calm']} calm scenes, 2K {res['fit']['2K']}/m; crest {res['fit']['crest'][1]} m "
-            f"({res['fit']['crest'][2]})", fill=(0, 0, 0))
+    for i, pnl in enumerate(panels):
+        x = i * (S + gap)
+        img.paste(pnl.resize((S, S), Image.NEAREST), (x, 0))
+        dr.line([(x + 12, S - 14), (x + 12 + S * 500 // (N * 10), S - 14)], fill=(0, 0, 0), width=4)
+        dr.text((x + 12, S - 30), "500 m", fill=(0, 0, 0))
+    f = res["fit"]
+    lines = [f"{res['area']}  {res['made']}  {res['calm']} calm of {res['scenes']} scenes  (left: true colour, right: depth)",
+             f"crest {f['crest'][1]} m below mean ({f['crest'][2]}); water anchor {f['water'][1]} m; 2K {f['2K']}/m; "
+             f"halves {f['halves']} m",
+             "ha shallower than: " + ", ".join(f"{k} m {v}" for k, v in res["ha"].items()) +
+             f"; dark bottoms: {res.get('red_ha', 0)} ha by red, {res.get('dark_ha', 0)} ha evened (tinted magenta)",
+             "doubts: " + ("; ".join(res["doubts"]) or "none")]
+    for k, s in enumerate(lines):
+        dr.text((10, S + 10 + 22 * k), s, fill=(0, 0, 0))
     img.save(path)
 
 
