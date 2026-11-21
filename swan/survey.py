@@ -391,7 +391,12 @@ def survey(name, a, data, out, crest=CREST):
     # Narrow water: over 300 m from any water 200 m off land (a beach's edge is near the open sea, a river's isn't).
     river = water & (distance_transform_edt(dland <= 200) * 10 > 300)
     spot = np.hypot(LAT - lat, (LON - lon) * math.cos(math.radians(lat))) * 111195.0
-    dom = water & (dland <= 1200) & ~plants & ~river & np.isfinite(L)
+    # Only water joined to the open sea (the review: a bog, lakes and river reaches inland got sea depths), and not the
+    # beach's 20 m rim (part sand, part water: on steep coasts with a weak fit half the "under 1 m" read as drying there;
+    # area.py's fill gives the rim its neighbours' depths).
+    wl, _ = label(water)
+    seaw = np.isin(wl, np.unique(wl[sea & water])) & (wl > 0)
+    dom = water & seaw & (dland > 20) & (dland <= 1200) & ~plants & ~river & np.isfinite(L)
     doubts = []
     if calm.sum() < MIN_CALM:
         doubts.append(f"only {int(calm.sum())} calm scenes")
@@ -449,6 +454,7 @@ def survey(name, a, data, out, crest=CREST):
         # (and the beach's: a patch touching the 150 m along it. The Baltic batch's review, 21.11.2026: at Liepaja's moles
         # and a Tallinn rider spot the rule painted plain water 1-2 km out, red barely over the deep water's; Berzciems's
         # band, Haademeeste's reed shore and trough touch the beach, their red 0.6 (log) over the 1.5-3 m water's)
+        reds &= dland <= 200  # (and near it: the review found red on troughs, plumes and harbour water 0.3-2 km out)
         lab, n = label(reds)
         if n:
             near = np.zeros(n + 1, bool)
@@ -491,6 +497,11 @@ def survey(name, a, data, out, crest=CREST):
         doubts.append(f"a river or channel near the spot ({river_ha:.0f} ha of narrow water): open it (bars.json river)?")
 
     stat = {lev: float(((Z <= lev) & dom).sum()) / 100 for lev in LEVELS}
+    if two_k < 0.4 and not how.startswith("measured"):
+        doubts.append(f"a weak fit (2K {two_k:.2f}/m, the crest given): bars further out may be missing")
+    dry, under1 = float(((Z < 0) & dom).sum()) / 100, stat[1.0]
+    if under1 > 0 and dry / under1 > 0.3:
+        doubts.append(f"{dry:.0f} of the {under1:.0f} ha under 1 m read as drying")
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     pixels = _bed_out(name, a, Z, dom, meta, out)
@@ -510,7 +521,8 @@ def survey(name, a, data, out, crest=CREST):
 def _dark(Z, dom):
     """Readings DARK m deeper than the median of the 11 x 11 pixels (~110 m) round them (dom only)."""
     cand = dom & (Z > DARK - 0.5)
-    return cand & (Z - _median_round(Z, dom, cand) > DARK)
+    med = _median_round(Z, dom, cand)
+    return cand & (Z - med > DARK) & (med < 1.5)  # (a pocket in shallow water; plain deep water's specks left)
 
 
 def _median_round(Z, dom, where):
