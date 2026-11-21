@@ -325,7 +325,7 @@ def _bed_out(name, a, Z, valid, meta, out):
     return int(good.sum())
 
 
-def survey(name, a, data, out, crest=CREST):
+def survey(name, a, data, out, crest=CREST, red=True):
     from rasterio.warp import transform
     from scipy.ndimage import binary_fill_holes, distance_transform_edt, gaussian_filter, label, uniform_filter
 
@@ -447,7 +447,7 @@ def survey(name, a, data, out, crest=CREST):
     dr_s = float(np.nanmedian(Dr[dom & (Z < crest + 0.3)])) if (dom & (Z < crest + 0.3)).any() else np.nan
     reds = np.zeros_like(dom)
     red_on = bool(np.isfinite(dr_s) and dr_s - dr_w >= 0.3)
-    if red_on:
+    if red_on and red:  # (bars.json "red": false where the review found red on plumes or harbour water)
         reds = dom & np.isfinite(Dr) & (Z > 1.0) & (Lr > red_w + 0.3) & (Dr > dr_w + RED * (dr_s - dr_w))
         # (a dark bottom is a patch, not a sprinkle: Svetciems's 1-2.5 m water flickered over the line pixel by pixel)
         reds &= uniform_filter(reds.astype(np.float32), 5) >= 0.5
@@ -670,4 +670,5 @@ if __name__ == "__main__":
         a = next((x for x in (T._json(T.STORE + "index.json") or {}).get("areas", []) if x["area"] == name), None)
         if a is None:
             raise SystemExit(f"{name}: not in the index")
-        survey(name, a, opt("--data", str(Path.home() / "swan" / "sat")), out, float(opt("--crest", (T.bars_for(name) or {}).get("crest", CREST))))
+        survey(name, a, opt("--data", str(Path.home() / "swan" / "sat")), out, float(opt("--crest", (T.bars_for(name) or {}).get("crest", CREST))),
+               bool((T.bars_for(name) or {}).get("red", True)))

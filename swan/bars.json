@@ -85,7 +85,8 @@
     24.02094,
     175
    ]
-  ]
+  ],
+  "red": false
  },
  "kolka": {
   "at": [
@@ -102,7 +103,8 @@
     385,
     2.2
    ]
-  ]
+  ],
+  "red": false
  },
  "lielupes-ieteka": {
   "at": [
@@ -236,7 +238,8 @@
     21.068,
     250
    ]
-  ]
+  ],
+  "red": false
  },
  "ragaciems": {
   "at": [
@@ -249,7 +252,8 @@
     120,
     1.2
    ]
-  ]
+  ],
+  "red": false
  },
  "rider-9an5qgu4": {
   "at": [
@@ -313,7 +317,8 @@
     22.81095,
     225
    ]
-  ]
+  ],
+  "red": false
  },
  "rider-fksgy2zv": {
   "at": [
@@ -370,7 +375,8 @@
     180,
     1.2
    ]
-  ]
+  ],
+  "red": false
  },
  "rider-psgtkpjx": {
   "at": [
