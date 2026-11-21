@@ -7,7 +7,7 @@ Sentinel-2 L2A (earth-search on AWS, no account; its values already have the off
 area's spot, 2023 on (bars move), clear scenes outside the ice months. Calm scenes (no foam or glint near the shore, a
 dark open sea) give the water's colour, the median of their ln(green - the deep water's green): brighter is shallower.
 Two anchors set its scale (depth = a + b L): the brightest water (p98, off the beach's mixed pixels) is the bars' crest,
-CREST below mean sea level (-0.25: dry below that level), and ordinary water where our depth grid (area.py, no bars) has
+CREST below mean sea level (0.30: the measured spots' median), and ordinary water where our depth grid (area.py, no bars) has
 1.5-3 m is that deep. The crest's height measured where it can be (the owner, 21.11.2026, Berzciems: "Use the measured
 value"; for spots nobody knows): the Baltic's level swings with the wind, so each scene sees the sand at another level;
 with the level at each scene's moment (EMODnet Physics' hourly gauges, open: the nearest within 40 km) the brightest
@@ -57,7 +57,7 @@ N = 400  # the window, 10 m pixels
 SINCE = "2023-01-01"
 LEVELS = (-0.25, 0.1, 0.3, 0.6, 1.0)  # (the picture's and the report's bands)
 GAUGES = "https://erddap.emodnet-physics.eu/erddap/tabledap/ERD_EP_SLEV_NRT_60m.csv?"
-CREST = -0.25
+CREST = 0.30  # (the waterline's median over the Baltic batch's 31 measured spots, 21.11.2026: 0.17-0.42 m below mean)
 MIN_CALM, TWO_K, HALVES, PLANTS = 8, (0.15, 1.5), 0.25, 0.2
 BANDS = ("green", "nir", "red", "blue")  # (green and near-infrared the depth's; red and blue the review's true colour)
 RED = 0.6  # red against green (log) this far from the 1.5-3 m water's towards the sand's: under ~1 m whatever green says
@@ -476,7 +476,7 @@ def survey(name, a, data, out, crest=CREST):
     if share > PLANTS:
         doubts.append(f"plants on {share:.0%} of the water near the spot")
     river_ha = float((river & (spot <= 1500)).sum() / 100)
-    if river_ha >= 1:
+    if river_ha >= 10:  # (1-10 ha: ditches, harbour basins; the river mouths here 16-43 ha)
         doubts.append(f"a river or channel near the spot ({river_ha:.0f} ha of narrow water): open it (bars.json river)?")
 
     stat = {lev: float(((Z <= lev) & dom).sum()) / 100 for lev in LEVELS}
