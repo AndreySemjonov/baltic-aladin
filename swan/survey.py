@@ -395,7 +395,12 @@ def survey(name, a, data, out, crest=CREST, red=True):
     # beach's 20 m rim (part sand, part water: on steep coasts with a weak fit half the "under 1 m" read as drying there;
     # area.py's fill gives the rim its neighbours' depths).
     wl, _ = label(water)
-    seaw = np.isin(wl, np.unique(wl[sea & water])) & (wl > 0)
+    # (water at the window's edge too, 20 ha or more: a bay joined to the sea outside the window or round a spit, the
+    # review's Harilaid bay; edge ponds stay out)
+    edge = np.unique(np.concatenate([wl[0], wl[-1], wl[:, 0], wl[:, -1]]))
+    big = np.bincount(wl.ravel())
+    joined = np.union1d(np.unique(wl[sea & water]), [k for k in edge if k and big[k] >= 2000])
+    seaw = np.isin(wl, joined) & (wl > 0)
     dom = water & seaw & (dland > 20) & (dland <= 1200) & ~plants & ~river & np.isfinite(L)
     doubts = []
     if calm.sum() < MIN_CALM:
