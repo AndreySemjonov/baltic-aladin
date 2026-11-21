@@ -1551,7 +1551,33 @@
  },
  "haademeeste": {
   "red": false,
-  "owner": "behind the bar along the reeds: \"can ride\" (the owner, 21.11.2026): ridable water, not knee-deep mud, so red off"
+  "owner": "behind the bar along the reeds: \"can ride\" (the owner, 21.11.2026): ridable water, not knee-deep mud, so red off",
+  "bed": "haademeeste",
+  "survey": {
+   "made": "2026-11-21",
+   "scenes": 95,
+   "calm": 20,
+   "fit": {
+    "a": -2.47,
+    "b": -0.786,
+    "2K": 1.27,
+    "crest": [
+     -3.416,
+     0.21,
+     "measured at Copernicus (the map's level); gauge Kihnu (27 km) +0.08 m from it: 965 pixels"
+    ],
+    "water": [
+     -5.953,
+     2.21,
+     21231
+    ],
+    "halves": 0.31
+   },
+   "doubts": [
+    "the scenes' halves differ by 0.31 m",
+    "a river or channel near the spot (43 ha of narrow water): open it (bars.json river)?"
+   ]
+  }
  },
  "liepaja-mols": {
   "owner": "north of the north mole: 2 m+ within ~200 m (the owner, 21.11.2026); the survey read the turbid water there as broad shallows: no bed"
