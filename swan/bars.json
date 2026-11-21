@@ -15,7 +15,8 @@
     330,
     2.2
    ]
-  ]
+  ],
+  "owner": "the first bar: \"can stand\" (the owner, 21.11.2026); the survey's flat profile missed it (a weak fit): no bed, the rule bars (190 m 1.2 m, 330 m 2.2 m)"
  },
  "pavilosta": {
   "at": [
@@ -1522,5 +1523,37 @@
     "a river or channel near the spot (35 ha of narrow water): open it (bars.json river)?"
    ]
   }
+ },
+ "rider-bvmrakbq": {
+  "at": [
+   58.36081,
+   24.5255
+  ],
+  "shelf": [
+   [
+    0,
+    0.2
+   ],
+   [
+    300,
+    0.7
+   ],
+   [
+    700,
+    1.2
+   ],
+   [
+    1200,
+    2.0
+   ]
+  ],
+  "owner": "Parnu beach: \"far away shallow\" (the owner, 21.11.2026); our grid had 1.9 m within 100 m, 3.7 m at 200-400 m; the survey can't see the bottom (brown water, 6 calm scenes): the shelf instead, the numbers a first guess"
+ },
+ "haademeeste": {
+  "red": false,
+  "owner": "behind the bar along the reeds: \"can ride\" (the owner, 21.11.2026): ridable water, not knee-deep mud, so red off"
+ },
+ "liepaja-mols": {
+  "owner": "north of the north mole: 2 m+ within ~200 m (the owner, 21.11.2026); the survey read the turbid water there as broad shallows: no bed"
  }
 }

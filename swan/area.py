@@ -164,6 +164,8 @@ def build(box, W, H, outlines=None, bars=None):
         # (None carved up a river: by the distance to its banks they ran down the channel's middle.)
         if river is not None:
             depth[opened] = river
+    if bars and bars.get("shelf"):
+        _shelf(depth, box, W, H, bars, shore)
     if bars and bars.get("bed"):
         _bed(depth, box, W, H, bed_for(bars["bed"]))
     if bars and bars.get("shallows"):
@@ -266,6 +268,26 @@ def _bars(depth, box, W, H, bars, shore, walls):
         ridge = np.exp(-(((d - x) / 30.0) ** 2))
         trough = 0.4 * np.exp(-(((d - (x - 55.0)) / 22.0) ** 2))
         depth[:] = np.where(w > 0, depth - w * np.maximum(depth - crest, 0) * ridge + w * trough, depth)
+
+
+def _shelf(depth, box, W, H, bars, shore):
+    """A beach's profile where our depths are wrong and the satellite can't see (bars.json "shelf": [[metres from the
+    waterline, depth], ...] round "at"; the owner, 21.11.2026, Parnu: "far away shallow", where our grid had 1.9 m within
+    100 m and 3.7 m at 200-400): the sea no deeper than the profile within ~2 km of "at" (gone by 2.5 km)."""
+    from scipy.ndimage import distance_transform_edt
+
+    lat_of = lambda my: np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * my))))  # noqa: E731
+    lats = lat_of(box[1] + (np.arange(H) + 0.5) / H * box[3])
+    lons = (box[0] + (np.arange(W) + 0.5) / W * box[2]) * 360 - 180
+    cell = box[2] * EARTH * math.cos(math.radians(float(lats.mean()))) / W
+    d = distance_transform_edt(~shore) * cell
+    lat0, lon0 = bars["at"]
+    near = np.hypot((lats[:, None] - lat0) * 111195.0, (lons[None, :] - lon0) * 111195.0 * math.cos(math.radians(lat0)))
+    t = np.clip((near - 2000.0) / 500.0, 0, 1)
+    w = (1 - t * t * (3 - 2 * t)) * (depth >= 0)
+    xs, hs = zip(*bars["shelf"])
+    cap = np.interp(d, xs, hs)
+    depth[:] = np.where((w > 0) & (depth > cap), depth - w * (depth - cap), depth)
 
 
 def _worldcover(depth, box, W, H, outlines=None, sub=3, river=0):

@@ -23,6 +23,18 @@ def test_shallows():
     assert capped[10:20, 5:20].all() and not capped[:9].any() and not capped[21:].any() and not capped[:, 21:].any()
 
 
+def test_shelf():
+    """A shelf caps a flat 3 m sea by the distance from the waterline near "at"; land, shallower water and far cells kept."""
+    box, W, H = [0.56, 0.31, 0.00004, 0.00004], 40, 40  # (~22 m cells, the 40 well inside the shelf's 2 km)
+    d = np.full((H, W), 3.0)
+    d[:, :5] = -1
+    d[20, 30] = 0.1
+    lat = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * (box[1] + box[3] / 2)))))
+    A._shelf(d, box, W, H, {"at": [lat, box[0] * 360 - 180], "shelf": [[0, 0.2], [300, 0.7], [700, 1.2]]}, d < 0)
+    assert d[:, :5].max() == -1 and d[20, 30] == 0.1
+    assert 0.2 <= d[20, 5] < 0.3 and d[20, 6] < d[20, 15] < d[20, 25] <= 1.2
+
+
 def test_bank_bytes():
     """A bank 0.25 m above mean sea level and a 0.12 m lagoon round-trip through the map's bytes (DEPTH_BASE), land filled."""
     import tables as T
@@ -46,6 +58,7 @@ def test_survey_ring():
 
 if __name__ == "__main__":
     test_shallows()
+    test_shelf()
     test_bank_bytes()
     test_survey_ring()
     print("ok")
