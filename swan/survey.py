@@ -32,6 +32,8 @@ bottoms blur it below ~1.5-2 m; the scenes' water levels differ (the median's le
                                                                      (the shallows, the fit, the doubts) and AREA.png
   python3 swan/survey.py AREA --apply [--force] [--keep-bars]        that survey into beds/ and bars.json (doubtful: only
                                                                      --force; --keep-bars keeps the rule's bars beyond)
+  python3 swan/survey.py plan [--only baltic|all|a,b]               the areas to survey (JSON; survey.yml's batch)
+  python3 swan/survey.py summary DIR                                 the batch's SUMMARY.md for the review
 """
 import collections
 import json
@@ -547,6 +549,41 @@ def _picture(path, Z, water, shown, plants, river, res, meta, LAT, LON, colour=N
     img.save(path)
 
 
+def plan(only):
+    """The areas to survey (survey.yml): "baltic" (the index's areas in the Baltic: 53.5-66 N, 10-31 E), "all", or names
+    (comma-separated)."""
+    import tables as T
+
+    areas = (T._json(T.STORE + "index.json") or {}).get("areas", [])
+    if only in ("baltic", "all"):
+        return [a["area"] for a in areas
+                if only == "all" or (53.5 <= A_middle(a["box"])[0] <= 66 and 10 <= A_middle(a["box"])[1] <= 31)]
+    names = {a["area"] for a in areas}
+    return [n for n in only.split(",") if n.strip() and n.strip() in names]
+
+
+def summary(d):
+    """The batch's table for the review (survey.yml): SUMMARY.md in d, a row a spot (its sheet AREA.png beside it), the
+    doubtful and failed first."""
+    rows = []
+    for f in sorted(d.glob("*.json")):
+        r = json.loads(f.read_text())
+        if "fit" in r:
+            rows.append((1 if r["doubts"] else 2, r["area"], f"{r['calm']}/{r['scenes']}", f"{r['fit']['crest'][1]:+.2f}",
+                         r["fit"]["crest"][2].split(":")[0], r["ha"].get("0.3", 0), r.get("red_ha", 0), r.get("dark_ha", 0),
+                         "; ".join(r["doubts"]) or "-"))
+    for f in sorted(d.glob("*.failed")):
+        rows.append((0, f.stem, "-", "-", "-", "-", "-", "-", "failed: " + " ".join(f.read_text().split())[-300:]))
+    rows.sort()
+    nl = chr(10)
+    head = "| spot | calm/scenes | crest m | crest from | ha under 0.3 m | red ha | evened ha | doubts |" + nl + \
+        "|---|---|---|---|---|---|---|---|" + nl
+    (d / "SUMMARY.md").write_text(f"# Survey {time.strftime('%Y-%m-%d')}: {len(rows)} spots, "
+                                  f"{sum(r[0] == 0 for r in rows)} failed, {sum(r[0] == 1 for r in rows)} doubtful" +
+                                  nl + nl + head + "".join("| " + " | ".join(str(x) for x in r[1:]) + " |" + nl for r in rows))
+    print((d / "SUMMARY.md").read_text())
+
+
 def A_middle(box):
     """The box's middle (lat, lon): the area's first spot."""
     lat = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * (box[1] + box[3] / 2)))))
@@ -589,7 +626,11 @@ if __name__ == "__main__":
 
     name = args[0]
     out = opt("--out", str(HERE / "survey"))
-    if "--apply" in args:
+    if name == "plan":
+        print(json.dumps(plan(opt("--only", "baltic"))))
+    elif name == "summary":
+        summary(Path(args[1]))
+    elif "--apply" in args:
         apply(name, out, "--force" in args, "--keep-bars" in args)
     else:
         import tables as T

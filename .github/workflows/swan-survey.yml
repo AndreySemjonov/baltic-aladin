@@ -1,0 +1,88 @@
+name: SWAN survey
+run-name: SWAN survey (${{ inputs.only }})
+
+# The spots' shallows from the satellite (swan/survey.py), the standard for every spot (the owner, 21.11.2026: "It's
+# become our standard way of processing spots", then "B": the survey measures, a Claude review reads the sheets, the
+# owner only for what it can't settle; "Yes, build it"). One job an area, 18 at a time: Sentinel-2's scenes (AWS, no
+# account), the sea's level (EMODnet's gauges, Copernicus's model with the sea jobs' login), the bed, the report and the
+# review sheet. Nothing applied here: the sheets come back as the "survey" artifact (SUMMARY.md first) for the review;
+# what passes goes in with survey.py --apply, then swan-tables.yml remakes those areas. By hand only.
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "baltic (the index's Baltic areas), all, or areas (comma-separated)"
+        type: string
+        default: "baltic"
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      areas: ${{ steps.plan.outputs.areas }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: plan
+        env:
+          ONLY: ${{ inputs.only }}
+        run: |
+          pip install -q numpy pillow
+          areas=$(python3 swan/survey.py plan --only "$ONLY")
+          echo "areas=$areas" >> "$GITHUB_OUTPUT"
+          echo "$areas"
+
+  area:
+    needs: plan
+    if: needs.plan.outputs.areas != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 18
+      matrix:
+        area: ${{ fromJSON(needs.plan.outputs.areas) }}
+    name: ${{ matrix.area }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: The survey
+        env:
+          AREA: ${{ matrix.area }}
+          COPERNICUSMARINE_SERVICE_USERNAME: ${{ secrets.COPERNICUSMARINE_SERVICE_USERNAME }}
+          COPERNICUSMARINE_SERVICE_PASSWORD: ${{ secrets.COPERNICUSMARINE_SERVICE_PASSWORD }}
+        run: |
+          pip install -q numpy scipy pillow rasterio copernicusmarine
+          mkdir -p out
+          # (A spot the survey can't do, little water in its window or nothing to anchor on, is a row in the summary.)
+          python3 swan/survey.py "$AREA" --data sat --out out 2> err.txt || { tail -5 err.txt; tail -3 err.txt > "out/$AREA.failed"; }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: survey-${{ matrix.area }}
+          path: out/
+          retention-days: 7
+
+  summary:
+    needs: area
+    if: ${{ always() && needs.area.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: survey-*
+          path: survey
+          merge-multiple: true
+      - name: The review's table
+        run: |
+          pip install -q numpy pillow
+          python3 swan/survey.py summary survey
+          cat survey/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: survey
+          path: survey/
+          retention-days: 30
