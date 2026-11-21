@@ -443,15 +443,26 @@ def survey(name, a, data, out, crest=CREST):
     reds = np.zeros_like(dom)
     red_on = bool(np.isfinite(dr_s) and dr_s - dr_w >= 0.3)
     if red_on:
-        reds = dom & np.isfinite(Dr) & (Z > 1.0) & (Lr > red_w) & (Dr > dr_w + RED * (dr_s - dr_w))
+        reds = dom & np.isfinite(Dr) & (Z > 1.0) & (Lr > red_w + 0.3) & (Dr > dr_w + RED * (dr_s - dr_w))
         # (a dark bottom is a patch, not a sprinkle: Svetciems's 1-2.5 m water flickered over the line pixel by pixel)
         reds &= uniform_filter(reds.astype(np.float32), 5) >= 0.5
+        # (and the beach's: a patch touching the 150 m along it. The Baltic batch's review, 21.11.2026: at Liepaja's moles
+        # and a Tallinn rider spot the rule painted plain water 1-2 km out, red barely over the deep water's; Berzciems's
+        # band, Haademeeste's reed shore and trough touch the beach, their red 0.6 (log) over the 1.5-3 m water's)
+        lab, n = label(reds)
+        if n:
+            near = np.zeros(n + 1, bool)
+            near[np.unique(lab[reds & (dland <= 150)])] = True
+            near[0] = False
+            reds = near[lab]
     fitp = dom & np.isfinite(Dr) & (Z > 0) & (Z < 2.2) & ~reds
     red_ha = 0.0
     if reds.any() and fitp.sum() >= 500:
         c1, c0 = np.polyfit(Dr[fitp], Z[fitp], 1)
         Z = np.where(reds, np.maximum(c0 + c1 * Dr, crest), Z)
         red_ha = float(reds.sum() / 100)
+        if red_ha > ((Z <= 1.0) & dom).sum() / 100:
+            doubts.append(f"red made {red_ha:.0f} ha shallower but most stayed over 1 m: turbid water, not a bottom?")
     # A dark bottom (submerged weed, stones) reads as depth: a reading DARK m deeper than the median of the ~110 m round
     # it is set to that median (the owner's Berzciems, 21.11.2026: 2.0-2.5 m patches beside 0.2 m sand at the reed band's
     # edge). Troughs between bars stay (long, ~0.5 m deeper); a channel stays (deep round it too).
