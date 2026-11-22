@@ -20,7 +20,7 @@ import numpy as np
 FILES = "https://files.meteogust.com/tiles/tides/"
 UA = {"User-Agent": "MeteoGust helper (data.meteogust.com)"}
 _packs = {}
-TIDAL = 0.15  # m: a daily tide that strays this far from the mean (reach) makes a tidal coast (tables.py's levels, the survey's)
+TIDAL = 0.25  # m (0.15 made the Gulf of Riga's 0.15-0.16 m tidal, 22.11.2026): a daily tide that strays this far from the mean (reach) makes a tidal coast (tables.py's levels, the survey's)
 # The daily tide's constituents (the long-period SA, SSA, MF and MM carry the Baltic's seasonal swing, not a tide one
 # rides through: with them Berzciems's 0.12 m read 0.18 and got a tidal coast's levels).
 LONG = {"SA", "SSA", "MF", "MM"}
