@@ -27,7 +27,7 @@ jobs:
           EARTHDATA_USERNAME: ${{ secrets.EARTHDATA_USERNAME }}
           EARTHDATA_PASSWORD: ${{ secrets.EARTHDATA_PASSWORD }}
         run: |
-          pip install -q numpy earthaccess h5py
+          pip install -q numpy pillow earthaccess h5py
           mkdir -p out
           for a in ${ONLY//,/ }; do python3 swan/icesat.py "$a" --out out || echo "$a failed"; done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
