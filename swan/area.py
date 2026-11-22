@@ -216,6 +216,11 @@ def _bed_fill(z, px):
     yy, xx = np.ogrid[:H, :W]
     edge = np.minimum(np.minimum(yy, H - 1 - yy), np.minimum(xx, W - 1 - xx)) * px
     w = (w * np.clip(edge / EDGE_M, 0, 1)).astype(np.float32)
+    # (No weight where the fill found nothing: a lone reading is too little for it, but its 250 m of weight round it
+    # made _bed take the empty cells as 0 m: rings of "dry" water with the reading's own depth in the middle, ~1 km off
+    # Engure and Berzciems along the survey's 1.2 km edge; the owner, 22.11.2026: "this circles near engure/berzciems.
+    # What is this?")
+    w = np.where(np.isfinite(filled), w, 0).astype(np.float32)
     return np.where(w > 0, filled, np.nan).astype(np.float32), w
 
 
@@ -244,6 +249,7 @@ def _bed(depth, box, W, H, bed, cover=None):
             n += ok
             wsum[inside] += wt[R[inside], C[inside]]
     zb = total / np.maximum(n, 1)
+    wsum = np.where(n > 0, wsum, 0)  # (a cell without a reading isn't 0 m: _bed_fill's lone readings, the rings)
     t = np.clip((zb - 1.2) / 0.8, 0, 1)
     trust = wsum / (k * k) * (1 - t * t * (3 - 2 * t))
     sea = depth > -1

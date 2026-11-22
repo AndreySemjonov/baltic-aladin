@@ -47,6 +47,19 @@ def test_bed_fill():
     assert w[2, 70] < 0.1 and w[30, 70] == 1.0  # (the window's edge 250 m: 25 pixels)
 
 
+def test_bed_lone_reading():
+    """A lone reading in empty water (the survey's outer edge): no weight where the fill found nothing, so _bed leaves
+    the water round it as it was (it drew rings of 0 m off Engure and Berzciems, 22.11.2026)."""
+    z = np.full((101, 101), np.nan, np.float32)
+    z[50, 50] = 2.5
+    filled, w = A._bed_fill(z, 10.0)
+    assert np.all((w > 0) == np.isfinite(filled)), "weight without a depth"
+    depth = np.full((20, 20), 5.0, np.float32)
+    bed = {"box": [0.5, 0.3, 0.001, 0.001], "W": 101, "H": 101, "z": filled, "w": w}
+    A._bed(depth, [0.5, 0.3, 0.001, 0.001], 20, 20, bed)
+    assert depth.min() >= 2.4, depth.min()  # (5 m round it, at most the reading's own 2.5 m: no 0 m ring)
+
+
 def test_bed_cover():
     """_bed's cover: the satellite bed's share of each cell, 1 where it read, 0 beyond it (the map's "measured")."""
     box, W, H = [0.5, 0.3, 0.001, 0.001], 8, 8
@@ -122,6 +135,7 @@ if __name__ == "__main__":
     test_shelf()
     test_bed_fill()
     test_bed_cover()
+    test_bed_lone_reading()
     test_bank_bytes()
     test_survey_ring()
     test_icesat_span()
