@@ -211,9 +211,12 @@ def _copernicus_levels(lat, lon, days):
                                            minimum_latitude=lat - 0.03, maximum_latitude=lat + 0.03,
                                            minimum_longitude=lon - 0.05, maximum_longitude=lon + 0.05, service="arco-time-series")
         v = ds["sla"].values
-        cell = np.nanargmin(np.where(np.isfinite(v).all(0), 0, 1)) if np.isfinite(v).all(0).any() else None
-        if cell is None:
+        # (The sea cell with the most hours: the newest hours are NaN while the dataset updates, so "every hour" found
+        # no cell and the Gulf of Riga fell back to the gauges, 0.3 m off the map's zero (22.11.2026, 20:17Z batch).)
+        hours = np.isfinite(v).sum(0).reshape(-1)
+        if not hours.any():
             return {}
+        cell = int(np.argmax(hours))
         s = v.reshape(len(v), -1)[:, cell]
         times = [str(x)[:13] for x in ds["time"].values]
     except Exception as e:
