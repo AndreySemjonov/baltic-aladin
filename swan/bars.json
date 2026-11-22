@@ -85,12 +85,29 @@
    24.4
   ],
   "scenes": 79,
-  "bars": [
-   [
-    110,
-    1.2
-   ]
-  ]
+  "bed": "saulkrasti",
+  "survey": {
+   "made": "2026-11-22",
+   "scenes": 102,
+   "calm": 71,
+   "fit": {
+    "a": -5.488,
+    "b": -1.4,
+    "2K": 0.71,
+    "crest": [
+     -4.135,
+     0.3,
+     "given (0 pixels measured at Copernicus (the map's level); gauge Skulte (1 km) +0.27 m from it)"
+    ],
+    "water": [
+     -5.843,
+     2.69,
+     1757
+    ],
+    "halves": 0.17
+   },
+   "doubts": []
+  }
  },
  "daugavgriva": {
   "at": [
@@ -101,24 +118,24 @@
   "red": false,
   "bed": "daugavgriva",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 115,
-   "calm": 73,
+   "made": "2026-11-22",
+   "scenes": 99,
+   "calm": 59,
    "fit": {
-    "a": -3.46,
-    "b": -0.858,
-    "2K": 1.17,
+    "a": -5.479,
+    "b": -1.371,
+    "2K": 0.73,
     "crest": [
-     -4.302,
+     -4.262,
      0.23,
-     "measured at Copernicus (the map's level); gauge Daugavgriva (1 km) +0.29 m from it: 62 pixels"
+     "measured at Copernicus (the map's level): 57 pixels"
     ],
     "water": [
-     -7.131,
-     2.66,
-     2065
+     -7.264,
+     2.64,
+     2993
     ],
-    "halves": 0.15
+    "halves": 0.18
    },
    "doubts": [
     "a river or channel near the spot (40 ha of narrow water): open it (bars.json river)?"
@@ -145,7 +162,7 @@
     "crest": [
      -2.631,
      0.38,
-     "measured at Copernicus (the map's level); gauge Kolka (3 km) +0.23 m from it: 54 pixels"
+     "measured at Copernicus (the map's level): 54 pixels"
     ],
     "water": [
      -4.313,
@@ -172,20 +189,20 @@
    "scenes": 88,
    "calm": 34,
    "fit": {
-    "a": -2.829,
-    "b": -0.785,
-    "2K": 1.27,
+    "a": -5.155,
+    "b": -1.395,
+    "2K": 0.72,
     "crest": [
-     -3.997,
+     -3.993,
      0.31,
-     "measured at Copernicus (the map's level); gauge Lielupe (5 km) +0.31 m from it: 311 pixels"
+     "measured at Copernicus (the map's level): 304 pixels"
     ],
     "water": [
      -7.198,
      2.82,
      286
     ],
-    "halves": 0.14
+    "halves": 0.19
    },
    "doubts": [
     "a river or channel near the spot (31 ha of narrow water): open it (bars.json river)?"
@@ -210,7 +227,7 @@
     "crest": [
      -2.873,
      0.34,
-     "measured at Copernicus (the map's level); gauge Mersrags (20 km) +0.30 m from it: 373 pixels"
+     "measured at Copernicus (the map's level): 373 pixels"
     ],
     "water": [
      -5.534,
@@ -329,7 +346,7 @@
     "crest": [
      -3.378,
      0.24,
-     "measured at Copernicus (the map's level); gauge Soru (18 km) +0.02 m from it: 3130 pixels"
+     "measured at Copernicus (the map's level): 3130 pixels"
     ],
     "water": [
      -5.843,
@@ -363,7 +380,7 @@
     "crest": [
      -2.753,
      0.44,
-     "measured at Copernicus (the map's level); gauge Roja (1 km) +0.29 m from it: 54 pixels"
+     "measured at Copernicus (the map's level): 54 pixels"
     ],
     "water": [
      -5.573,
@@ -515,13 +532,13 @@
    "scenes": 86,
    "calm": 20,
    "fit": {
-    "a": -2.465,
-    "b": -1.096,
-    "2K": 0.91,
+    "a": -2.455,
+    "b": -1.093,
+    "2K": 0.92,
     "crest": [
-     -2.515,
-     0.27,
-     "measured at Copernicus (the map's level); gauge Heltermaa (27 km) +0.01 m from it: 1176 pixels"
+     -2.516,
+     0.28,
+     "measured at Copernicus (the map's level); gauge Heltermaa (27 km) +0.01 m from it: 1180 pixels"
     ],
     "water": [
      -4.768,
@@ -579,13 +596,13 @@
    "scenes": 110,
    "calm": 78,
    "fit": {
-    "a": -4.839,
-    "b": -1.865,
+    "a": -4.83,
+    "b": -1.862,
     "2K": 0.54,
     "crest": [
-     -2.843,
+     -2.842,
      0.32,
-     "measured at Copernicus (the map's level); gauge Miinisadam (13 km) +0.00 m from it: 447 pixels"
+     "measured at Copernicus (the map's level); gauge Miinisadam (13 km) +0.00 m from it: 454 pixels"
     ],
     "water": [
      -5.426,
@@ -640,13 +657,13 @@
    "scenes": 87,
    "calm": 21,
    "fit": {
-    "a": -1.005,
-    "b": -0.421,
-    "2K": 2.37,
+    "a": -0.995,
+    "b": -0.417,
+    "2K": 2.4,
     "crest": [
-     -2.851,
-     0.31,
-     "measured at Copernicus (the map's level); gauge Mersrags (10 km) +0.30 m from it: 2418 pixels"
+     -2.839,
+     0.3,
+     "measured at Copernicus (the map's level): 2175 pixels"
     ],
     "water": [
      -5.627,
@@ -671,7 +688,7 @@
     "crest": [
      -2.97,
      0.32,
-     "measured at Copernicus (the map's level); gauge Mersrags (2 km) +0.30 m from it: 480 pixels"
+     "measured at Copernicus (the map's level): 480 pixels"
     ],
     "water": [
      -5.67,
@@ -690,13 +707,13 @@
    "scenes": 83,
    "calm": 33,
    "fit": {
-    "a": -1.096,
-    "b": -0.426,
+    "a": -1.094,
+    "b": -0.425,
     "2K": 2.35,
     "crest": [
-     -3.265,
+     -3.262,
      0.33,
-     "measured at Copernicus (the map's level); gauge Salacgriva (5 km) +0.29 m from it: 1107 pixels"
+     "measured at Copernicus (the map's level): 1103 pixels"
     ],
     "water": [
      -5.497,
@@ -715,13 +732,13 @@
    "scenes": 78,
    "calm": 30,
    "fit": {
-    "a": -0.951,
-    "b": -0.383,
-    "2K": 2.61,
+    "a": -0.962,
+    "b": -0.385,
+    "2K": 2.6,
     "crest": [
-     -3.303,
-     0.35,
-     "measured at Copernicus (the map's level); gauge Salacgriva (1 km) +0.29 m from it: 642 pixels"
+     -3.285,
+     0.33,
+     "measured at Copernicus (the map's level); gauge Salacgriva (1 km) +0.29 m from it: 577 pixels"
     ],
     "water": [
      -5.785,
@@ -742,20 +759,20 @@
    "scenes": 122,
    "calm": 73,
    "fit": {
-    "a": -2.106,
-    "b": -0.743,
-    "2K": 1.35,
+    "a": -2.806,
+    "b": -0.898,
+    "2K": 1.11,
     "crest": [
-     -3.444,
-     0.43,
-     "measured at Copernicus (the map's level); gauge Eisma (36 km) +0.04 m from it: 594 pixels"
+     -3.627,
+     0.38,
+     "measured at Copernicus (the map's level): 568 pixels"
     ],
     "water": [
      -6.215,
      2.45,
      1660
     ],
-    "halves": 0.11
+    "halves": 0.13
    },
    "doubts": []
   }
@@ -817,13 +834,13 @@
    "scenes": 80,
    "calm": 15,
    "fit": {
-    "a": -1.302,
-    "b": -0.491,
-    "2K": 2.04,
+    "a": -1.351,
+    "b": -0.499,
+    "2K": 2.0,
     "crest": [
-     -2.84,
-     0.2,
-     "measured at Copernicus (the map's level); gauge Soru (28 km) +0.01 m from it: 1024 pixels"
+     -2.832,
+     0.16,
+     "measured at Copernicus (the map's level); gauge Soru (28 km) +0.01 m from it: 823 pixels"
     ],
     "water": [
      -5.449,
@@ -842,13 +859,13 @@
    "scenes": 90,
    "calm": 58,
    "fit": {
-    "a": -3.687,
-    "b": -1.553,
-    "2K": 0.64,
+    "a": -3.673,
+    "b": -1.55,
+    "2K": 0.65,
     "crest": [
-     -2.529,
+     -2.526,
      0.34,
-     "measured at Copernicus (the map's level); gauge Paldiski (10 km) -0.04 m from it: 64 pixels"
+     "measured at Copernicus (the map's level); gauge Paldiski (10 km) -0.04 m from it: 63 pixels"
     ],
     "water": [
      -5.167,
@@ -867,13 +884,13 @@
    "scenes": 78,
    "calm": 26,
    "fit": {
-    "a": -3.005,
-    "b": -1.318,
+    "a": -2.998,
+    "b": -1.316,
     "2K": 0.76,
     "crest": [
-     -2.457,
+     -2.455,
      0.28,
-     "measured at Copernicus (the map's level); gauge Miinisadam (8 km) +0.00 m from it: 2158 pixels"
+     "measured at Copernicus (the map's level); gauge Miinisadam (8 km) +0.00 m from it: 2148 pixels"
     ],
     "water": [
      -5.473,
@@ -973,13 +990,13 @@
    "scenes": 76,
    "calm": 21,
    "fit": {
-    "a": -1.076,
+    "a": -1.074,
     "b": -0.399,
-    "2K": 2.5,
+    "2K": 2.51,
     "crest": [
-     -3.265,
-     0.26,
-     "measured at Copernicus (the map's level); gauge Kihnu (27 km) +0.08 m from it: 2347 pixels"
+     -3.219,
+     0.24,
+     "measured at Copernicus (the map's level): 1694 pixels"
     ],
     "water": [
      -5.083,
@@ -1003,20 +1020,20 @@
    "scenes": 109,
    "calm": 58,
    "fit": {
-    "a": -4.562,
-    "b": -1.595,
+    "a": -4.57,
+    "b": -1.597,
     "2K": 0.63,
     "crest": [
-     -3.019,
+     -3.021,
      0.36,
-     "measured at Copernicus (the map's level); gauge Soru (37 km) +0.02 m from it: 251 pixels"
+     "measured at Copernicus (the map's level): 252 pixels"
     ],
     "water": [
      -5.051,
      2.39,
      284
     ],
-    "halves": 0.11
+    "halves": 0.12
    },
    "doubts": []
   }
@@ -1034,7 +1051,7 @@
     "crest": [
      -2.485,
      0.34,
-     "measured at Copernicus (the map's level); gauge Paldiski (10 km) -0.04 m from it: 440 pixels"
+     "measured at Copernicus (the map's level): 440 pixels"
     ],
     "water": [
      -4.239,
@@ -1078,13 +1095,13 @@
    "scenes": 74,
    "calm": 21,
    "fit": {
-    "a": -1.594,
-    "b": -0.549,
-    "2K": 1.82,
+    "a": -1.671,
+    "b": -0.563,
+    "2K": 1.78,
     "crest": [
-     -3.032,
-     0.26,
-     "measured at Copernicus (the map's level); gauge Paldiski (5 km) -0.04 m from it: 1390 pixels"
+     -3.04,
+     0.21,
+     "measured at Copernicus (the map's level); gauge Paldiski (5 km) -0.04 m from it: 1030 pixels"
     ],
     "water": [
      -5.684,
@@ -1128,20 +1145,20 @@
    "scenes": 87,
    "calm": 27,
    "fit": {
-    "a": -3.33,
-    "b": -1.396,
+    "a": -3.325,
+    "b": -1.394,
     "2K": 0.72,
     "crest": [
-     -2.61,
+     -2.609,
      0.28,
-     "measured at Copernicus (the map's level); gauge Miinisadam (1 km) -0.00 m from it: 2403 pixels"
+     "measured at Copernicus (the map's level); gauge Miinisadam (1 km) -0.00 m from it: 2417 pixels"
     ],
     "water": [
      -5.426,
      2.38,
      7699
     ],
-    "halves": 0.1
+    "halves": 0.09
    },
    "doubts": [
     "a river or channel near the spot (15 ha of narrow water): open it (bars.json river)?"
@@ -1155,20 +1172,20 @@
    "scenes": 95,
    "calm": 28,
    "fit": {
-    "a": -1.667,
-    "b": -0.642,
-    "2K": 1.56,
+    "a": -1.82,
+    "b": -0.674,
+    "2K": 1.48,
     "crest": [
-     -3.002,
-     0.32,
-     "measured at Copernicus (the map's level); gauge Soru (25 km) +0.01 m from it: 722 pixels"
+     -2.998,
+     0.25,
+     "measured at Copernicus (the map's level); gauge Soru (25 km) +0.01 m from it: 454 pixels"
     ],
     "water": [
      -5.142,
      2.43,
      12693
     ],
-    "halves": 0.11
+    "halves": 0.12
    },
    "doubts": []
   }
