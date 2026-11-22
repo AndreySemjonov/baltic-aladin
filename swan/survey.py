@@ -17,7 +17,8 @@ for new [spots] the same approach from the beginning"): OUT/AREA-bed.json + .bin
 bed_for, _bed; --apply puts it in beds/ and bars.json "bed"); river channels (narrow water) and plants (near-infrared
 bright: reeds, mats) left out. A dark bottom (submerged weed, stones) reads as depth in green: where red (swallowed by
 1-2 m of brown water) still comes back, the depth from red against green; a reading 1.2 m deeper than the ~110 m round
-it evened to that; a wide deep band at the beach still left flagged. A river joined to the sea near the spot is
+it evened to that; a wide deep band at the beach still left flagged (bars.json "weed": true, the owner's answer that it is
+stones and weed: left out, filled from round it). A river joined to the sea near the spot is
 reported, not opened. Every survey writes a review sheet (AREA.png: true colour beside the depth, the numbers, the
 doubts): the standard for every spot (the owner, 21.11.2026, "B"): the survey measures, a Claude review reads the sheets
 (live / fixed / ask the owner), the owner only for what it can't settle.
@@ -329,7 +330,7 @@ def _bed_out(name, a, Z, valid, meta, out):
     return int(good.sum())
 
 
-def survey(name, a, data, out, crest=CREST, red=True):
+def survey(name, a, data, out, crest=CREST, red=True, weed=False):
     from rasterio.warp import transform
     from scipy.ndimage import binary_fill_holes, distance_transform_edt, gaussian_filter, label, uniform_filter
 
@@ -487,7 +488,12 @@ def survey(name, a, data, out, crest=CREST, red=True):
     # A wide deep band at the beach where red couldn't judge (red judged it deep elsewhere: a trough, steep coasts' close
     # water): flagged for the review (in the first batch, 21.11.2026, it flagged 35 of 38 spots with red judging).
     band_ha = float((dom & (dland <= 150) & (Z > 1.5)).sum() / 100)
-    if not red_on and band_ha >= 1 and (dom & (dland > 150) & (Z < 0.5)).sum() >= 100:
+    # The owner's answer for a spot (bars.json "weed": true): that band is stones and weed, not a trough; its readings out,
+    # the bed fills it from the sand round it (area.py _bed_fill) and the map counts it measured only near them (the
+    # owner, 22.11.2026, Pirita and Russalka: "Stones and weed").
+    if weed:
+        dom = dom & ~((dland <= 150) & (Z > 1.5))
+    elif not red_on and band_ha >= 1 and (dom & (dland > 150) & (Z < 0.5)).sum() >= 100:
         doubts.append(f"{band_ha:.0f} ha read deeper than 1.5 m within 150 m of the beach, shallower sand outside: a dark "
                       f"bottom (weed) or a real trough?")
     # The scenes' two halves (every other calm scene), on the one fit: the bed they agree on.
@@ -681,4 +687,4 @@ if __name__ == "__main__":
         if a is None:
             raise SystemExit(f"{name}: not in the index")
         survey(name, a, opt("--data", str(Path.home() / "swan" / "sat")), out, float(opt("--crest", (T.bars_for(name) or {}).get("crest", CREST))),
-               bool((T.bars_for(name) or {}).get("red", True)))
+               bool((T.bars_for(name) or {}).get("red", True)), bool((T.bars_for(name) or {}).get("weed", False)))
