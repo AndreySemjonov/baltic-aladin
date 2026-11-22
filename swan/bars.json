@@ -55,12 +55,29 @@
    21.42
   ],
   "scenes": 45,
-  "bars": [
-   [
-    110,
-    1.2
-   ]
-  ]
+  "bed": "uzava",
+  "survey": {
+   "made": "2026-11-22",
+   "scenes": 106,
+   "calm": 46,
+   "fit": {
+    "a": -2.358,
+    "b": -0.86,
+    "2K": 1.16,
+    "crest": [
+     -2.929,
+     0.3,
+     "given (0 pixels measured at Copernicus (the map's level); gauge Ventspils (19 km) +0.24 m from it)"
+    ],
+    "water": [
+     -3.882,
+     2.71,
+     432
+    ],
+    "halves": 0.12
+   },
+   "doubts": []
+  }
  },
  "saulkrasti": {
   "at": [
@@ -122,9 +139,9 @@
    "scenes": 98,
    "calm": 30,
    "fit": {
-    "a": -3.355,
-    "b": -1.418,
-    "2K": 0.71,
+    "a": -3.492,
+    "b": -1.46,
+    "2K": 0.69,
     "crest": [
      -2.631,
      0.38,
@@ -135,7 +152,7 @@
      2.76,
      4550
     ],
-    "halves": 0.17
+    "halves": 0.19
    },
    "doubts": []
   },
@@ -187,9 +204,9 @@
    "scenes": 95,
    "calm": 42,
    "fit": {
-    "a": -1.937,
-    "b": -0.794,
-    "2K": 1.26,
+    "a": -2.918,
+    "b": -1.121,
+    "2K": 0.89,
     "crest": [
      -2.873,
      0.34,
@@ -200,7 +217,7 @@
      2.46,
      15483
     ],
-    "halves": 0.04
+    "halves": 0.06
    },
    "doubts": []
   },
@@ -275,9 +292,9 @@
    "scenes": 93,
    "calm": 44,
    "fit": {
-    "a": -1.712,
-    "b": -0.73,
-    "2K": 1.37,
+    "a": -2.317,
+    "b": -0.951,
+    "2K": 1.05,
     "crest": [
      -2.893,
      0.4,
@@ -288,7 +305,7 @@
      2.8,
      3436
     ],
-    "halves": 0.05
+    "halves": 0.06
    },
    "doubts": []
   },
@@ -306,9 +323,9 @@
    "scenes": 71,
    "calm": 23,
    "fit": {
-    "a": -2.429,
-    "b": -0.79,
-    "2K": 1.27,
+    "a": -1.945,
+    "b": -0.595,
+    "2K": 1.68,
     "crest": [
      -3.378,
      0.24,
@@ -340,9 +357,9 @@
    "scenes": 87,
    "calm": 37,
    "fit": {
-    "a": -1.86,
-    "b": -0.835,
-    "2K": 1.2,
+    "a": -2.548,
+    "b": -1.075,
+    "2K": 0.93,
     "crest": [
      -2.753,
      0.44,
@@ -353,7 +370,7 @@
      2.79,
      898
     ],
-    "halves": 0.04
+    "halves": 0.06
    },
    "doubts": []
   },
@@ -490,9 +507,9 @@
    "scenes": 86,
    "calm": 20,
    "fit": {
-    "a": -2.235,
-    "b": -0.997,
-    "2K": 1.0,
+    "a": -2.465,
+    "b": -1.096,
+    "2K": 0.91,
     "crest": [
      -2.515,
      0.27,
@@ -503,7 +520,7 @@
      2.52,
      5811
     ],
-    "halves": 0.15
+    "halves": 0.19
    },
    "doubts": []
   },
@@ -554,9 +571,9 @@
    "scenes": 110,
    "calm": 78,
    "fit": {
-    "a": -2.159,
-    "b": -0.872,
-    "2K": 1.15,
+    "a": -4.839,
+    "b": -1.865,
+    "2K": 0.54,
     "crest": [
      -2.843,
      0.32,
@@ -567,7 +584,7 @@
      2.57,
      3783
     ],
-    "halves": 0.04
+    "halves": 0.08
    },
    "doubts": []
   },
@@ -586,9 +603,9 @@
    "scenes": 89,
    "calm": 23,
    "fit": {
-    "a": -3.265,
-    "b": -1.133,
-    "2K": 0.88,
+    "a": -1.567,
+    "b": -0.578,
+    "2K": 1.73,
     "crest": [
      -3.156,
      0.31,
@@ -599,7 +616,7 @@
      2.65,
      32520
     ],
-    "halves": 0.1
+    "halves": 0.08
    },
    "doubts": []
   },
@@ -615,9 +632,9 @@
    "scenes": 87,
    "calm": 21,
    "fit": {
-    "a": -1.86,
-    "b": -0.763,
-    "2K": 1.31,
+    "a": -1.005,
+    "b": -0.421,
+    "2K": 2.37,
     "crest": [
      -2.851,
      0.31,
@@ -628,7 +645,7 @@
      2.43,
      11404
     ],
-    "halves": 0.09
+    "halves": 0.07
    },
    "doubts": []
   }
@@ -640,9 +657,9 @@
    "scenes": 92,
    "calm": 28,
    "fit": {
-    "a": -2.31,
-    "b": -0.884,
-    "2K": 1.13,
+    "a": -1.638,
+    "b": -0.676,
+    "2K": 1.48,
     "crest": [
      -2.97,
      0.32,
@@ -653,7 +670,7 @@
      2.7,
      518
     ],
-    "halves": 0.08
+    "halves": 0.14
    },
    "doubts": []
   }
@@ -665,9 +682,9 @@
    "scenes": 83,
    "calm": 33,
    "fit": {
-    "a": -3.123,
-    "b": -1.059,
-    "2K": 0.94,
+    "a": -1.096,
+    "b": -0.426,
+    "2K": 2.35,
     "crest": [
      -3.265,
      0.33,
@@ -678,7 +695,7 @@
      2.7,
      21640
     ],
-    "halves": 0.08
+    "halves": 0.1
    },
    "doubts": []
   }
@@ -690,9 +707,9 @@
    "scenes": 78,
    "calm": 30,
    "fit": {
-    "a": -2.889,
-    "b": -0.98,
-    "2K": 1.02,
+    "a": -0.951,
+    "b": -0.383,
+    "2K": 2.61,
     "crest": [
      -3.303,
      0.35,
@@ -703,7 +720,7 @@
      2.78,
      7741
     ],
-    "halves": 0.19
+    "halves": 0.1
    },
    "doubts": [
     "a river or channel near the spot (20 ha of narrow water): open it (bars.json river)?"
@@ -717,9 +734,9 @@
    "scenes": 122,
    "calm": 73,
    "fit": {
-    "a": -2.076,
-    "b": -0.728,
-    "2K": 1.37,
+    "a": -2.106,
+    "b": -0.743,
+    "2K": 1.35,
     "crest": [
      -3.444,
      0.43,
@@ -730,7 +747,7 @@
      2.45,
      1660
     ],
-    "halves": 0.07
+    "halves": 0.11
    },
    "doubts": []
   }
@@ -742,9 +759,9 @@
    "scenes": 78,
    "calm": 24,
    "fit": {
-    "a": -1.666,
-    "b": -0.733,
-    "2K": 1.36,
+    "a": -2.382,
+    "b": -1.016,
+    "2K": 0.98,
     "crest": [
      -2.651,
      0.28,
@@ -755,7 +772,7 @@
      2.34,
      8680
     ],
-    "halves": 0.07
+    "halves": 0.09
    },
    "doubts": []
   }
@@ -792,9 +809,9 @@
    "scenes": 80,
    "calm": 15,
    "fit": {
-    "a": -2.029,
-    "b": -0.786,
-    "2K": 1.27,
+    "a": -1.302,
+    "b": -0.491,
+    "2K": 2.04,
     "crest": [
      -2.84,
      0.2,
@@ -805,7 +822,7 @@
      2.26,
      25143
     ],
-    "halves": 0.07
+    "halves": 0.11
    },
    "doubts": []
   }
@@ -817,9 +834,9 @@
    "scenes": 90,
    "calm": 58,
    "fit": {
-    "a": -1.785,
-    "b": -0.841,
-    "2K": 1.19,
+    "a": -3.687,
+    "b": -1.553,
+    "2K": 0.64,
     "crest": [
      -2.529,
      0.34,
@@ -830,7 +847,7 @@
      2.56,
      5001
     ],
-    "halves": 0.05
+    "halves": 0.11
    },
    "doubts": []
   }
@@ -842,9 +859,9 @@
    "scenes": 78,
    "calm": 26,
    "fit": {
-    "a": -1.609,
-    "b": -0.768,
-    "2K": 1.3,
+    "a": -3.005,
+    "b": -1.318,
+    "2K": 0.76,
     "crest": [
      -2.457,
      0.28,
@@ -855,7 +872,7 @@
      2.59,
      2264
     ],
-    "halves": 0.06
+    "halves": 0.1
    },
    "doubts": []
   }
@@ -863,27 +880,26 @@
  "rider-psueq68c": {
   "bed": "rider-psueq68c",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 93,
-   "calm": 46,
+   "made": "2026-11-22",
+   "scenes": 76,
+   "calm": 49,
    "fit": {
-    "a": -2.378,
-    "b": -0.905,
-    "2K": 1.11,
+    "a": -3.368,
+    "b": -1.513,
+    "2K": 0.66,
     "crest": [
-     -2.961,
-     0.3,
-     "given (1 pixels measured at Copernicus (the map's level); gauge Muuga (2 km) -0.03 m from it)"
+     -2.428,
+     0.33,
+     "measured at Copernicus (the map's level); gauge Muuga (2 km) -0.03 m from it: 54 pixels"
     ],
     "water": [
-     -5.439,
-     2.54,
-     1360
+     -5.449,
+     2.49,
+     8370
     ],
-    "halves": 0.1
+    "halves": 0.19
    },
    "doubts": [
-    "34 ha read deeper than 1.5 m within 150 m of the beach, shallower sand outside: a dark bottom (weed) or a real trough?",
     "a river or channel near the spot (26 ha of narrow water): open it (bars.json river)?"
    ]
   }
@@ -949,9 +965,9 @@
    "scenes": 76,
    "calm": 21,
    "fit": {
-    "a": -3.477,
-    "b": -1.144,
-    "2K": 0.87,
+    "a": -1.076,
+    "b": -0.399,
+    "2K": 2.5,
     "crest": [
      -3.265,
      0.26,
@@ -962,7 +978,7 @@
      2.34,
      43279
     ],
-    "halves": 0.18
+    "halves": 0.12
    },
    "doubts": [
     "a river or channel near the spot (43 ha of narrow water): open it (bars.json river)?"
@@ -971,5 +987,182 @@
  },
  "liepaja-mols": {
   "owner": "north of the north mole: 2 m+ within ~200 m (the owner, 21.11.2026); the survey read the turbid water there as broad shallows: no bed"
+ },
+ "rider-4sacg85k": {
+  "bed": "rider-4sacg85k",
+  "survey": {
+   "made": "2026-11-22",
+   "scenes": 109,
+   "calm": 58,
+   "fit": {
+    "a": -4.562,
+    "b": -1.595,
+    "2K": 0.63,
+    "crest": [
+     -3.019,
+     0.36,
+     "measured at Copernicus (the map's level); gauge Soru (37 km) +0.02 m from it: 251 pixels"
+    ],
+    "water": [
+     -5.051,
+     2.39,
+     284
+    ],
+    "halves": 0.11
+   },
+   "doubts": []
+  }
+ },
+ "rider-7cdprztt": {
+  "bed": "rider-7cdprztt",
+  "survey": {
+   "made": "2026-11-22",
+   "scenes": 72,
+   "calm": 38,
+   "fit": {
+    "a": -3.437,
+    "b": -1.501,
+    "2K": 0.67,
+    "crest": [
+     -2.485,
+     0.34,
+     "measured at Copernicus (the map's level); gauge Paldiski (10 km) -0.04 m from it: 440 pixels"
+    ],
+    "water": [
+     -4.239,
+     2.68,
+     11814
+    ],
+    "halves": 0.08
+   },
+   "doubts": []
+  }
+ },
+ "rider-btmqxdc5": {
+  "bed": "rider-btmqxdc5",
+  "survey": {
+   "made": "2026-11-22",
+   "scenes": 110,
+   "calm": 16,
+   "fit": {
+    "a": -0.648,
+    "b": -0.263,
+    "2K": 3.8,
+    "crest": [
+     -3.238,
+     0.13,
+     "measured at Copernicus (the map's level); gauge Kuivastu (14 km) +0.02 m from it: 856 pixels"
+    ],
+    "water": [
+     -6.364,
+     2.28,
+     38182
+    ],
+    "halves": 0.09
+   },
+   "doubts": []
+  }
+ },
+ "rider-erwjn43u": {
+  "bed": "rider-erwjn43u",
+  "survey": {
+   "made": "2026-11-22",
+   "scenes": 74,
+   "calm": 21,
+   "fit": {
+    "a": -1.594,
+    "b": -0.549,
+    "2K": 1.82,
+    "crest": [
+     -3.032,
+     0.26,
+     "measured at Copernicus (the map's level); gauge Paldiski (5 km) -0.04 m from it: 1390 pixels"
+    ],
+    "water": [
+     -5.684,
+     2.52,
+     12563
+    ],
+    "halves": 0.15
+   },
+   "doubts": []
+  }
+ },
+ "rider-hrpefk9r": {
+  "bed": "rider-hrpefk9r",
+  "survey": {
+   "made": "2026-11-22",
+   "scenes": 117,
+   "calm": 40,
+   "fit": {
+    "a": -4.325,
+    "b": -1.188,
+    "2K": 0.84,
+    "crest": [
+     -3.65,
+     0.18,
+     "measured at Copernicus (the map's level); gauge Kolka (37 km) +0.23 m from it: 1324 pixels"
+    ],
+    "water": [
+     -4.927,
+     2.59,
+     20083
+    ],
+    "halves": 0.2
+   },
+   "doubts": []
+  }
+ },
+ "rider-ny4lcmqo": {
+  "bed": "rider-ny4lcmqo",
+  "survey": {
+   "made": "2026-11-22",
+   "scenes": 87,
+   "calm": 27,
+   "fit": {
+    "a": -3.33,
+    "b": -1.396,
+    "2K": 0.72,
+    "crest": [
+     -2.61,
+     0.28,
+     "measured at Copernicus (the map's level); gauge Miinisadam (1 km) -0.00 m from it: 2403 pixels"
+    ],
+    "water": [
+     -5.426,
+     2.38,
+     7699
+    ],
+    "halves": 0.1
+   },
+   "doubts": [
+    "a river or channel near the spot (15 ha of narrow water): open it (bars.json river)?"
+   ]
+  }
+ },
+ "rider-ve8lrymj": {
+  "bed": "rider-ve8lrymj",
+  "survey": {
+   "made": "2026-11-22",
+   "scenes": 95,
+   "calm": 28,
+   "fit": {
+    "a": -1.667,
+    "b": -0.642,
+    "2K": 1.56,
+    "crest": [
+     -3.002,
+     0.32,
+     "measured at Copernicus (the map's level); gauge Soru (25 km) +0.01 m from it: 722 pixels"
+    ],
+    "water": [
+     -5.142,
+     2.43,
+     12693
+    ],
+    "halves": 0.11
+   },
+   "doubts": []
+  }
  }
 }
