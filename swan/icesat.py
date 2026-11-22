@@ -114,8 +114,9 @@ def by_sliderule(box):
     days = [str(t)[:10] for t in (when.astype("datetime64[ns]") if hasattr(when, "astype") else when)]
     beam = gdf["spot"].astype(str) if "spot" in cols else gdf["gt"].astype(str) if "gt" in cols else ["?"] * len(gdf)
     conf = gdf["confidence"] if "confidence" in cols else [None] * len(gdf)
+    # (Points without a surface height have no depth: left out.)
     return [[round(float(y), 6), round(float(x), 6), round(float(d), 2), day, str(b), None if c is None else round(float(c), 2)]
-            for y, x, d, day, b, c in zip(lat, lon, depth, days, beam, conf)]
+            for y, x, d, day, b, c in zip(lat, lon, depth, days, beam, conf) if d == d]
 
 
 def points(name, out, via="sliderule"):
