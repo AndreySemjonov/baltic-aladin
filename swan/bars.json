@@ -24,13 +24,6 @@
    21.17
   ],
   "scenes": 45,
-  "clear": [
-   [
-    56.8905,
-    21.1675,
-    400
-   ]
-  ],
   "bed": "pavilosta",
   "survey": {
    "made": "2026-11-21",
@@ -54,16 +47,7 @@
    },
    "doubts": []
   },
-  "bars": [
-   [
-    140,
-    1.2
-   ],
-   [
-    270,
-    2.2
-   ]
-  ]
+  "note": "The rule bars out under the bed (the owner, 22.11.2026: \"make it according our automatic approach\"): the satellite decides what it sees, the depth tiles beyond."
  },
  "uzava": {
   "at": [
@@ -97,13 +81,6 @@
    24.02069
   ],
   "scenes": 72,
-  "clear": [
-   [
-    57.06043,
-    24.02094,
-    175
-   ]
-  ],
   "red": false,
   "bed": "daugavgriva",
   "survey": {
@@ -130,12 +107,7 @@
     "a river or channel near the spot (40 ha of narrow water): open it (bars.json river)?"
    ]
   },
-  "bars": [
-   [
-    270,
-    1.2
-   ]
-  ]
+  "note": "The rule bars out under the bed (the owner, 22.11.2026: \"make it according our automatic approach\"): the satellite decides what it sees, the depth tiles beyond."
  },
  "kolka": {
   "at": [
@@ -167,16 +139,7 @@
    },
    "doubts": []
   },
-  "bars": [
-   [
-    230,
-    1.2
-   ],
-   [
-    385,
-    2.2
-   ]
-  ]
+  "note": "The rule bars out under the bed (the owner, 22.11.2026: \"make it according our automatic approach\"): the satellite decides what it sees, the depth tiles beyond."
  },
  "lielupes-ieteka": {
   "at": [
@@ -184,18 +147,8 @@
    23.9319
   ],
   "scenes": 40,
-  "bars": [
-   [
-    140,
-    1.2
-   ],
-   [
-    305,
-    2.2
-   ]
-  ],
   "river": 2500,
-  "note": "Shoals (20.11.2026) from Sentinel-2's calm colour over the mouth, the median of many scenes, contoured as depth caps; river channels and vegetation uncapped. Scale set by the owner's \"Depth there knee deep in lielupe usually\" (the riding area's median 0.50 m); the 1.0 m cap left out: the satellite sees ~1.5 m here, unverified.",
+  "note": "Shoals (20.11.2026) from Sentinel-2's calm colour over the mouth, the median of many scenes, contoured as depth caps; river channels and vegetation uncapped. Scale set by the owner's \"Depth there knee deep in lielupe usually\" (the riding area's median 0.50 m); the 1.0 m cap left out: the satellite sees ~1.5 m here, unverified. The rule bars out under the bed (the owner, 22.11.2026: \"make it according our automatic approach\"): the satellite decides what it sees, the depth tiles beyond.",
   "bed": "lielupes-ieteka",
   "survey": {
    "made": "2026-11-21",
@@ -230,23 +183,6 @@
    23.2378
   ],
   "scenes": 42,
-  "clear": [
-   [
-    57.16602,
-    23.23294,
-    175
-   ],
-   [
-    57.16462,
-    23.23238,
-    225
-   ],
-   [
-    57.16172,
-    23.23588,
-    275
-   ]
-  ],
   "bed": "engures-mols",
   "survey": {
    "made": "2026-11-21",
@@ -270,12 +206,7 @@
    },
    "doubts": []
   },
-  "bars": [
-   [
-    230,
-    1.2
-   ]
-  ]
+  "note": "The rule bars out under the bed (the owner, 22.11.2026: \"make it according our automatic approach\"): the satellite decides what it sees, the depth tiles beyond."
  },
  "gauja": {
   "at": [
@@ -284,7 +215,7 @@
   ],
   "scenes": 53,
   "river": 2500,
-  "note": "Shoals (20.11.2026) from Sentinel-2's calm colour over the mouth, the median of many scenes, contoured as depth caps; river channels and vegetation uncapped. Its own scale; the riding area's median 1.08 m, the owner's \"Waist deep\" (an independent check).",
+  "note": "Shoals (20.11.2026) from Sentinel-2's calm colour over the mouth, the median of many scenes, contoured as depth caps; river channels and vegetation uncapped. Its own scale; the riding area's median 1.08 m, the owner's \"Waist deep\" (an independent check). The rule bars out under the bed (the owner, 22.11.2026: \"make it according our automatic approach\"): the satellite decides what it sees, the depth tiles beyond.",
   "bed": "gauja",
   "survey": {
    "made": "2026-11-21",
@@ -309,13 +240,7 @@
    "doubts": [
     "a river or channel near the spot (16 ha of narrow water): open it (bars.json river)?"
    ]
-  },
-  "bars": [
-   [
-    260,
-    1.2
-   ]
-  ]
+  }
  },
  "mm-eo4mtwuq": {
   "at": [
@@ -368,12 +293,7 @@
    },
    "doubts": []
   },
-  "bars": [
-   [
-    120,
-    1.2
-   ]
-  ]
+  "note": "The rule bars out under the bed (the owner, 22.11.2026: \"make it according our automatic approach\"): the satellite decides what it sees, the depth tiles beyond."
  },
  "rider-9an5qgu4": {
   "at": [
@@ -381,23 +301,6 @@
    22.80289
   ],
   "scenes": 36,
-  "clear": [
-   [
-    58.76681,
-    22.80932,
-    325
-   ],
-   [
-    58.76786,
-    22.82042,
-    225
-   ],
-   [
-    58.77102,
-    22.81951,
-    175
-   ]
-  ],
   "bed": "rider-9an5qgu4",
   "survey": {
    "made": "2026-11-21",
@@ -424,12 +327,7 @@
     "a river or channel near the spot (27 ha of narrow water): open it (bars.json river)?"
    ]
   },
-  "bars": [
-   [
-    210,
-    1.2
-   ]
-  ]
+  "note": "The rule bars out under the bed (the owner, 22.11.2026: \"make it according our automatic approach\"): the satellite decides what it sees, the depth tiles beyond."
  },
  "rider-a6bhnbwq": {
   "at": [
@@ -437,23 +335,6 @@
    22.80644
   ],
   "scenes": 39,
-  "clear": [
-   [
-    57.51006,
-    22.80393,
-    175
-   ],
-   [
-    57.50721,
-    22.80483,
-    275
-   ],
-   [
-    57.50755,
-    22.81095,
-    225
-   ]
-  ],
   "red": false,
   "bed": "rider-a6bhnbwq",
   "survey": {
@@ -478,16 +359,7 @@
    },
    "doubts": []
   },
-  "bars": [
-   [
-    190,
-    1.2
-   ],
-   [
-    300,
-    2.2
-   ]
-  ]
+  "note": "The rule bars out under the bed (the owner, 22.11.2026: \"make it according our automatic approach\"): the satellite decides what it sees, the depth tiles beyond."
  },
  "rider-fksgy2zv": {
   "at": [
@@ -495,13 +367,6 @@
    24.82676
   ],
   "scenes": 58,
-  "clear": [
-   [
-    59.4677,
-    24.82733,
-    375
-   ]
-  ],
   "bed": "rider-fksgy2zv",
   "survey": {
    "made": "2026-11-21",
@@ -525,12 +390,7 @@
    },
    "doubts": []
   },
-  "bars": [
-   [
-    190,
-    1.2
-   ]
-  ]
+  "note": "The rule bars out under the bed (the owner, 22.11.2026: \"make it according our automatic approach\"): the satellite decides what it sees, the depth tiles beyond."
  },
  "rider-mnbyvcbv": {
   "at": [
@@ -576,13 +436,6 @@
    24.33866
   ],
   "scenes": 57,
-  "clear": [
-   [
-    59.42367,
-    24.33189,
-    250
-   ]
-  ],
   "bed": "rider-psgtkpjx",
   "survey": {
    "made": "2026-11-21",
@@ -608,12 +461,7 @@
     "14 ha read deeper than 1.5 m within 150 m of the beach, shallower sand outside: a dark bottom (weed) or a real trough?"
    ]
   },
-  "bars": [
-   [
-    250,
-    1.2
-   ]
-  ]
+  "note": "The rule bars out under the bed (the owner, 22.11.2026: \"make it according our automatic approach\"): the satellite decides what it sees, the depth tiles beyond."
  },
  "rider-sdjqguhy": {
   "at": [
@@ -661,16 +509,7 @@
    },
    "doubts": []
   },
-  "bars": [
-   [
-    85,
-    1.2
-   ],
-   [
-    190,
-    2.2
-   ]
-  ]
+  "note": "The rule bars out under the bed (the owner, 22.11.2026: \"make it according our automatic approach\"): the satellite decides what it sees, the depth tiles beyond."
  },
  "rider-vzycetmv": {
   "at": [
@@ -678,13 +517,6 @@
    21.89524
   ],
   "scenes": 72,
-  "clear": [
-   [
-    58.47431,
-    21.88986,
-    200
-   ]
-  ],
   "bed": "rider-vzycetmv",
   "survey": {
    "made": "2026-11-21",
@@ -710,12 +542,7 @@
     "a river or channel near the spot (24 ha of narrow water): open it (bars.json river)?"
    ]
   },
-  "bars": [
-   [
-    120,
-    1.2
-   ]
-  ]
+  "note": "The rule bars out under the bed (the owner, 22.11.2026: \"make it according our automatic approach\"): the satellite decides what it sees, the depth tiles beyond."
  },
  "rider-ybdeg2s2": {
   "at": [
@@ -746,12 +573,7 @@
    },
    "doubts": []
   },
-  "bars": [
-   [
-    290,
-    1.2
-   ]
-  ]
+  "note": "The rule bars out under the bed (the owner, 22.11.2026: \"make it according our automatic approach\"): the satellite decides what it sees, the depth tiles beyond."
  },
  "svetciems": {
   "at": [
@@ -759,13 +581,6 @@
    24.3421
   ],
   "scenes": 25,
-  "clear": [
-   [
-    57.70055,
-    24.34313,
-    350
-   ]
-  ],
   "crest": 0.3,
   "crest_note": "The bars' tops below mean sea level, for survey.py's scale (the owner, 20.11.2026: 'they dry at low water, around -0.3').",
   "survey": {
@@ -790,7 +605,8 @@
    },
    "doubts": []
   },
-  "bed": "svetciems"
+  "bed": "svetciems",
+  "note": "The rule bars out under the bed (the owner, 22.11.2026: \"make it according our automatic approach\"): the satellite decides what it sees, the depth tiles beyond."
  },
  "berzciems": {
   "note": "The owner's outlines (20.11.2026: \"i marked all sandbars and behind it lagoons\"; then \"my marked region not exact region of sandbanks. I marked area where they are only\"): inside them the banks from Sentinel-2's calm colour, scaled on the brightest sand as +0.25 m (\"Usually bank appears at 20-30cm water level\") and the outside water as 2.4 m (the lagoon, darker than deep water behind the bar, can't anchor it), contoured at -0.25 (from the unsmoothed depths, water there 30 % of scenes or more) / 0.1 / 0.3 / 0.6 m; the lagoons 0.12 m. Reeds and stones left out. Lagoons widened out to the banks (the owner, 20.11.2026: \"Shallow all across\": the outlines had stopped ~70 m from the reeds, the depth tiles' 2-3 m between): each row's water from the reeds or land to the first bank cell within 450 m. The banks redrawn (the owner, 20.11.2026, the map: \"Bank is shallower than lagoon, raise it. Also is it correct? its like straight line. looks unrealistic\"): the outlines grown 150 m into the sea before contouring, so the satellite's own edge is the bank's face (it had been the outline's straight line); the contours' depths raised above the lagoon's, the shapes kept: -0.25 / -0.15 / -0.05 / 0.05 (were -0.25 / 0.1 / 0.3 / 0.6). The lagoons then filled again to the redrawn banks (+18 cells). The banks now the satellite's bed itself (beds/berzciems, the owner, 20.11.2026: \"this is what we need to implement in our sandbank\", then \"Yes, do A\"): its 10 m depths on the same anchors in place of the 25 contour shapes; the lagoons kept. The lagoons filled again to the bed's bank (+52 cells, 6 ha). The lagoon's outline out (the owner, 22.11.2026, a map screenshot: straight-line patches in the lagoon; then \"A, it's knee deep there\"): drawn row by row on SWAN's 34 m grid and pasted at 0.12 m over the bed, its staircase edge showed on the map; the bed reads the lagoon itself since the red rule (median 0.68 m, 0.4-0.9 m).",

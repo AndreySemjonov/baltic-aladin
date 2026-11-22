@@ -179,19 +179,47 @@ BEDS = Path(__file__).resolve().parent / "beds"
 def bed_for(name):
     """A satellite bed (beds/NAME.json + NAME.bin.gz, survey.py): {"box": world 0-1 [x, y, width, height], "W", "H",
     "base", "step"} and a byte a pixel (rows from the north): base + step x byte metres below mean sea level (negative:
-    above it), 255 none. As "z": metres, NaN none."""
+    above it), 255 none. As "z": metres, NaN none, and "w" its weight 0-1 (1 a reading or near one)."""
     meta = json.loads((BEDS / f"{name}.json").read_bytes().decode())
-    from scipy.ndimage import distance_transform_edt
     b = np.frombuffer(gzip.decompress((BEDS / f"{name}.bin.gz").read_bytes()), np.uint8).reshape(meta["H"], meta["W"])
     z = np.where(b == 255, np.nan, b * meta["step"] + meta["base"]).astype(np.float32)
-    # pixels without a reading up to 8 from one (a dark weed patch, a cloud's speckle) take their nearest reading: left
-    # empty, the coarse depth tiles (2-3 m) showed through them as deep squares on the bank (21.11.2026, Berzciems).
-    # Water too deep to read borders ~2.4 m readings, which _bed doesn't trust anyway, so the tiles still decide there.
+    lat = math.atan(math.sinh(math.pi * (1 - 2 * (meta["box"][1] + meta["box"][3] / 2))))
+    z, w = _bed_fill(z, meta["box"][2] * EARTH * math.cos(lat) / meta["W"])
+    return dict(meta, z=z, w=w)
+
+
+def _bed_fill(z, px):
+    """A bed's readings (NaN none) on px-metre pixels: (z filled, its weight 0-1).
+    Water without a reading (a dark weed patch, a cloud's speckle, the band between a bar and the reeds too dark to
+    read, the beach's rim) filled from the readings round it, finest first, to FILL_M from one: left empty, the old
+    ~100 m depth tiles showed through as deep squares on the bank (21.11.2026, Berzciems), then as stepped blocks
+    beside Haademeeste's reed islands (the owner, 22.11.2026: "make it according our automatic approach", "Yes, all
+    three"). Its weight fades from NEAR_M to FILL_M from a reading, and over EDGE_M inside the window's own edge, so
+    the tiles take over gradually (a straight line across the shallows at the window's edge otherwise). Water too
+    deep to read borders ~2.4 m readings, which _bed doesn't trust anyway, so the tiles still decide there."""
+    from scipy.ndimage import distance_transform_edt, gaussian_filter
+
     ok = ~np.isnan(z)
-    dist, (iy, ix) = distance_transform_edt(~ok, return_indices=True)
-    gap = ~ok & (dist <= 8)
-    z[gap] = z[iy[gap], ix[gap]]
-    return dict(meta, z=z)
+    dist = distance_transform_edt(~ok) * px
+    filled, zz, m = z.copy(), np.where(ok, z, 0.0), ok.astype(np.float32)
+    for s in (20, 40, 80, 160):
+        num, den = gaussian_filter(zz, s / px), gaussian_filter(m, s / px)
+        take = np.isnan(filled) & (den > 0.02)
+        filled[take] = num[take] / den[take]
+    # (the scales' seams evened: one pass over the filled pixels only, the readings as they are)
+    have = np.isfinite(filled)
+    num, den = gaussian_filter(np.where(have, filled, 0.0), 30 / px), gaussian_filter(have.astype(np.float32), 30 / px)
+    soft = ~ok & have & (den > 0.2)
+    filled[soft] = num[soft] / den[soft]
+    w = np.clip((FILL_M - dist) / (FILL_M - NEAR_M), 0, 1)
+    H, W = z.shape
+    yy, xx = np.ogrid[:H, :W]
+    edge = np.minimum(np.minimum(yy, H - 1 - yy), np.minimum(xx, W - 1 - xx)) * px
+    w = (w * np.clip(edge / EDGE_M, 0, 1)).astype(np.float32)
+    return np.where(w > 0, filled, np.nan).astype(np.float32), w
+
+
+NEAR_M, FILL_M, EDGE_M = 70.0, 250.0, 250.0
 
 
 def _bed(depth, box, W, H, bed):
@@ -200,9 +228,9 @@ def _bed(depth, box, W, H, bed):
     points; a grid finer than the bed takes the nearest), blended in by the share it covers and trusted to ~1.2 m, our
     depth tiles' by 2 m (the Baltic's brown water hides the bottom below ~1.5-2 m). Land stays land; a bed above mean sea
     level is wet above its height (-0.9 at most: -1 is land)."""
-    bb, bw, bh, z = bed["box"], bed["W"], bed["H"], bed["z"]
+    bb, bw, bh, z, wt = bed["box"], bed["W"], bed["H"], bed["z"], bed["w"]
     k = max(1, int(round(box[2] / W / (bb[2] / bw) * 1.5)))
-    total, n = np.zeros((H, W)), np.zeros((H, W))
+    total, n, wsum = np.zeros((H, W)), np.zeros((H, W)), np.zeros((H, W))
     for sy in (np.arange(k) + 0.5) / k:
         rr = np.floor(((box[1] + (np.arange(H) + sy) / H * box[3]) - bb[1]) / bb[3] * bh).astype(int)
         for sx in (np.arange(k) + 0.5) / k:
@@ -214,9 +242,10 @@ def _bed(depth, box, W, H, bed):
             ok = np.isfinite(v)
             total += np.where(ok, v, 0.0)
             n += ok
+            wsum[inside] += wt[R[inside], C[inside]]
     zb = total / np.maximum(n, 1)
     t = np.clip((zb - 1.2) / 0.8, 0, 1)
-    trust = n / (k * k) * (1 - t * t * (3 - 2 * t))
+    trust = wsum / (k * k) * (1 - t * t * (3 - 2 * t))
     sea = depth > -1
     depth[sea] = np.maximum(depth[sea] * (1 - trust[sea]) + zb[sea] * trust[sea], -0.9)
 

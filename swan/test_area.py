@@ -35,6 +35,18 @@ def test_shelf():
     assert 0.2 <= d[20, 5] < 0.3 and d[20, 6] < d[20, 15] < d[20, 25] <= 1.2
 
 
+def test_bed_fill():
+    """A hole between a bar (0.2 m) and deeper water (1.4 m) filled from both sides, smoothly; nothing far from a
+    reading; the weight fading to the window's edge."""
+    z = np.full((200, 200), np.nan, np.float32)
+    z[:, 60:80], z[:, 100:120] = 0.2, 1.4  # bar, then a 20-pixel (200 m) hole, then deeper water; land past 120
+    f, w = A._bed_fill(z, 10.0)
+    mid = f[100, 80:100]
+    assert np.all(np.isfinite(mid)) and 0.2 < mid.mean() < 1.4 and np.all(np.diff(mid) >= -1e-3), mid
+    assert 0.8 < w[100, 90] < 0.9 and w[100, 70] == 1.0 and w[100, 150] < 0.1 and np.isnan(f[100, 199])
+    assert w[2, 70] < 0.1 and w[30, 70] == 1.0  # (the window's edge 250 m: 25 pixels)
+
+
 def test_bank_bytes():
     """A bank 0.25 m above mean sea level and a 0.12 m lagoon round-trip through the map's bytes (DEPTH_BASE), land filled."""
     import tables as T
@@ -43,6 +55,11 @@ def test_bank_bytes():
     b = np.frombuffer(T.depth_bytes(d), np.uint8)
     back = b * T.DEPTH_STEP + T.DEPTH_BASE
     assert abs(back[1] + 0.25) < T.DEPTH_STEP / 2 + 1e-6 and abs(back[2] - 0.12) < T.DEPTH_STEP / 2 + 1e-6 and b[3] == 254 and b[0] == b[1] and abs(back[4] - 2.2) < 0.011
+    # reeds as the reed lagoon's water; land far from the sea fades to it (no rays of the nearest sea cell's depth)
+    d = np.full((1, 20), -1.0)
+    d[0, 0], d[0, 1] = 2.0, -2.0
+    back = np.frombuffer(T.depth_bytes(d), np.uint8) * T.DEPTH_STEP + T.DEPTH_BASE
+    assert abs(back[1] - A.LAGOON) < 0.011 and abs(back[3] - A.LAGOON) < 0.011 and abs(back[19] - A.LAGOON) < 0.011
 
 
 def test_survey_ring():
@@ -59,6 +76,7 @@ def test_survey_ring():
 if __name__ == "__main__":
     test_shallows()
     test_shelf()
+    test_bed_fill()
     test_bank_bytes()
     test_survey_ring()
     print("ok")

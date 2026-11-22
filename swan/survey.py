@@ -31,7 +31,7 @@ bottoms blur it below ~1.5-2 m; the scenes' water levels differ (the median's le
   python3 swan/survey.py AREA [--data DIR] [--out DIR] [--crest M]   the scenes into DIR/AREA (kept), OUT/AREA.json
                                                                      (the shallows, the fit, the doubts) and AREA.png
   python3 swan/survey.py AREA --apply [--force] [--keep-bars]        that survey into beds/ and bars.json (doubtful: only
-                                                                     --force; the rule's bars kept under it, --drop-bars drops them)
+                                                                     --force; the rule's bars dropped, --keep-bars keeps them)
   python3 swan/survey.py plan [--only baltic|all|a,b]               the areas to survey (JSON; survey.yml's batch)
   python3 swan/survey.py summary DIR                                 the batch's SUMMARY.md for the review
 """
@@ -642,8 +642,9 @@ def apply(name, out, force=False, keep_bars=False):
     p = HERE / "bars.json"
     bars = json.loads(p.read_bytes().decode("utf-8"))
     e = bars.setdefault(name, {})
-    if not keep_bars:  # (kept by default since 21.11.2026: under the bed, they hold the bars past its ~2 m, Pavilosta's
-        e.pop("bars", None)  # second at 2.2 m; Lielupe's towards Bulduri: the owner, 20.11.2026, "leave it")
+    if not keep_bars:  # (dropped by default again since 22.11.2026, the owner: "make it according our automatic approach")
+        e.pop("bars", None)
+        e.pop("clear", None)  # (the circles only cut the rule's bars)
     kept = [s for s in e.get("shallows", []) if not s["name"].startswith(f"{name} ")]
     if kept:
         e["shallows"] = kept
@@ -668,7 +669,7 @@ if __name__ == "__main__":
     elif name == "summary":
         summary(Path(args[1]))
     elif "--apply" in args:
-        apply(name, out, "--force" in args, "--drop-bars" not in args)
+        apply(name, out, "--force" in args, "--keep-bars" in args)
     else:
         import tables as T
 

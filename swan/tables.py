@@ -164,9 +164,15 @@ def depth_bytes(depth):
     and the shore's cells don't dip). shortcut: only the shallows kept, a byte; deeper beds need 16 bits if the map wants them."""
     from scipy.ndimage import distance_transform_edt
 
-    sea = depth > -1  # (-1 land, -2 reeds; a bank's bed above mean sea level between -1 and 0)
-    _, (r, c) = distance_transform_edt(~sea, return_indices=True)
-    n = np.round((np.where(sea, depth, depth[r, c]) - DEPTH_BASE) / DEPTH_STEP)
+    # Reeds as the reed lagoon's water (they stand in it), and land: its rim of 3 cells the nearest sea cell's (the map's
+    # shoreline samples there: no dark rim), further in fading over 8 cells to the reed lagoon's depth. All the nearest
+    # sea cell's before, its rays showed as fans and wedges where the map's coast has water ours calls land (the lagoon
+    # behind Haademeeste's reed islands: the owner, 22.11.2026, "make it according our automatic approach").
+    depth = np.where(depth == -2, A.LAGOON, depth)
+    sea = depth > -1  # (-1 land; a bank's bed above mean sea level between -1 and 0)
+    dist, (r, c) = distance_transform_edt(~sea, return_indices=True)
+    f = np.clip((dist - 3) / 8, 0, 1)
+    n = np.round((np.where(sea, depth, depth[r, c] * (1 - f) + A.LAGOON * f) - DEPTH_BASE) / DEPTH_STEP)
     return np.where(n > 253, 254, np.clip(n, 0, 253)).astype(np.uint8).tobytes()
 
 
