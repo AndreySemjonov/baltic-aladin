@@ -307,6 +307,49 @@ def waterline(G, NI, days, lv, top, L):
     return (float(np.median(hs)), len(hs), float(np.median(ls))) if len(hs) >= 30 else (None, len(hs), None)
 
 
+def flat_heights(G, NI, days, lv, cand, reach):
+    """Each candidate pixel's height (m above mean sea level) by the waterline method, the brightest sand's rule
+    (waterline) for every pixel that dries: its scenes wet or dry (green over near-infrared) sorted by their level, the
+    height the level splitting them best, at most a fifth on the wrong side, 3+ of each, inside the levels seen and the
+    tide's reach. All at once: running counts of wet and dry over the sorted scenes give every split's misses (a big
+    tide's flats are ~10^5 pixels). NaN where none. On a tidal coast the flats dry every low tide and stand up to 3-4 m
+    above mean sea level on a 6-8 m one; the brightest sand alone gave one crest (the owner, 22.11.2026: "Big tides
+    first")."""
+    k = [i for i, d in enumerate(days) if d in lv]
+    out = np.full(cand.shape, np.nan, np.float32)
+    if len(k) < 12 or not cand.any():
+        return out
+    LV = np.array([lv[days[i]] for i in k])
+    order = np.argsort(LV)
+    LV = LV[order]
+    rr, cc = np.nonzero(cand)
+    g, n = G[np.array(k)[order]][:, rr, cc], NI[np.array(k)[order]][:, rr, cc]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        wet = (g - n) / (g + n) > 0
+    ok = np.isfinite(g) & np.isfinite(n)
+    W, D = (wet & ok).astype(np.int16), (~wet & ok).astype(np.int16)
+    cw, cd = np.cumsum(W, 0)[:-1], np.cumsum(D, 0)[:-1]  # (wet and dry among the scenes below each split)
+    wrong = cw + (D.sum(0) - cd)  # (wet below the split, dry above it)
+    # (The middle of the splits within one miss of the best: with misread scenes several score nearly alike, and the
+    # first best jumped up to 0.7 m in the test's trials.)
+    least = wrong.min(0)
+    mids = (LV[:-1] + LV[1:]) / 2
+    with np.errstate(invalid="ignore"):
+        h = np.nanmedian(np.where(wrong <= least + 1, mids[:, None], np.nan), 0)
+    seen = ok.sum(0)
+    good = (least <= 0.2 * seen) & (W.sum(0) >= 3) & (D.sum(0) >= 3) & \
+        (h > LV[1]) & (h < LV[-2]) & (np.abs(h) <= reach + 0.3)
+    out[rr[good], cc[good]] = h[good]
+    # (Each with its 3 x 3 neighbours' median where 5+ have a height: flats are smooth over 10 m, a misread pixel isn't;
+    # in the test's trials with a tenth of the scenes misread the worst pixel went from 0.55 m off to ~0.2.)
+    pad = np.pad(out, 1, constant_values=np.nan)
+    stack = np.stack([pad[1 + dy:1 + dy + out.shape[0], 1 + dx:1 + dx + out.shape[1]] for dy in (-1, 0, 1) for dx in (-1, 0, 1)])
+    with np.errstate(invalid="ignore"), __import__("warnings").catch_warnings():
+        __import__("warnings").simplefilter("ignore")
+        med = np.nanmedian(stack, 0)
+    return np.where(np.isfinite(out) & (np.isfinite(stack).sum(0) >= 5), med, out).astype(np.float32)
+
+
 def _bed_out(name, a, Z, valid, meta, out):
     """The depths (Z, m below mean sea level, UTM's 10 m pixels) where valid, on the area's fine grid (tables.FINE x
     SWAN's) over the window: OUT/NAME-bed.json + .bin.gz (area.py bed_for: 2 cm steps from the depths' base, 255 none)."""
@@ -334,9 +377,11 @@ def _bed_out(name, a, Z, valid, meta, out):
     rr, cc = np.clip(rr, 0, N - 1), np.clip(cc, 0, N - 1)
     z = Z[rr, cc]
     good = inside & valid[rr, cc] & np.isfinite(z) & (z <= 2.5)
-    b = np.where(good, np.clip(np.round((np.maximum(z, -0.9) - T.DEPTH_BASE) / T.DEPTH_STEP), 0, 254), 255).astype(np.uint8)
-    (out / f"{name}-bed.json").write_text(json.dumps({"box": bbox, "W": bw, "H": bh, "base": T.DEPTH_BASE,
-                                                       "step": T.DEPTH_STEP, "note": f"survey.py {time.strftime('%Y-%m-%d')}"}, indent=1))
+    # (The area's own range, tables.py depth_scale: on a tidal coast flats above mean sea level as high as they stand.)
+    base, step = T.depth_scale(*A_middle(a["box"]))
+    b = np.where(good, np.clip(np.round((z - base) / step), 0, 254), 255).astype(np.uint8)
+    (out / f"{name}-bed.json").write_text(json.dumps({"box": bbox, "W": bw, "H": bh, "base": base,
+                                                       "step": step, "note": f"survey.py {time.strftime('%Y-%m-%d')}"}, indent=1))
     (out / f"{name}-bed.bin.gz").write_bytes(gzip.compress(b.tobytes(), 9))
     return int(good.sum())
 
@@ -664,21 +709,37 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     river_ha = float((river & (spot <= 1500)).sum() / 100)
     if river_ha >= 10:  # (1-10 ha: ditches, harbour basins; the river mouths here 16-43 ha)
         doubts.append(f"a river or channel near the spot ({river_ha:.0f} ha of narrow water): open it (bars.json river)?")
+    # On a tidal coast the flats' heights by the waterline method (flat_heights): every pixel joined to the sea that is
+    # wet in 5-95 % of the scenes, its measured height instead of its colour's depth (the colour of wet sand at low tide
+    # says nothing of how high it stands). The Baltic as before.
+    flat, flats_ha, reach = np.zeros_like(dom), 0.0, tide.reach(lat, lon)
+    if reach >= TIDAL and lv:
+        lab2, _ = label(wfrac >= 0.05)
+        joined2 = np.unique(lab2[sea])
+        cand = np.isin(lab2, joined2[joined2 > 0]) & (wfrac >= 0.05) & (wfrac <= 0.95)
+        use_s = still if still.sum() >= 12 else np.ones(len(days), bool)
+        hts = flat_heights(G[use_s], NI[use_s], [d for d, s in zip(days, use_s) if s], lv, cand, reach)
+        flat = np.isfinite(hts)
+        Z = np.where(flat, -hts, Z)
+        flats_ha = float(flat.sum() / 100)
+        print(name, f"flats: {flats_ha:.0f} ha measured by the waterline, heights "
+              f"{np.nanpercentile(hts, 5) if flat.any() else 0:+.2f}..{np.nanpercentile(hts, 95) if flat.any() else 0:+.2f} m", flush=True)
 
-    stat = {lev: float(((Z <= lev) & dom).sum()) / 100 for lev in LEVELS}
+    stat = {lev: float(((Z <= lev) & (dom | flat)).sum()) / 100 for lev in LEVELS}
     if two_k < 0.4 and not how.startswith("measured"):
         doubts.append(f"a weak fit (2K {two_k:.2f}/m, the crest given): bars further out may be missing")
-    dry, under1 = float(((Z < 0) & dom).sum()) / 100, stat[1.0]
+    # (Drying judged off the measured flats: on a tidal coast they dry by nature.)
+    dry, under1 = float(((Z < 0) & dom & ~flat).sum()) / 100, float(((Z <= 1.0) & dom & ~flat).sum()) / 100
     if under1 > 0 and dry / under1 > 0.3:
         doubts.append(f"{dry:.0f} of the {under1:.0f} ha under 1 m read as drying")
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    pixels = _bed_out(name, a, Z, dom, meta, out)
+    pixels = _bed_out(name, a, Z, dom | flat, meta, out)
     rgb = np.nanmedian(RB[calm], 0) if np.isfinite(RB[calm]).any() else None
     res = {"area": name, "made": time.strftime("%Y-%m-%d"), "scenes": len(G), "calm": int(calm.sum()),
            "fit": {"a": round(a0, 3), "b": round(b, 3), "2K": round(two_k, 2), "crest": [round(L_crest, 3), round(crest, 2), how],
                    "water": [round(L_w, 3), round(D_w, 2), int(ok.sum())], "halves": round(split, 2)},
-           "ha": {f"{k:g}": round(v, 1) for k, v in stat.items()}, "dark_ha": round(dark_ha, 1), "red_ha": round(red_ha, 1), "weed_ha": round(weed_ha, 1), "laser": laser, "doubts": doubts,
+           "ha": {f"{k:g}": round(v, 1) for k, v in stat.items()}, "dark_ha": round(dark_ha, 1), "red_ha": round(red_ha, 1), "weed_ha": round(weed_ha, 1), "flats_ha": round(flats_ha, 1), "laser": laser, "doubts": doubts,
            "bed": pixels, "sheet": f"{name}.png"}
     (out / f"{name}.json").write_text(json.dumps(res, indent=1))
     _picture(out / f"{name}.png", Z, water, dom | river, plants, river, res, meta, LAT, LON,
@@ -744,7 +805,8 @@ def _picture(path, Z, water, shown, plants, river, res, meta, LAT, LON, colour=N
              f"halves {f['halves']} m",
              "ha shallower than: " + ", ".join(f"{k} m {v}" for k, v in res["ha"].items()) +
              f"; dark bottoms: {res.get('red_ha', 0)} ha by red, {res.get('dark_ha', 0)} ha evened (tinted magenta), "
-             f"{res.get('weed_ha', 0)} ha at the beach left out as weed",
+             f"{res.get('weed_ha', 0)} ha at the beach left out as weed; {res.get('flats_ha', 0)} ha of tidal flats "
+             f"measured by the waterline",
              laser_text(res.get("laser")),
              "doubts: " + ("; ".join(res["doubts"]) or "none")]
     for k, s in enumerate(lines):

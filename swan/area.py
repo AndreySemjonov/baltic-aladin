@@ -35,6 +35,10 @@ WORLDCOVER = "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map
 GREEN = (10, 20, 30, 90, 95, 100)
 # The water reeds shut in, at most this deep (m) at the mean level (_worldcover).
 LAGOON = 0.2
+# The bed's codes: land and reeds far below any height, so ground can stand above mean sea level as far as a tide takes
+# it (-1 land and -2 reeds before capped a bank at +0.9 m; tidal flats stand 3-4 m over the mean on a 6-8 m coast: the
+# owner, 22.11.2026, "there is spots with tide difference 6-8m even ... Big tides first"). Sea: above SEA_MIN.
+LAND, REED, SEA_MIN = -100.0, -99.0, -50.0
 UA = {"User-Agent": "meteogust-swan/1"}
 EARTH = 40075016.686
 
@@ -153,7 +157,7 @@ def build(box, W, H, outlines=None, bars=None, cover=None):
             g, known = _sample("coast", 10, mx, my)
             e = (127.5 - g) / 16 * coast_m if known else 5000.0
             if e < 0:
-                depth[r, c] = -1
+                depth[r, c] = LAND
                 continue
             d = max(e, 0.0)
             dean = min(0.2 + 0.12 * min(d, 20000.0) ** (2 / 3), 200.0)
@@ -166,9 +170,9 @@ def build(box, W, H, outlines=None, bars=None, cover=None):
                 h = min(dean, tile + 2) * (1 - s) + tile * s
             else:
                 h = dean
-            depth[r, c] = h if h >= 0.1 else -1
+            depth[r, c] = h if h >= 0.1 else LAND
     opened = _worldcover(depth, box, W, H, outlines, river=(bars or {}).get("river", 0))
-    shore = depth < 0
+    shore = depth <= SEA_MIN
     _breakwaters(depth, box, W, H)
     if bars and bars.get("bars"):
         # (The breakwaters' own cells, land before them or not: Pavilosta's moles are in the coast already.)
@@ -247,7 +251,7 @@ def _bed(depth, box, W, H, bed, cover=None):
     what we need to implement in our sandbank", then "Yes, do A"): each cell the mean of the bed's pixels in it (k x k
     points; a grid finer than the bed takes the nearest), blended in by the share it covers and trusted to ~1.2 m, our
     depth tiles' by 2 m (the Baltic's brown water hides the bottom below ~1.5-2 m). Land stays land; a bed above mean sea
-    level is wet above its height (-0.9 at most: -1 is land)."""
+    level is wet above its height (any height: LAND is apart)."""
     bb, bw, bh, z, wt = bed["box"], bed["W"], bed["H"], bed["z"], bed["w"]
     k = max(1, int(round(box[2] / W / (bb[2] / bw) * 1.5)))
     total, n, wsum = np.zeros((H, W)), np.zeros((H, W)), np.zeros((H, W))
@@ -267,8 +271,8 @@ def _bed(depth, box, W, H, bed, cover=None):
     wsum = np.where(n > 0, wsum, 0)  # (a cell without a reading isn't 0 m: _bed_fill's lone readings, the rings)
     t = np.clip((zb - 1.2) / 0.8, 0, 1)
     trust = wsum / (k * k) * (1 - t * t * (3 - 2 * t))
-    sea = depth > -1
-    depth[sea] = np.maximum(depth[sea] * (1 - trust[sea]) + zb[sea] * trust[sea], -0.9)
+    sea = depth > SEA_MIN
+    depth[sea] = depth[sea] * (1 - trust[sea]) + zb[sea] * trust[sea]
     # (Where the satellite read, at any depth: the map draws the depth only there, the owner, 22.11.2026, "Yes, A + C".)
     if cover is not None:
         cover[:] = wsum / (k * k)
@@ -278,19 +282,19 @@ def _shallows(depth, box, W, H, shallows):
     """Outlined shallows at the depth they usually have (bars.json "shallows": [{"name", "depth", "ring": [[lat, lon], ...]}]):
     the sea cells whose middles are inside an outline at most that deep, e.g. a lagoon behind an offshore sandbank and the
     bank's crest (the owner, 20.11.2026, Berzciems: "A sandbank offshore"), where the depth tiles' ~100 m pixels have it
-    metres too deep. A depth below 0 is a bed above mean sea level (to -0.9 m: -1 is land): dry below that level, wet above
+    metres too deep. A depth below 0 is a bed above mean sea level: dry below that level, wet above
     ("Usually bank appears at 20-30cm water level": -0.25)."""
     from PIL import Image, ImageDraw
 
     for s in shallows:
-        assert -0.9 <= s["depth"], s
+        assert s["depth"] > SEA_MIN, s
         img = Image.new("L", (W, H), 0)
         pts = []
         for lat, lon in s["ring"]:
             my = (1 - math.log(math.tan(math.pi / 4 + math.radians(lat) / 2)) / math.pi) / 2
             pts.append(((((lon + 180) / 360) - box[0]) / box[2] * W - 0.5, (my - box[1]) / box[3] * H - 0.5))
         ImageDraw.Draw(img).polygon(pts, fill=1)
-        inside = (np.asarray(img) > 0) & (depth >= 0)
+        inside = (np.asarray(img) > 0) & (depth > SEA_MIN)
         depth[inside] = np.minimum(depth[inside], s["depth"])
 
 
@@ -313,7 +317,7 @@ def _bars(depth, box, W, H, bars, shore, walls):
     east = (lons[None, :] - lon0) * 111195.0 * math.cos(math.radians(lat0))
     near = np.hypot(north, east)
     t = np.clip((near - 2000.0) / 500.0, 0, 1)
-    w = (1 - t * t * (3 - 2 * t)) * (depth >= 0) * (away > 250)
+    w = (1 - t * t * (3 - 2 * t)) * (depth > SEA_MIN) * (away > 250)
     # shortcut: a harbour whose moles aren't in the breakwater tiles (Pavilosta) kept clear by hand; the tiles if more come.
     for clat, clon, r in bars.get("clear", []):
         w[np.hypot((lats[:, None] - clat) * 111195.0, (lons[None, :] - clon) * 111195.0 * math.cos(math.radians(clat))) < r] = 0
@@ -337,7 +341,7 @@ def _shelf(depth, box, W, H, bars, shore):
     lat0, lon0 = bars["at"]
     near = np.hypot((lats[:, None] - lat0) * 111195.0, (lons[None, :] - lon0) * 111195.0 * math.cos(math.radians(lat0)))
     t = np.clip((near - 2000.0) / 500.0, 0, 1)
-    w = (1 - t * t * (3 - 2 * t)) * (depth >= 0)
+    w = (1 - t * t * (3 - 2 * t)) * (depth > SEA_MIN)
     xs, hs = zip(*bars["shelf"])
     cap = np.interp(d, xs, hs)
     depth[:] = np.where((w > 0) & (depth > cap), depth - w * (depth - cap), depth)
@@ -388,30 +392,30 @@ def _worldcover(depth, box, W, H, outlines=None, sub=3, river=0):
     water, green = share(wc == 80) > 0.5, share(np.isin(wc, GREEN)) > 0.5
     # (Within ~400 m of our coast's sea: its shore's errors, not a lake inland, Liepaja's 2 km^2.)
     cell = box[2] * EARTH * math.cos(math.radians(float(lats.mean()))) / W
-    new = (depth == -1) & water & (distance_transform_edt(depth < 0) <= 12)
+    new = (depth == LAND) & water & (distance_transform_edt(depth <= SEA_MIN) <= 12)
     if river:
         # (Up the water from the sea, river metres along it: the Lielupe runs behind Jurmala's dunes within 2.5 km of the
         # sea for 30 km, and by the straight distance 4 km^2 of it opened; a lake or pond near it not at all.)
-        reach, wet = depth >= 0, ((depth == -1) & water) | (depth >= 0)
+        reach, wet = depth > SEA_MIN, ((depth == LAND) & water) | (depth > SEA_MIN)
         for _ in range(round(river / cell)):
             grown = binary_dilation(reach) & wet
             if (grown == reach).all():
                 break
             reach = grown
-        new |= reach & (depth == -1)
+        new |= reach & (depth == LAND)
     if new.any():
         d = distance_transform_edt(water) * cell
         depth[new] = np.minimum(0.2 + 0.12 * d[new] ** (2 / 3), 200.0)
-    depth[(depth >= 0) & green] = -2
-    if (depth == -2).any():
+    depth[(depth > SEA_MIN) & green] = REED
+    if (depth == REED).any():
         r = max(1, round(170 / cell))
         y, x = np.ogrid[-r:r + 1, -r:r + 1]
         disk = x * x + y * y <= r * r
-        land = depth == -1
-        shut = binary_closing(land | (depth == -2), disk) & ~binary_closing(land, disk) & (depth >= 0)
+        land = depth == LAND
+        shut = binary_closing(land | (depth == REED), disk) & ~binary_closing(land, disk) & (depth > SEA_MIN)
         depth[shut] = np.minimum(depth[shut], LAGOON)
-    if outlines is not None and (depth == -2).any():
-        outlines += _outline(np.isin(wc, GREEN), depth == -2, box, sub)
+    if outlines is not None and (depth == REED).any():
+        outlines += _outline(np.isin(wc, GREEN), depth == REED, box, sub)
     return new
 
 
@@ -466,7 +470,7 @@ def _breakwaters(depth, box, W, H):
             for cy in range(math.ceil(y - 0.75), math.floor(y + 0.75) + 1):
                 for cx in range(math.ceil(x - 0.75), math.floor(x + 0.75) + 1):
                     if 0 <= cx < W and 0 <= cy < H and (cx - x) ** 2 + (cy - y) ** 2 <= 0.5625:
-                        depth[cy, cx] = -1
+                        depth[cy, cx] = LAND
 
     for key in keys:
         t = json.loads(_get(f"{FILES}breakwaters/v1/{z}-{key}.json") or b'{"p":[],"l":[]}')
@@ -492,5 +496,5 @@ if __name__ == "__main__":
     side = float(sys.argv[3]) if len(sys.argv) > 3 else 8700.0
     cells = int(sys.argv[4]) if len(sys.argv) > 4 else 256
     d = build(box_round(lat, lon, side), cells, cells)
-    sea = d >= 0
-    print(f"{cells}x{cells} cells of {side / cells:.0f} m: sea {sea.mean() * 100:.0f} %, depth max {d[sea].max():.1f} m, mean {d[sea].mean():.1f} m, reeds {(d == -2).sum()} cells")
+    sea = d > SEA_MIN
+    print(f"{cells}x{cells} cells of {side / cells:.0f} m: sea {sea.mean() * 100:.0f} %, depth max {d[sea].max():.1f} m, mean {d[sea].mean():.1f} m, reeds {(d == REED).sum()} cells")

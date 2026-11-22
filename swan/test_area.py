@@ -13,13 +13,13 @@ def test_shallows():
     """An outline over a flat 3 m sea caps exactly the sea cells inside it, land untouched."""
     box, W, H = [0.56, 0.31, 0.0004, 0.0004], 40, 40
     d = np.full((H, W), 3.0)
-    d[:, :5] = -1
+    d[:, :5] = A.LAND
     lat = lambda my: math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * my))))  # noqa: E731
     lon = lambda mx: mx * 360 - 180  # noqa: E731
     at = lambda r, c: [lat(box[1] + r / H * box[3]), lon(box[0] + c / W * box[2])]  # noqa: E731
     A._shallows(d, box, W, H, [{"name": "test", "depth": 0.3, "ring": [at(10, 2), at(10, 20), at(20, 20), at(20, 2)]}])
     capped = d == 0.3
-    assert d[:, :5].max() == -1
+    assert d[:, :5].max() == A.LAND
     assert capped[10:20, 5:20].all() and not capped[:9].any() and not capped[21:].any() and not capped[:, 21:].any()
 
 
@@ -27,11 +27,11 @@ def test_shelf():
     """A shelf caps a flat 3 m sea by the distance from the waterline near "at"; land, shallower water and far cells kept."""
     box, W, H = [0.56, 0.31, 0.00004, 0.00004], 40, 40  # (~22 m cells, the 40 well inside the shelf's 2 km)
     d = np.full((H, W), 3.0)
-    d[:, :5] = -1
+    d[:, :5] = A.LAND
     d[20, 30] = 0.1
     lat = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * (box[1] + box[3] / 2)))))
-    A._shelf(d, box, W, H, {"at": [lat, box[0] * 360 - 180], "shelf": [[0, 0.2], [300, 0.7], [700, 1.2]]}, d < 0)
-    assert d[:, :5].max() == -1 and d[20, 30] == 0.1
+    A._shelf(d, box, W, H, {"at": [lat, box[0] * 360 - 180], "shelf": [[0, 0.2], [300, 0.7], [700, 1.2]]}, d <= A.SEA_MIN)
+    assert d[:, :5].max() == A.LAND and d[20, 30] == 0.1
     assert 0.2 <= d[20, 5] < 0.3 and d[20, 6] < d[20, 15] < d[20, 25] <= 1.2
 
 
@@ -77,13 +77,13 @@ def test_bank_bytes():
     """A bank 0.25 m above mean sea level and a 0.12 m lagoon round-trip through the map's bytes (DEPTH_BASE), land filled."""
     import tables as T
 
-    d = np.array([[-1.0, -0.25, 0.12, 5.0, 2.2]])
+    d = np.array([[A.LAND, -0.25, 0.12, 5.0, 2.2]])
     b = np.frombuffer(T.depth_bytes(d), np.uint8)
     back = b * T.DEPTH_STEP + T.DEPTH_BASE
     assert abs(back[1] + 0.25) < T.DEPTH_STEP / 2 + 1e-6 and abs(back[2] - 0.12) < T.DEPTH_STEP / 2 + 1e-6 and b[3] == 254 and b[0] == b[1] and abs(back[4] - 2.2) < 0.011
     # reeds as the reed lagoon's water; land far from the sea fades to it (no rays of the nearest sea cell's depth)
-    d = np.full((1, 20), -1.0)
-    d[0, 0], d[0, 1] = 2.0, -2.0
+    d = np.full((1, 20), A.LAND)
+    d[0, 0], d[0, 1] = 2.0, A.REED
     back = np.frombuffer(T.depth_bytes(d), np.uint8) * T.DEPTH_STEP + T.DEPTH_BASE
     assert abs(back[1] - A.LAGOON) < 0.011 and abs(back[3] - A.LAGOON) < 0.011 and abs(back[19] - A.LAGOON) < 0.011
 
@@ -117,6 +117,31 @@ def test_laser_correction():
     fix = S.laser_correction((900, 900), rows, cols, miss)
     assert abs(fix[450, 400] + 0.6) < 0.25 and abs(fix[450, 420] + 0.6) < 0.25, (fix[450, 400], fix[450, 420])
     assert fix[450, 550] == 0.0 and fix[450, 250] == 0.0  # (1.5 km off)
+
+
+def test_flat_heights():
+    """survey.py flat_heights: a sloping flat (-1.8 to +1.8 m over mean sea level) on a 4.4 m tide, wet in a scene when
+    the tide stands above it, a tenth of the scenes misread: 95 % of the heights within 0.15 m, none over 0.35; a pixel
+    always wet (never uncovered) has none."""
+    import survey as S
+
+    rng = np.random.default_rng(2)
+    S_ = 80
+    levels = rng.uniform(-2.2, 2.2, S_)
+    days = [f"2025-{1 + i // 28:02d}-{1 + i % 28:02d}" for i in range(S_)]
+    yy, xx = np.mgrid[0:30, 0:30]
+    truth = -1.8 + 3.6 * xx / 29 + 0.2 * np.sin(yy / 4)
+    truth[15, 0] = -9.0  # (below every tide: always wet)
+    wet = levels[:, None, None] > truth[None]
+    wet ^= rng.random(wet.shape) < 0.1  # (misread)
+    wet[:, 15, 0] = True
+    G = np.where(wet, 0.08, 0.05).astype(np.float32)
+    NI = np.where(wet, 0.02, 0.15).astype(np.float32)
+    h = S.flat_heights(G, NI, days, dict(zip(days, levels)), np.ones((30, 30), bool), 2.0)
+    assert np.isnan(h[15, 0]), h[15, 0]
+    e = np.abs(h - truth)[1:-1, 1:-1]
+    e = e[np.isfinite(e)]
+    assert np.percentile(e, 95) < 0.15 and e.max() < 0.35, (np.percentile(e, 95), e.max())
 
 
 def test_laser_fit():
@@ -154,4 +179,5 @@ if __name__ == "__main__":
     test_survey_ring()
     test_icesat_span()
     test_laser_fit()
+    test_flat_heights()
     print("ok")

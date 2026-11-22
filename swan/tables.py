@@ -68,9 +68,11 @@ def levels_for(lat, lon):
 
     reach = tide.reach(lat, lon)
     if reach >= tide.TIDAL:
-        # (Three for a small tide, the Mediterranean's 0.3 m: -0.6, 0, 0.6; five for a big one.)
+        # (Three for a small tide, the Mediterranean's 0.3 m: -0.6, 0, 0.6; five for a 1 m one; past that at most 1 m
+        # apart: a bank between two levels 2 m apart came out wrong; the Stor's seven, St-Malo's ~17; the owner,
+        # 22.11.2026: "Big tides first".)
         span = reach + 0.2
-        step = max(0.6, span / 2)
+        step = min(max(0.6, span / 2), 1.0)
         k = math.ceil(span / step - 1e-9)
         return [round(i * step, 1) for i in range(-k, k + 1)]
     return GULF_LEVELS if 56.9 <= lat <= 58.5 and 22.55 <= lon <= 24.7 else SEA_LEVELS
@@ -159,17 +161,32 @@ DEPTH_STEP = 0.02
 FINE = 4
 
 
+def depth_scale(lat, lon):
+    """An area's depth bytes' base and step (the index's depthBase, depthStep; the map reads them per area): the
+    Baltic's DEPTH_BASE and DEPTH_STEP; on a tidal coast from just over its highest tide (the reach + 0.5 m above mean
+    sea level: flats that dry every low tide stand up to 3-4 m above it on a 6-8 m coast) to 4.5 m below its lowest, in
+    as fine steps as 253 allow (Cape Town +1.6..-5.6 m in 2.8 cm; the owner, 22.11.2026: "Big tides first")."""
+    import tide
+
+    reach = tide.reach(lat, lon)
+    if reach < tide.TIDAL:
+        return DEPTH_BASE, DEPTH_STEP
+    base = -round(reach + 0.5, 1)
+    return base, round(max(DEPTH_STEP, (reach + 4.5 - base) / 253), 3)
+
+
 def map_depth(area, box, W, H, depth):
     """The map's depth bytes (depth_bytes), their grid's size (SWAN's grid, or with a satellite bed built FINE x finer) and
     where the depth is known: the bed's share a cell as bytes (0-255, measured.bin.gz), "owner" where the owner gave the
     beach's shape (bars.json "owner": Liepaja DR's bars, Parnu's shelf), else None: the old depth tiles' only, which the
     map doesn't draw (the owner, 22.11.2026, Puunsi's flats drawn 2-4 m: "Yes, A + C")."""
     bars = bars_for(area) or {}
+    scale = depth_scale(*box_middle(box))
     if bars.get("bed"):
         cover = np.zeros((H * FINE, W * FINE), np.float32)
-        b = depth_bytes(A.build(box, W * FINE, H * FINE, None, bars, cover))
+        b = depth_bytes(A.build(box, W * FINE, H * FINE, None, bars, cover), *scale)
         return b, W * FINE, H * FINE, np.round(np.clip(cover, 0, 1) * 255).astype(np.uint8).tobytes()
-    return depth_bytes(depth), W, H, "owner" if bars.get("owner") else None
+    return depth_bytes(depth, *scale), W, H, "owner" if bars.get("owner") else None
 
 
 def measured_key(measured):
@@ -177,7 +194,7 @@ def measured_key(measured):
     return "bed" if isinstance(measured, bytes) else measured
 
 
-def depth_bytes(depth):
+def depth_bytes(depth, base=DEPTH_BASE, step=DEPTH_STEP):
     """The bed for the map's shallows (the owner, 20.11.2026: "show lagoon with sandbags on map too depending on water
     level", then "Yes, build A"): a byte a cell (W x H, rows from the north), DEPTH_STEPs below DEPTH_BASE (a sandbank's
     crest up to 0.5 m above mean sea level: Berzciems's, "Usually bank appears at 20-30cm water level") to 4.56 m below
@@ -189,11 +206,11 @@ def depth_bytes(depth):
     # shoreline samples there: no dark rim), further in fading over 8 cells to the reed lagoon's depth. All the nearest
     # sea cell's before, its rays showed as fans and wedges where the map's coast has water ours calls land (the lagoon
     # behind Haademeeste's reed islands: the owner, 22.11.2026, "make it according our automatic approach").
-    depth = np.where(depth == -2, A.LAGOON, depth)
-    sea = depth > -1  # (-1 land; a bank's bed above mean sea level between -1 and 0)
+    depth = np.where(depth == A.REED, A.LAGOON, depth)
+    sea = depth > A.SEA_MIN  # (A.LAND land; a bank's bed above mean sea level negative)
     dist, (r, c) = distance_transform_edt(~sea, return_indices=True)
     f = np.clip((dist - 3) / 8, 0, 1)
-    n = np.round((np.where(sea, depth, depth[r, c] * (1 - f) + A.LAGOON * f) - DEPTH_BASE) / DEPTH_STEP)
+    n = np.round((np.where(sea, depth, depth[r, c] * (1 - f) + A.LAGOON * f) - base) / step)
     return np.where(n > 253, 254, np.clip(n, 0, 253)).astype(np.uint8).tobytes()
 
 
@@ -219,8 +236,7 @@ def depths(names=None):
     for a in todo:
         if a["area"] in now:
             now[a["area"]]["depth"] = stamp
-            now[a["area"]]["depthBase"] = DEPTH_BASE
-            now[a["area"]]["depthStep"] = DEPTH_STEP
+            now[a["area"]]["depthBase"], now[a["area"]]["depthStep"] = depth_scale(*box_middle(a["box"]))
             # (The map's grid's size where finer than SWAN's: a satellite bed's.)
             now[a["area"]].pop("depthW", None), now[a["area"]].pop("depthH", None)
             if a["depthW"] != a["W"]:
@@ -246,7 +262,7 @@ def make(spec, out):
     depth = A.build(box, W, H, outlines, bars_for(spec["area"]))
     lat = math.atan(math.sinh(math.pi * (1 - 2 * (box[1] + box[3] / 2))))
     dx = dy = box[2] * A.EARTH * math.cos(lat) / W
-    sea = depth >= 0
+    sea = depth > A.SEA_MIN
     if sea.mean() < 0.02:
         print(spec["area"], "no sea in the box: skipped")
         return None
@@ -254,7 +270,7 @@ def make(spec, out):
     r, c = np.unravel_index(np.argmax(np.where(sea, depth, -1)), depth.shape)
     mx, my = box[0] + (c + 0.5) / W * box[2], box[1] + (r + 0.5) / H * box[3]
     off = [round(math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * my)))), 5), round(mx * 360 - 180, 5)]
-    reeds = depth == -2
+    reeds = depth == A.REED
     if reeds.any():
         (home / "out").mkdir(exist_ok=True)
         (home / "out" / "reeds.bin.gz").write_bytes(gzip.compress(reeds.astype(np.uint8).tobytes(), 9))
@@ -268,8 +284,8 @@ def make(spec, out):
             (home / "out" / "measured.bin.gz").write_bytes(gzip.compress(meas, 9))
     print(spec["area"], f"level {level:g} grid {time.time() - t0:.0f} s: reeds {reeds.sum()} cells, sea {sea.mean() * 100:.0f} %, deepest {depth.max():.0f} m at {off}", flush=True)
     bed = np.where(reeds, REEDS["bed"], depth)
-    # (Land -9; a bank's bed above mean sea level as it is, negative: dry below its height, wet above.)
-    (home / "bottom.dat").write_text("\n".join(" ".join("-9" if d <= -1 else f"{d:.2f}" for d in row) for row in bed) + "\n")
+    # (Land -999; a bank's bed above mean sea level as it is, negative: dry below its height, wet above.)
+    (home / "bottom.dat").write_text("\n".join(" ".join("-999" if d <= A.SEA_MIN else f"{d:.2f}" for d in row) for row in bed) + "\n")
     if reeds.any():
         (home / "plants.dat").write_text("\n".join(" ".join(str(REEDS["density"]) if r else "0" for r in row) for row in reeds) + "\n")
     x0, y0, xl, yl = dx / 2, dy / 2, (W - 1) * dx, (H - 1) * dy
@@ -277,7 +293,7 @@ def make(spec, out):
 MODE STATIONARY TWODIMENSIONAL
 COORDINATES CARTESIAN
 CGRID REGULAR {x0:.1f} {y0:.1f} 0 {xl:.1f} {yl:.1f} {W - 1} {H - 1} CIRCLE 24 0.05 1.0 23
-INPGRID BOTTOM REGULAR {x0:.1f} {y0:.1f} 0 {W - 1} {H - 1} {dx:.3f} {dy:.3f} EXCEPTION -9
+INPGRID BOTTOM REGULAR {x0:.1f} {y0:.1f} 0 {W - 1} {H - 1} {dx:.3f} {dy:.3f} EXCEPTION -999
 READINP BOTTOM 1 '../../bottom.dat' 1 0 FREE
 """
     if reeds.any():
@@ -324,7 +340,7 @@ STOP
             "reeds": int(reeds.sum()),
             "made": time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())}
     if not ldir:
-        meta["depth"], meta["depthBase"], meta["depthStep"] = meta["made"], DEPTH_BASE, DEPTH_STEP
+        meta["depth"], (meta["depthBase"], meta["depthStep"]) = meta["made"], depth_scale(*box_middle(box))
         if depthW != W:
             meta["depthW"], meta["depthH"] = depthW, depthH
         if measured_key(meas):
