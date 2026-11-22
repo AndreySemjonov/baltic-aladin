@@ -53,7 +53,11 @@ HERE = Path(__file__).resolve().parent
 STAC = "https://earth-search.aws.element84.com/v1/search"
 ENV = dict(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", AWS_NO_SIGN_REQUEST="YES", GDAL_HTTP_MAX_RETRY="4",
            GDAL_HTTP_RETRY_DELAY="3", CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif")
-N = 400  # the window, 10 m pixels
+# The window, 10 m pixels: the whole SWAN area (tables.py SIDE_M 8.7 km) and a margin for UTM's tilt. 4 km before: a spot
+# in an area's middle 80 % gets no area of its own (tables.py plan), so Puunsi, 2.4 km from its area's middle, had the
+# old ~100 m depth tiles' 2-4 m over its flats (the owner, 22.11.2026: "I want to be sure that our automatic spot process
+# works correctly", then "Yes, A + C"); Katariina, Lilaste, Salacgriva and Russalka the same.
+N = 900
 SINCE = "2023-01-01"
 LEVELS = (-0.25, 0.1, 0.3, 0.6, 1.0)  # (the picture's and the report's bands)
 GAUGES = "https://erddap.emodnet-physics.eu/erddap/tabledap/ERD_EP_SLEV_NRT_60m.csv?"
@@ -125,7 +129,7 @@ def fetch(name, lat, lon, data):
 
     def one(it):
         f = out / f"{it['date']}.npz"
-        if f.exists() and len(np.load(f)["b"]) == len(BANDS):
+        if f.exists() and np.load(f)["b"].shape == (len(BANDS), N, N):  # (a kept scene of another window fetched again)
             return "have"
         try:
             with rasterio.Env(**ENV):
@@ -566,12 +570,12 @@ def _picture(path, Z, water, shown, plants, river, res, meta, LAT, LON, colour=N
         lo, hi = np.nanpercentile(c, 1), np.nanpercentile(c, 99)
         c = np.clip((np.nan_to_num(c, nan=lo) - lo) / max(hi - lo, 1e-4), 0, 1) ** 0.6 * 255
         panels.insert(0, Image.fromarray(c.astype(np.uint8)))
-    S, gap, foot = N + N // 4, 12, 150  # (500 px a panel: 8 m a pixel, the 500 m bar 62 px)
+    S, gap, foot = 600, 12, 150  # (600 px a panel: 15 m a pixel over the 9 km window, the 500 m bar 33 px)
     img = Image.new("RGB", (len(panels) * (S + gap) - gap, S + foot), (255, 255, 255))
     dr = ImageDraw.Draw(img)
     for i, pnl in enumerate(panels):
         x = i * (S + gap)
-        img.paste(pnl.resize((S, S), Image.NEAREST), (x, 0))
+        img.paste(pnl.resize((S, S), Image.BOX), (x, 0))
         dr.line([(x + 12, S - 14), (x + 12 + S * 500 // (N * 10), S - 14)], fill=(0, 0, 0), width=4)
         dr.text((x + 12, S - 30), "500 m", fill=(0, 0, 0))
     f = res["fit"]
