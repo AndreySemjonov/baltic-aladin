@@ -370,24 +370,24 @@
   "scenes": 58,
   "bed": "rider-fksgy2zv",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 101,
-   "calm": 58,
+   "made": "2026-11-22",
+   "scenes": 80,
+   "calm": 50,
    "fit": {
-    "a": -2.638,
-    "b": -1.024,
-    "2K": 0.98,
+    "a": -1.873,
+    "b": -0.74,
+    "2K": 1.35,
     "crest": [
-     -2.868,
+     -2.936,
      0.3,
-     "given (0 pixels measured at Copernicus (the map's level); gauge Muuga (4 km) -0.03 m from it)"
+     "given (4 pixels measured at Copernicus (the map's level); gauge Muuga (4 km) -0.03 m from it)"
     ],
     "water": [
-     -5.176,
-     2.66,
-     1254
+     -5.776,
+     2.4,
+     2737
     ],
-    "halves": 0.08
+    "halves": 0.05
    },
    "doubts": []
   },
