@@ -60,8 +60,19 @@ SEA_LEVELS = [-0.4, 0.0, 0.6]
 
 
 def levels_for(lat, lon):
-    """An area's levels: the Gulf of Riga's (east of the Irbe strait) or the open Baltic's.
-    shortcut: two fixed sets for the Baltic; tidal coasts need theirs from the tide's range (the world's spots)."""
+    """An area's levels: on a tidal coast five over the tide's reach and 0.2 m of surge, at least 0.6 m apart (tide.py:
+    EOT20, as the map's level; Cape Town -1.3..+1.3, Cuxhaven -2.9..+2.9: the Baltic's -0.4..+0.6 had the far spots'
+    waves at mid tide whatever the tide; the owner, 22.11.2026: "Also SWAN and take into account tides"); else the Gulf
+    of Riga's (east of the Irbe strait) or the open Baltic's."""
+    import tide
+
+    reach = tide.reach(lat, lon)
+    if reach >= tide.TIDAL:
+        # (Three for a small tide, the Mediterranean's 0.3 m: -0.6, 0, 0.6; five for a big one.)
+        span = reach + 0.2
+        step = max(0.6, span / 2)
+        k = math.ceil(span / step - 1e-9)
+        return [round(i * step, 1) for i in range(-k, k + 1)]
     return GULF_LEVELS if 56.9 <= lat <= 58.5 and 22.55 <= lon <= 24.7 else SEA_LEVELS
 
 

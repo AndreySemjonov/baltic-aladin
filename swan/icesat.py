@@ -4,7 +4,7 @@ photons NASA classed as seabed, worldwide since 2018), to check and anchor surve
 
   python3 swan/icesat.py AREA [--out DIR] [--files]  ->  DIR/AREA-icesat.json: {"area", "via", "passes", "points":
       [[lat, lon, depth m below the sea surface the laser saw, "YYYY-MM-DD", beam, NASA's confidence 0-1,
-       the seabed's height over the geoid (ortho_h)], ...]}
+       the seabed's height over the geoid (ortho_h), the moment (Unix s; SlideRule's only)], ...]}
 
 From SlideRule (NASA's service cuts the area out next to the data: no login, a minute or so); --files, or if SlideRule
 fails, from NSIDC's files themselves (earthaccess over HTTPS, only the area's stretch of each track; the login from
@@ -99,6 +99,7 @@ def by_sliderule(box):
     the data, public, no login; its example atl24_access.ipynb: sliderule.run("atl24x", parms, aoi=aoi)). Its columns
     printed; depth = surface_h - ortho_h as NASA's files (else -ortho_h, the geoid's sea level). The earthaccess way read
     every pass over the network: an hour for Rohuneeme's area (the owner, 22.11.2026: "use SlideRule then")."""
+    import numpy as np
     from sliderule import sliderule
 
     W, S, E, N = box
@@ -112,14 +113,15 @@ def by_sliderule(box):
     lat = gdf["lat_ph"] if "lat_ph" in cols else gdf.geometry.y
     lon = gdf["lon_ph"] if "lon_ph" in cols else gdf.geometry.x
     depth = gdf["surface_h"] - gdf["ortho_h"] if "surface_h" in cols else -gdf["ortho_h"]
-    when = gdf["time_ns"] if "time_ns" in cols else gdf.index
-    days = [str(t)[:10] for t in (when.astype("datetime64[ns]") if hasattr(when, "astype") else when)]
+    when = np.asarray(gdf["time_ns"] if "time_ns" in cols else gdf.index, dtype="datetime64[s]")
+    days, secs = [str(t)[:10] for t in when], when.astype("int64")
     beam = gdf["spot"].astype(str) if "spot" in cols else gdf["gt"].astype(str) if "gt" in cols else ["?"] * len(gdf)
     conf = gdf["confidence"] if "confidence" in cols else [None] * len(gdf)
-    # (Points without a surface height have no depth: left out. The seabed's own height last: survey.py puts it on the
-    # mean sea level of all the passes.)
+    # (Points without a surface height have no depth: left out. The seabed's own height, then the moment (Unix s):
+    # survey.py puts the seabed on the mean sea level of all the passes, each pass's surface less its tide then.)
     return [[round(float(y), 6), round(float(x), 6), round(float(d), 2), day, str(b), None if c is None else round(float(c), 2),
-             round(float(o), 2)] for y, x, d, day, b, c, o in zip(lat, lon, depth, days, beam, conf, gdf["ortho_h"]) if d == d]
+             round(float(o), 2), int(s)]
+            for y, x, d, day, b, c, o, s in zip(lat, lon, depth, days, beam, conf, gdf["ortho_h"], secs) if d == d]
 
 
 def points(name, out, via="sliderule"):

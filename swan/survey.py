@@ -49,6 +49,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import area as A  # noqa: E402
+import tide  # noqa: E402
+from tide import TIDAL  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 STAC = "https://earth-search.aws.element84.com/v1/search"
@@ -232,7 +234,16 @@ def levels_at(lat, lon, days, reach=40000):
     EMODnet gauge within reach metres only where Copernicus has too few days (its zero then the gauge's, flagged).
     {day: level}, where from (the gauge's difference from the model reported). (21.11.2026: the Latvian gauges in
     EMODnet's set read ~0.30 m above the model, the Estonian ~0; measured on the gauges, the Latvian tops came out 0.3 m
-    too high on the map; on the model's zero Svetciems's bars dry at -0.28, the owner's "around -0.3".)"""
+    too high on the map; on the model's zero Svetciems's bars dry at -0.28, the owner's "around -0.3".)
+    On a tidal coast (tide.py reach) the tide at the overpass instead: Sentinel-2 crosses at ~10:30 local solar time,
+    and the tide moves the water up to a metre in hours there, more than the 09-11 UTC mean can hold (the owner,
+    22.11.2026: "far spots we have to make automatic too ... take into account tides"). No surge in it (+-0.1-0.3 m)."""
+    if tide.reach(lat, lon) >= TIDAL:
+        import calendar
+
+        at = [calendar.timegm(time.strptime(d, "%Y-%m-%d")) + (10.5 - lon / 15) * 3600 for d in days]
+        lv = tide.tide(lat, lon, at)
+        return {d: float(v) for d, v in zip(days, lv)}, "EOT20's tide at the overpass (the map's)"
     k = math.cos(math.radians(lat))
     q = (f"PLATFORMCODE,latitude,longitude&latitude>={lat - 0.5}&latitude<={lat + 0.5}&longitude>={lon - 0.5 / k}"
          f"&longitude<={lon + 0.5 / k}&distinct()")
@@ -354,10 +365,18 @@ def laser_pixels(pts, meta):
     pts = [p for p in pts if len(p) > 6 and p[6] is not None]
     if not pts:
         return None
-    surf = {}
+    surf, when = {}, {}
     for p in pts:
         surf.setdefault((p[3], p[4]), []).append(p[2] + p[6])
-    msl = float(np.median([np.median(v) for v in surf.values()]))
+        if len(p) > 7:
+            when[(p[3], p[4])] = p[7]
+    # (On a tidal coast each pass's surface less the tide at its moment (tide.py): Cape Town's passes stray +-1 m.)
+    lat, lon = float(np.median([p[0] for p in pts])), float(np.median([p[1] for p in pts]))
+    keys = sorted(surf)
+    tides = np.zeros(len(keys))
+    if len(when) == len(keys) and tide.reach(lat, lon) >= TIDAL:
+        tides = tide.tide(lat, lon, [when[k] for k in keys])
+    msl = float(np.median([np.median(surf[k]) - t for k, t in zip(keys, tides)]))
     xs, ys = transform("EPSG:4326", meta["crs"], [p[1] for p in pts], [p[0] for p in pts])
     c = np.floor((np.array(xs) - meta["x0"]) / 10).astype(int)
     r = np.floor((meta["y0"] - np.array(ys)) / 10).astype(int)
