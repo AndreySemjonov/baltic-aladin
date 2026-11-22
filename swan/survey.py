@@ -17,8 +17,8 @@ for new [spots] the same approach from the beginning"): OUT/AREA-bed.json + .bin
 bed_for, _bed; --apply puts it in beds/ and bars.json "bed"); river channels (narrow water) and plants (near-infrared
 bright: reeds, mats) left out. A dark bottom (submerged weed, stones) reads as depth in green: where red (swallowed by
 1-2 m of brown water) still comes back, the depth from red against green; a reading 1.2 m deeper than the ~110 m round
-it evened to that; a wide deep band at the beach still left flagged (bars.json "weed": true, the owner's answer that it is
-stones and weed: left out, filled from round it). A river joined to the sea near the spot is
+it evened to that; a wide deep band at the beach where red can't judge taken as stones and weed by default: left out,
+filled from round it (bars.json "weed": false keeps a known trough). A river joined to the sea near the spot is
 reported, not opened. Every survey writes a review sheet (AREA.png: true colour beside the depth, the numbers, the
 doubts): the standard for every spot (the owner, 21.11.2026, "B"): the survey measures, a Claude review reads the sheets
 (live / fixed / ask the owner), the owner only for what it can't settle.
@@ -330,7 +330,7 @@ def _bed_out(name, a, Z, valid, meta, out):
     return int(good.sum())
 
 
-def survey(name, a, data, out, crest=CREST, red=True, weed=False):
+def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     from rasterio.warp import transform
     from scipy.ndimage import binary_fill_holes, distance_transform_edt, gaussian_filter, label, uniform_filter
 
@@ -487,15 +487,16 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=False):
     dark_ha = float(dark.sum() / 100)
     # A wide deep band at the beach where red couldn't judge (red judged it deep elsewhere: a trough, steep coasts' close
     # water): flagged for the review (in the first batch, 21.11.2026, it flagged 35 of 38 spots with red judging).
-    band_ha = float((dom & (dland <= 150) & (Z > 1.5)).sum() / 100)
-    # The owner's answer for a spot (bars.json "weed": true): that band is stones and weed, not a trough; its readings out,
-    # the bed fills it from the sand round it (area.py _bed_fill) and the map counts it measured only near them (the
-    # owner, 22.11.2026, Pirita and Russalka: "Stones and weed").
-    if weed:
-        dom = dom & ~((dland <= 150) & (Z > 1.5))
-    elif not red_on and band_ha >= 1 and (dom & (dland > 150) & (Z < 0.5)).sum() >= 100:
-        doubts.append(f"{band_ha:.0f} ha read deeper than 1.5 m within 150 m of the beach, shallower sand outside: a dark "
-                      f"bottom (weed) or a real trough?")
+    band = dom & (dland <= 150) & (Z > 1.5)
+    band_ha = float(band.sum() / 100)
+    seen = not red_on and band_ha >= 1 and (dom & (dland > 150) & (Z < 0.5)).sum() >= 100
+    # Taken as stones and weed, not a trough: its readings out, the bed fills it from the sand round it (area.py _bed_fill)
+    # and the map counts it measured only near them. By default where the band is seen (the owner, 22.11.2026: "Yes, weed
+    # by default": a trough drawn shallow is the safer mistake than stones drawn waist-deep); bars.json "weed": false keeps
+    # a known trough, true drops the band anyway (Pirita and Russalka: "Stones and weed").
+    weed_ha = 0.0
+    if weed or (weed is None and seen):
+        weed_ha, dom = band_ha, dom & ~band
     # The scenes' two halves (every other calm scene), on the one fit: the bed they agree on.
     idx = np.nonzero(calm)[0]
     Z1, Z2 = a0 + b * colour(idx[0::2]), a0 + b * colour(idx[1::2])
@@ -524,7 +525,7 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=False):
     res = {"area": name, "made": time.strftime("%Y-%m-%d"), "scenes": len(G), "calm": int(calm.sum()),
            "fit": {"a": round(a0, 3), "b": round(b, 3), "2K": round(two_k, 2), "crest": [round(L_crest, 3), round(crest, 2), how],
                    "water": [round(L_w, 3), round(D_w, 2), int(ok.sum())], "halves": round(split, 2)},
-           "ha": {f"{k:g}": round(v, 1) for k, v in stat.items()}, "dark_ha": round(dark_ha, 1), "red_ha": round(red_ha, 1), "doubts": doubts,
+           "ha": {f"{k:g}": round(v, 1) for k, v in stat.items()}, "dark_ha": round(dark_ha, 1), "red_ha": round(red_ha, 1), "weed_ha": round(weed_ha, 1), "doubts": doubts,
            "bed": pixels, "sheet": f"{name}.png"}
     (out / f"{name}.json").write_text(json.dumps(res, indent=1))
     _picture(out / f"{name}.png", Z, water, dom | river, plants, river, res, meta, LAT, LON,
@@ -589,7 +590,8 @@ def _picture(path, Z, water, shown, plants, river, res, meta, LAT, LON, colour=N
              f"crest {f['crest'][1]} m below mean ({f['crest'][2]}); water anchor {f['water'][1]} m; 2K {f['2K']}/m; "
              f"halves {f['halves']} m",
              "ha shallower than: " + ", ".join(f"{k} m {v}" for k, v in res["ha"].items()) +
-             f"; dark bottoms: {res.get('red_ha', 0)} ha by red, {res.get('dark_ha', 0)} ha evened (tinted magenta)",
+             f"; dark bottoms: {res.get('red_ha', 0)} ha by red, {res.get('dark_ha', 0)} ha evened (tinted magenta), "
+             f"{res.get('weed_ha', 0)} ha at the beach left out as weed",
              "doubts: " + ("; ".join(res["doubts"]) or "none")]
     for k, s in enumerate(lines):
         dr.text((10, S + 10 + 22 * k), s, fill=(0, 0, 0))
@@ -617,14 +619,14 @@ def summary(d):
         r = json.loads(f.read_text())
         if "fit" in r:
             rows.append((1 if r["doubts"] else 2, r["area"], f"{r['calm']}/{r['scenes']}", f"{r['fit']['crest'][1]:+.2f}",
-                         r["fit"]["crest"][2].split(":")[0], r["ha"].get("0.3", 0), r.get("red_ha", 0), r.get("dark_ha", 0),
+                         r["fit"]["crest"][2].split(":")[0], r["ha"].get("0.3", 0), r.get("red_ha", 0), r.get("dark_ha", 0), r.get("weed_ha", 0),
                          "; ".join(r["doubts"]) or "-"))
     for f in sorted(d.glob("*.failed")):
-        rows.append((0, f.stem, "-", "-", "-", "-", "-", "-", "failed: " + " ".join(f.read_text().split())[-300:]))
+        rows.append((0, f.stem, "-", "-", "-", "-", "-", "-", "-", "failed: " + " ".join(f.read_text().split())[-300:]))
     rows.sort()
     nl = chr(10)
-    head = "| spot | calm/scenes | crest m | crest from | ha under 0.3 m | red ha | evened ha | doubts |" + nl + \
-        "|---|---|---|---|---|---|---|---|" + nl
+    head = "| spot | calm/scenes | crest m | crest from | ha under 0.3 m | red ha | evened ha | weed ha | doubts |" + nl + \
+        "|---|---|---|---|---|---|---|---|---|" + nl
     (d / "SUMMARY.md").write_text(f"# Survey {time.strftime('%Y-%m-%d')}: {len(rows)} spots, "
                                   f"{sum(r[0] == 0 for r in rows)} failed, {sum(r[0] == 1 for r in rows)} doubtful" +
                                   nl + nl + head + "".join("| " + " | ".join(str(x) for x in r[1:]) + " |" + nl for r in rows))
@@ -687,4 +689,4 @@ if __name__ == "__main__":
         if a is None:
             raise SystemExit(f"{name}: not in the index")
         survey(name, a, opt("--data", str(Path.home() / "swan" / "sat")), out, float(opt("--crest", (T.bars_for(name) or {}).get("crest", CREST))),
-               bool((T.bars_for(name) or {}).get("red", True)), bool((T.bars_for(name) or {}).get("weed", False)))
+               bool((T.bars_for(name) or {}).get("red", True)), (T.bars_for(name) or {}).get("weed"))
