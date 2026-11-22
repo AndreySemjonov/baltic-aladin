@@ -151,28 +151,26 @@
   "note": "Shoals (20.11.2026) from Sentinel-2's calm colour over the mouth, the median of many scenes, contoured as depth caps; river channels and vegetation uncapped. Scale set by the owner's \"Depth there knee deep in lielupe usually\" (the riding area's median 0.50 m); the 1.0 m cap left out: the satellite sees ~1.5 m here, unverified. The rule bars out under the bed (the owner, 22.11.2026: \"make it according our automatic approach\"): the satellite decides what it sees, the depth tiles beyond.",
   "bed": "lielupes-ieteka",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 99,
-   "calm": 40,
+   "made": "2026-11-22",
+   "scenes": 88,
+   "calm": 34,
    "fit": {
-    "a": -2.185,
-    "b": -0.618,
-    "2K": 1.62,
+    "a": -2.829,
+    "b": -0.785,
+    "2K": 1.27,
     "crest": [
-     -4.032,
+     -3.997,
      0.31,
-     "measured at Copernicus (the map's level); gauge Lielupe (5 km) +0.31 m from it: 241 pixels"
+     "measured at Copernicus (the map's level); gauge Lielupe (5 km) +0.31 m from it: 311 pixels"
     ],
     "water": [
-     -7.342,
-     2.35,
-     150
+     -7.198,
+     2.82,
+     286
     ],
-    "halves": 0.1
+    "halves": 0.14
    },
    "doubts": [
-    "light's fall-off 2K 1.62/m (Baltic water 0.15-1.5)",
-    "34 ha read deeper than 1.5 m within 150 m of the beach, shallower sand outside: a dark bottom (weed) or a real trough?",
     "a river or channel near the spot (31 ha of narrow water): open it (bars.json river)?"
    ]
   }
@@ -304,27 +302,26 @@
   "scenes": 36,
   "bed": "rider-9an5qgu4",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 87,
-   "calm": 36,
+   "made": "2026-11-22",
+   "scenes": 71,
+   "calm": 23,
    "fit": {
-    "a": -4.123,
-    "b": -1.131,
-    "2K": 0.88,
+    "a": -2.429,
+    "b": -0.79,
+    "2K": 1.27,
     "crest": [
-     -3.94,
-     0.33,
-     "measured at Copernicus (the map's level); gauge Soru (18 km) +0.01 m from it: 515 pixels"
+     -3.378,
+     0.24,
+     "measured at Copernicus (the map's level); gauge Soru (18 km) +0.02 m from it: 3130 pixels"
     ],
     "water": [
-     -5.716,
-     2.34,
-     5806
+     -5.843,
+     2.19,
+     41069
     ],
-    "halves": 0.39
+    "halves": 0.14
    },
    "doubts": [
-    "the scenes' halves differ by 0.39 m",
     "a river or channel near the spot (27 ha of narrow water): open it (bars.json river)?"
    ]
   },
@@ -441,28 +438,26 @@
   "scenes": 57,
   "bed": "rider-psgtkpjx",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 90,
-   "calm": 56,
+   "made": "2026-11-22",
+   "scenes": 78,
+   "calm": 54,
    "fit": {
-    "a": -2.793,
-    "b": -1.025,
-    "2K": 0.98,
+    "a": -2.12,
+    "b": -0.797,
+    "2K": 1.26,
     "crest": [
-     -3.016,
+     -3.038,
      0.3,
-     "given (3 pixels measured at Copernicus (the map's level); gauge Paldiski (18 km) -0.04 m from it)"
+     "given (18 pixels measured at Copernicus (the map's level); gauge Paldiski (18 km) -0.04 m from it)"
     ],
     "water": [
-     -5.319,
-     2.66,
-     2171
+     -5.935,
+     2.61,
+     2290
     ],
-    "halves": 0.23
+    "halves": 0.14
    },
-   "doubts": [
-    "14 ha read deeper than 1.5 m within 150 m of the beach, shallower sand outside: a dark bottom (weed) or a real trough?"
-   ]
+   "doubts": []
   },
   "note": "The rule bars out under the bed (the owner, 22.11.2026: \"make it according our automatic approach\"): the satellite decides what it sees, the depth tiles beyond."
  },
@@ -768,55 +763,51 @@
  "rider-9lqrqzfw": {
   "bed": "rider-9lqrqzfw",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 82,
-   "calm": 38,
+   "made": "2026-11-22",
+   "scenes": 68,
+   "calm": 33,
    "fit": {
-    "a": -2.485,
-    "b": -0.958,
-    "2K": 1.04,
+    "a": -2.427,
+    "b": -0.937,
+    "2K": 1.07,
     "crest": [
-     -2.924,
+     -2.928,
      0.32,
-     "measured at Copernicus (the map's level); gauge Soru (40 km) +0.00 m from it: 86 pixels"
+     "measured at Copernicus (the map's level); gauge Soru (40 km) +0.01 m from it: 177 pixels"
     ],
     "water": [
-     -5.073,
-     2.38,
-     754
+     -5.319,
+     2.56,
+     1742
     ],
-    "halves": 0.05
+    "halves": 0.09
    },
-   "doubts": [
-    "24 ha read deeper than 1.5 m within 150 m of the beach, shallower sand outside: a dark bottom (weed) or a real trough?"
-   ]
+   "doubts": []
   }
  },
  "rider-cjmnhz3e": {
   "bed": "rider-cjmnhz3e",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 98,
-   "calm": 29,
+   "made": "2026-11-22",
+   "scenes": 80,
+   "calm": 15,
    "fit": {
-    "a": -2.106,
-    "b": -0.815,
-    "2K": 1.23,
+    "a": -2.029,
+    "b": -0.786,
+    "2K": 1.27,
     "crest": [
-     -2.924,
-     0.28,
-     "measured at Copernicus (the map's level); gauge Soru (28 km) +0.01 m from it: 219 pixels"
+     -2.84,
+     0.2,
+     "measured at Copernicus (the map's level); gauge Soru (28 km) +0.01 m from it: 1024 pixels"
     ],
     "water": [
-     -5.521,
-     2.39,
-     409
+     -5.449,
+     2.26,
+     25143
     ],
-    "halves": 0.1
+    "halves": 0.07
    },
-   "doubts": [
-    "3 ha read deeper than 1.5 m within 150 m of the beach, shallower sand outside: a dark bottom (weed) or a real trough?"
-   ]
+   "doubts": []
   }
  },
  "rider-mvpvhngl": {
