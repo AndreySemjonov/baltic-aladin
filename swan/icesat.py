@@ -32,10 +32,68 @@ def area_bbox(name):
     return x * 360 - 180, lat(y + h), (x + w) * 360 - 180, lat(y)
 
 
-def points(name, out):
+def _span(ds, lo, hi):
+    """A track's photons with lo <= lat <= hi as indices [i0, i1): lat runs one way along a track here (the orbit turns
+    only at ~92 N/S), so a binary search reads ~2 x 25 single values, not the whole track (the first run read every
+    beam's whole lat and lon: ~70 passes took over 40 min; the owner, 22.11.2026: "make it faster for next areas")."""
+    n = ds.shape[0]
+    if n == 0:
+        return 0, 0
+    up = float(ds[n - 1]) >= float(ds[0])
+
+    def first(pred):
+        L, R = 0, n
+        while L < R:
+            m = (L + R) // 2
+            if pred(float(ds[m])):
+                R = m
+            else:
+                L = m + 1
+        return L
+
+    if up:
+        return first(lambda v: v >= lo), first(lambda v: v > hi)
+    return first(lambda v: v <= hi), first(lambda v: v < lo)
+
+
+_LOGGED = []
+
+
+def _pass(job):
+    """One pass's seabed points in the box: [[lat, lon, depth, day, beam], ...]; its time printed."""
     import earthaccess
     import h5py
-    import numpy as np
+
+    url, title, (W, S, E, N) = job
+    if not _LOGGED:
+        earthaccess.login(strategy="environment")
+        _LOGGED.append(True)
+    day, t0, pts, note = f"{title[6:10]}-{title[10:12]}-{title[12:14]}", time.time(), [], ""
+    try:
+        # (Small blocks, kept: the default 5 MB read-ahead fetched megabytes for each single value the search reads.)
+        fs = earthaccess.get_fsspec_https_session()
+        with fs.open(url, block_size=256 * 1024, cache_type="blockcache") as f, h5py.File(f, "r") as h:
+            for b in BEAMS:
+                if b not in h or "lat_ph" not in h[b]:
+                    continue
+                i0, i1 = _span(h[b]["lat_ph"], S, N)
+                if i1 <= i0:
+                    continue
+                g = h[b]
+                la, lo, cls = g["lat_ph"][i0:i1], g["lon_ph"][i0:i1], g["class_ph"][i0:i1]
+                d = g["surface_h"][i0:i1] - g["ortho_h"][i0:i1]
+                keep = (cls == BATHY) & (lo >= W) & (lo <= E)
+                pts += [[round(float(y), 6), round(float(x), 6), round(float(z), 2), day, b]
+                        for y, x, z in zip(la[keep], lo[keep], d[keep])]
+    except Exception as error:  # (a file that won't open: told, the rest go on)
+        note = f", skipped: {error}"
+    print(f"{title}: {len(pts)} points in {time.time() - t0:.0f} s{note}", flush=True)
+    return pts
+
+
+def points(name, out):
+    import earthaccess
+    from concurrent.futures import ProcessPoolExecutor
 
     W, S, E, N = area_bbox(name)
     earthaccess.login(strategy="environment")
@@ -51,33 +109,18 @@ def points(name, out):
             newest[key] = (ver, g)
     grans = [g for _, g in newest.values()]
     print(name, f"{len(found)} files listed, {len(grans)} passes", flush=True)
-    pts, used, shown = [], 0, False
-    for f, g in zip(earthaccess.open(grans), grans):
-        title = g["umm"]["GranuleUR"]
-        day = f"{title[6:10]}-{title[10:12]}-{title[12:14]}"
-        try:
-            with h5py.File(f, "r") as h:
-                if not shown:
-                    print("beam fields:", sorted(h[next(b for b in BEAMS if b in h)].keys()), flush=True)
-                    shown = True
-                n0 = len(pts)
-                for b in BEAMS:
-                    if b not in h:
-                        continue
-                    lat, lon = h[b]["lat_ph"][:], h[b]["lon_ph"][:]
-                    k = np.nonzero((lat >= S) & (lat <= N) & (lon >= W) & (lon <= E))[0]
-                    if not len(k):
-                        continue
-                    i0, i1 = k.min(), k.max() + 1
-                    cls = h[b]["class_ph"][i0:i1]
-                    oh, sh = h[b]["ortho_h"][i0:i1], h[b]["surface_h"][i0:i1]
-                    la, lo = lat[i0:i1], lon[i0:i1]
-                    keep = (cls == BATHY) & (la >= S) & (la <= N) & (lo >= W) & (lo <= E)
-                    for y, x, d in zip(la[keep], lo[keep], (sh - oh)[keep]):
-                        pts.append([round(float(y), 6), round(float(x), 6), round(float(d), 2), day, b])
-                used += len(pts) > n0
-        except Exception as error:  # (a file that won't open: told, the rest go on)
-            print(title, "skipped:", error, flush=True)
+    jobs = []
+    for g in grans:
+        links = [u for u in g.data_links(access="external") if u.endswith(".h5")]
+        if links:
+            jobs.append((links[0], g["umm"]["GranuleUR"], (W, S, E, N)))
+    # (Four passes at a time, one a core: h5py holds one lock in a process.)
+    t0, pts, used = time.time(), [], 0
+    with ProcessPoolExecutor(4) as ex:
+        for p in ex.map(_pass, jobs):
+            pts += p
+            used += bool(p)
+    print(name, f"{len(jobs)} passes read in {time.time() - t0:.0f} s", flush=True)
     res = {"area": name, "bbox": [W, S, E, N], "granules": len(grans), "files": used, "points": pts,
            "made": time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())}
     Path(out).mkdir(parents=True, exist_ok=True)

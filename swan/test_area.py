@@ -75,6 +75,23 @@ def test_bank_bytes():
     assert abs(back[1] - A.LAGOON) < 0.011 and abs(back[3] - A.LAGOON) < 0.011 and abs(back[19] - A.LAGOON) < 0.011
 
 
+def test_icesat_span():
+    """icesat.py _span: the track's stretch over the area by binary search, on tracks going north and south."""
+    import icesat
+
+    class D:  # (an h5py dataset's two needs: shape and an item)
+        def __init__(self, a):
+            self.a, self.shape = a, a.shape
+
+        def __getitem__(self, i):
+            return self.a[i]
+
+    for arr in (np.linspace(58, 61, 100001), np.linspace(61, 58, 100001)):
+        i0, i1 = icesat._span(D(arr), 59.53, 59.61)
+        inside = (arr >= 59.53) & (arr <= 59.61)
+        assert inside[i0:i1].all() and inside.sum() == i1 - i0, (i0, i1)
+
+
 def test_survey_ring():
     """survey.py's outline of a pixel block: its four corners (metres from the window's corner, rows south), closed."""
     import survey as S
@@ -93,4 +110,5 @@ if __name__ == "__main__":
     test_bed_cover()
     test_bank_bytes()
     test_survey_ring()
+    test_icesat_span()
     print("ok")
