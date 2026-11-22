@@ -149,11 +149,21 @@ FINE = 4
 
 
 def map_depth(area, box, W, H, depth):
-    """The map's depth bytes (depth_bytes) and their grid's size: SWAN's grid, or with a satellite bed built FINE x finer."""
-    bars = bars_for(area)
-    if (bars or {}).get("bed"):
-        return depth_bytes(A.build(box, W * FINE, H * FINE, None, bars)), W * FINE, H * FINE
-    return depth_bytes(depth), W, H
+    """The map's depth bytes (depth_bytes), their grid's size (SWAN's grid, or with a satellite bed built FINE x finer) and
+    where the depth is known: the bed's share a cell as bytes (0-255, measured.bin.gz), "owner" where the owner gave the
+    beach's shape (bars.json "owner": Liepaja DR's bars, Parnu's shelf), else None: the old depth tiles' only, which the
+    map doesn't draw (the owner, 22.11.2026, Puunsi's flats drawn 2-4 m: "Yes, A + C")."""
+    bars = bars_for(area) or {}
+    if bars.get("bed"):
+        cover = np.zeros((H * FINE, W * FINE), np.float32)
+        b = depth_bytes(A.build(box, W * FINE, H * FINE, None, bars, cover))
+        return b, W * FINE, H * FINE, np.round(np.clip(cover, 0, 1) * 255).astype(np.uint8).tobytes()
+    return depth_bytes(depth), W, H, "owner" if bars.get("owner") else None
+
+
+def measured_key(measured):
+    """The index's "measured" for map_depth's: "bed" (its measured.bin.gz), "owner", or None (left out)."""
+    return "bed" if isinstance(measured, bytes) else measured
 
 
 def depth_bytes(depth):
@@ -186,9 +196,12 @@ def depths(names=None):
     stamp = time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())
     for a in todo:
         t0 = time.time()
-        b, a["depthW"], a["depthH"] = map_depth(a["area"], a["box"], a["W"], a["H"],
-                                                A.build(a["box"], a["W"], a["H"], None, bars_for(a["area"])))
+        b, a["depthW"], a["depthH"], meas = map_depth(a["area"], a["box"], a["W"], a["H"],
+                                                      A.build(a["box"], a["W"], a["H"], None, bars_for(a["area"])))
         _put(f"{a['area']}/depth.bin.gz", gzip.compress(b, 9), key)
+        if isinstance(meas, bytes):
+            _put(f"{a['area']}/measured.bin.gz", gzip.compress(meas, 9), key)
+        a["measured"] = measured_key(meas)
         print(a["area"], f"depth up in {time.time() - t0:.0f} s ({a['depthW']} x {a['depthH']})", flush=True)
     # (The index read again: a remake's index may have come meanwhile.)
     now = {a["area"]: a for a in (_json(STORE + "index.json") or {}).get("areas", [])}
@@ -201,6 +214,9 @@ def depths(names=None):
             now[a["area"]].pop("depthW", None), now[a["area"]].pop("depthH", None)
             if a["depthW"] != a["W"]:
                 now[a["area"]]["depthW"], now[a["area"]]["depthH"] = a["depthW"], a["depthH"]
+            now[a["area"]].pop("measured", None)
+            if a["measured"]:
+                now[a["area"]]["measured"] = a["measured"]
             # (Its bars for the map's lines: [[metres from the waterline, crest depth], ...].)
             if (bars_for(a["area"]) or {}).get("bars"):
                 now[a["area"]]["bars"] = bars_for(a["area"])["bars"]
@@ -235,8 +251,10 @@ def make(spec, out):
         (home / "out" / "reeds.json").write_text(json.dumps({"p": outlines}, separators=(",", ":")))
     if not ldir:
         (home / "out").mkdir(exist_ok=True)
-        b, depthW, depthH = map_depth(spec["area"], box, W, H, depth)
+        b, depthW, depthH, meas = map_depth(spec["area"], box, W, H, depth)
         (home / "out" / "depth.bin.gz").write_bytes(gzip.compress(b, 9))
+        if isinstance(meas, bytes):
+            (home / "out" / "measured.bin.gz").write_bytes(gzip.compress(meas, 9))
     print(spec["area"], f"level {level:g} grid {time.time() - t0:.0f} s: reeds {reeds.sum()} cells, sea {sea.mean() * 100:.0f} %, deepest {depth.max():.0f} m at {off}", flush=True)
     bed = np.where(reeds, REEDS["bed"], depth)
     # (Land -9; a bank's bed above mean sea level as it is, negative: dry below its height, wet above.)
@@ -298,6 +316,8 @@ STOP
         meta["depth"], meta["depthBase"], meta["depthStep"] = meta["made"], DEPTH_BASE, DEPTH_STEP
         if depthW != W:
             meta["depthW"], meta["depthH"] = depthW, depthH
+        if measured_key(meas):
+            meta["measured"] = measured_key(meas)
         if (bars_for(spec["area"]) or {}).get("bars"):
             meta["bars"] = bars_for(spec["area"])["bars"]
         # (A river mouth's: the map draws its waves on the base map's river water too.)
@@ -381,7 +401,7 @@ def index(homes, drop=()):
         # (Its depth grid's stamp kept when only other levels were made.)
         if "depth" not in meta and old and "depth" in old:
             meta["depth"] = old["depth"]
-            for k in ("depthBase", "depthStep", "depthW", "depthH", "bars", "river"):
+            for k in ("depthBase", "depthStep", "depthW", "depthH", "bars", "river", "measured"):
                 if k in old:
                     meta[k] = old[k]
         areas[meta["area"]] = meta

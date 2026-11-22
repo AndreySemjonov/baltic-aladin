@@ -123,10 +123,10 @@ def _sample(kind, z, mx, my):
     return (total / wsum, True) if wsum > 0.5 else (0.0, False)
 
 
-def build(box, W, H, outlines=None, bars=None):
+def build(box, W, H, outlines=None, bars=None, cover=None):
     """The depth (m, H x W, row 0 the box's north edge; -1 land, -2 reeds) over box (world 0-1: x, y, width, height);
     the reeds' outlines added to outlines (a list) if given (_worldcover); a beach's sandbars and outlined shallows if given
-    (bars.json: _bars, _shallows)."""
+    (bars.json: _bars, _shallows); cover (H x W floats) if given gets the satellite bed's share of each cell (_bed)."""
     lat = math.atan(math.sinh(math.pi * (1 - 2 * (box[1] + box[3] / 2))))
     coast_m = EARTH * math.cos(lat) / (256 * 2 ** 10)
     zd = _finest("depth", box[0] + box[2] / 2, box[1] + box[3] / 2)
@@ -167,7 +167,7 @@ def build(box, W, H, outlines=None, bars=None):
     if bars and bars.get("shelf"):
         _shelf(depth, box, W, H, bars, shore)
     if bars and bars.get("bed"):
-        _bed(depth, box, W, H, bed_for(bars["bed"]))
+        _bed(depth, box, W, H, bed_for(bars["bed"]), cover)
     if bars and bars.get("shallows"):
         _shallows(depth, box, W, H, bars["shallows"])
     return depth
@@ -222,7 +222,7 @@ def _bed_fill(z, px):
 NEAR_M, FILL_M, EDGE_M = 70.0, 250.0, 250.0
 
 
-def _bed(depth, box, W, H, bed):
+def _bed(depth, box, W, H, bed, cover=None):
     """A satellite bed (bed_for) over the grid's sea cells (the owner, 20.11.2026, the satellite's depth picture: "this is
     what we need to implement in our sandbank", then "Yes, do A"): each cell the mean of the bed's pixels in it (k x k
     points; a grid finer than the bed takes the nearest), blended in by the share it covers and trusted to ~1.2 m, our
@@ -248,6 +248,9 @@ def _bed(depth, box, W, H, bed):
     trust = wsum / (k * k) * (1 - t * t * (3 - 2 * t))
     sea = depth > -1
     depth[sea] = np.maximum(depth[sea] * (1 - trust[sea]) + zb[sea] * trust[sea], -0.9)
+    # (Where the satellite read, at any depth: the map draws the depth only there, the owner, 22.11.2026, "Yes, A + C".)
+    if cover is not None:
+        cover[:] = wsum / (k * k)
 
 
 def _shallows(depth, box, W, H, shallows):

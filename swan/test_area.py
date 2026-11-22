@@ -47,6 +47,19 @@ def test_bed_fill():
     assert w[2, 70] < 0.1 and w[30, 70] == 1.0  # (the window's edge 250 m: 25 pixels)
 
 
+def test_bed_cover():
+    """_bed's cover: the satellite bed's share of each cell, 1 where it read, 0 beyond it (the map's "measured")."""
+    box, W, H = [0.5, 0.3, 0.001, 0.001], 8, 8
+    depth = np.full((H, W), 3.0, np.float32)
+    # (A bed over the grid's left half, 1.0 m everywhere it read.)
+    bed = {"box": [0.5, 0.3, 0.0005, 0.001], "W": 20, "H": 40, "z": np.full((40, 20), 1.0, np.float32),
+           "w": np.ones((40, 20), np.float32)}
+    cover = np.zeros((H, W), np.float32)
+    A._bed(depth, box, W, H, bed, cover)
+    assert np.allclose(cover[:, :4], 1) and np.allclose(cover[:, 4:], 0), cover
+    assert np.allclose(depth[:, :4], 1.0) and np.allclose(depth[:, 4:], 3.0), depth
+
+
 def test_bank_bytes():
     """A bank 0.25 m above mean sea level and a 0.12 m lagoon round-trip through the map's bytes (DEPTH_BASE), land filled."""
     import tables as T
@@ -77,6 +90,7 @@ if __name__ == "__main__":
     test_shallows()
     test_shelf()
     test_bed_fill()
+    test_bed_cover()
     test_bank_bytes()
     test_survey_ring()
     print("ok")
