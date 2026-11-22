@@ -552,7 +552,7 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     joined = np.union1d(np.unique(wl[sea & water]), [k for k in edge if k and big[k] >= 2000])
     seaw = np.isin(wl, joined) & (wl > 0)
     dom = water & seaw & (dland > 20) & (dland <= 1200) & ~plants & ~river & np.isfinite(L)
-    doubts = []
+    doubts, notes = [], []  # (notes: what was done, not a doubt, on the sheet)
     if calm.sum() < MIN_CALM:
         doubts.append(f"only {int(calm.sum())} calm scenes")
     if dom.sum() < 2000:
@@ -732,6 +732,14 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     dry, under1 = float(((Z < 0) & dom & ~flat).sum()) / 100, float(((Z <= 1.0) & dom & ~flat).sum()) / 100
     if under1 > 0 and dry / under1 > 0.3:
         doubts.append(f"{dry:.0f} of the {under1:.0f} ha under 1 m read as drying")
+    # Too few calm scenes for the colour (murky, windy water: the Stor's mouth on the Elbe, 1 of 74) but flats measured
+    # by the waterline, which needs no calm: the flats alone, the colour's depths out (the chart's there), and that no
+    # doubt: its 1,396 ha of flats were held with the colour before.
+    if calm.sum() < MIN_CALM and flat.sum() >= 2000:
+        dom = np.zeros_like(dom)
+        doubts[:] = [d for d in doubts if not d.startswith("only ") and not d.startswith("a weak fit")
+                     and not d.startswith("light's fall-off") and "from the laser" not in d]
+        notes.append(f"murky water ({int(calm.sum())} calm scenes): the tidal flats only, the colour's depths out")
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     pixels = _bed_out(name, a, Z, dom | flat, meta, out)
@@ -739,7 +747,7 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     res = {"area": name, "made": time.strftime("%Y-%m-%d"), "scenes": len(G), "calm": int(calm.sum()),
            "fit": {"a": round(a0, 3), "b": round(b, 3), "2K": round(two_k, 2), "crest": [round(L_crest, 3), round(crest, 2), how],
                    "water": [round(L_w, 3), round(D_w, 2), int(ok.sum())], "halves": round(split, 2)},
-           "ha": {f"{k:g}": round(v, 1) for k, v in stat.items()}, "dark_ha": round(dark_ha, 1), "red_ha": round(red_ha, 1), "weed_ha": round(weed_ha, 1), "flats_ha": round(flats_ha, 1), "laser": laser, "doubts": doubts,
+           "ha": {f"{k:g}": round(v, 1) for k, v in stat.items()}, "dark_ha": round(dark_ha, 1), "red_ha": round(red_ha, 1), "weed_ha": round(weed_ha, 1), "flats_ha": round(flats_ha, 1), "laser": laser, "notes": notes, "doubts": doubts,
            "bed": pixels, "sheet": f"{name}.png"}
     (out / f"{name}.json").write_text(json.dumps(res, indent=1))
     _picture(out / f"{name}.png", Z, water, dom | river, plants, river, res, meta, LAT, LON,
@@ -808,6 +816,7 @@ def _picture(path, Z, water, shown, plants, river, res, meta, LAT, LON, colour=N
              f"{res.get('weed_ha', 0)} ha at the beach left out as weed; {res.get('flats_ha', 0)} ha of tidal flats "
              f"measured by the waterline",
              laser_text(res.get("laser")),
+             "notes: " + ("; ".join(res.get("notes", [])) or "none"),
              "doubts: " + ("; ".join(res["doubts"]) or "none")]
     for k, s in enumerate(lines):
         dr.text((10, S + 10 + 22 * k), s, fill=(0, 0, 0))
