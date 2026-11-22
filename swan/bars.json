@@ -26,24 +26,24 @@
   "scenes": 45,
   "bed": "pavilosta",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 111,
-   "calm": 47,
+   "made": "2026-11-22",
+   "scenes": 98,
+   "calm": 41,
    "fit": {
-    "a": -3.943,
-    "b": -1.427,
-    "2K": 0.7,
+    "a": -4.149,
+    "b": -1.543,
+    "2K": 0.65,
     "crest": [
-     -2.974,
+     -2.882,
      0.3,
-     "given (18 pixels measured at Copernicus (the map's level))"
+     "given (19 pixels measured at Copernicus (the map's level))"
     ],
     "water": [
-     -4.382,
-     2.31,
-     317
+     -4.2,
+     2.33,
+     3617
     ],
-    "halves": 0.11
+    "halves": 0.13
    },
    "doubts": []
   },
@@ -118,24 +118,24 @@
   "red": false,
   "bed": "kolka",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 178,
-   "calm": 69,
+   "made": "2026-11-22",
+   "scenes": 98,
+   "calm": 30,
    "fit": {
-    "a": -3.712,
-    "b": -1.552,
-    "2K": 0.64,
+    "a": -3.355,
+    "b": -1.418,
+    "2K": 0.71,
     "crest": [
-     -2.638,
+     -2.631,
      0.38,
-     "measured at Copernicus (the map's level); gauge Kolka (3 km) +0.22 m from it: 85 pixels"
+     "measured at Copernicus (the map's level); gauge Kolka (3 km) +0.23 m from it: 54 pixels"
     ],
     "water": [
-     -3.953,
-     2.42,
-     4170
+     -4.313,
+     2.76,
+     4550
     ],
-    "halves": 0.06
+    "halves": 0.17
    },
    "doubts": []
   },
@@ -185,22 +185,22 @@
   "scenes": 42,
   "bed": "engures-mols",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 108,
-   "calm": 41,
+   "made": "2026-11-22",
+   "scenes": 95,
+   "calm": 42,
    "fit": {
-    "a": -2.101,
-    "b": -0.841,
-    "2K": 1.19,
+    "a": -1.937,
+    "b": -0.794,
+    "2K": 1.26,
     "crest": [
-     -2.896,
-     0.33,
-     "measured at Copernicus (the map's level); gauge Mersrags (20 km) +0.30 m from it: 328 pixels"
+     -2.873,
+     0.34,
+     "measured at Copernicus (the map's level); gauge Mersrags (20 km) +0.30 m from it: 373 pixels"
     ],
     "water": [
-     -5.776,
-     2.76,
-     1879
+     -5.534,
+     2.46,
+     15483
     ],
     "halves": 0.04
    },
@@ -273,24 +273,24 @@
   "red": false,
   "bed": "ragaciems",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 107,
-   "calm": 54,
+   "made": "2026-11-22",
+   "scenes": 93,
+   "calm": 44,
    "fit": {
-    "a": -1.742,
-    "b": -0.719,
-    "2K": 1.39,
+    "a": -1.712,
+    "b": -0.73,
+    "2K": 1.37,
     "crest": [
-     -2.977,
+     -2.893,
      0.4,
-     "measured at Copernicus (the map's level); gauge Lielupe (28 km) +0.31 m from it: 31 pixels"
+     "measured at Copernicus (the map's level); gauge Lielupe (28 km) +0.31 m from it: 108 pixels"
     ],
     "water": [
-     -6.321,
+     -6.19,
      2.8,
-     138
+     3436
     ],
-    "halves": 0.04
+    "halves": 0.05
    },
    "doubts": []
   },
@@ -339,24 +339,24 @@
   "red": false,
   "bed": "rider-a6bhnbwq",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 99,
-   "calm": 39,
+   "made": "2026-11-22",
+   "scenes": 87,
+   "calm": 37,
    "fit": {
-    "a": -2.236,
-    "b": -0.944,
-    "2K": 1.06,
+    "a": -1.86,
+    "b": -0.835,
+    "2K": 1.2,
     "crest": [
-     -2.768,
-     0.38,
-     "measured at Copernicus (the map's level); gauge Roja (1 km) +0.29 m from it: 74 pixels"
+     -2.753,
+     0.44,
+     "measured at Copernicus (the map's level); gauge Roja (1 km) +0.29 m from it: 54 pixels"
     ],
     "water": [
-     -5.404,
-     2.86,
-     66
+     -5.573,
+     2.79,
+     898
     ],
-    "halves": 0.05
+    "halves": 0.04
    },
    "doubts": []
   },
@@ -491,24 +491,24 @@
   "scenes": 20,
   "bed": "rider-svcs2qxp",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 94,
-   "calm": 18,
+   "made": "2026-11-22",
+   "scenes": 86,
+   "calm": 20,
    "fit": {
-    "a": -1.603,
-    "b": -0.742,
-    "2K": 1.35,
+    "a": -2.235,
+    "b": -0.997,
+    "2K": 1.0,
     "crest": [
-     -2.516,
-     0.26,
-     "measured at Copernicus (the map's level); gauge Heltermaa (27 km) +0.01 m from it: 503 pixels"
+     -2.515,
+     0.27,
+     "measured at Copernicus (the map's level); gauge Heltermaa (27 km) +0.01 m from it: 1176 pixels"
     ],
     "water": [
-     -5.494,
-     2.47,
-     3253
+     -4.768,
+     2.52,
+     5811
     ],
-    "halves": 0.22
+    "halves": 0.15
    },
    "doubts": []
   },
@@ -522,24 +522,24 @@
   "scenes": 72,
   "bed": "rider-vzycetmv",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 100,
-   "calm": 69,
+   "made": "2026-11-22",
+   "scenes": 90,
+   "calm": 41,
    "fit": {
-    "a": -3.445,
-    "b": -1.329,
-    "2K": 0.75,
+    "a": -3.243,
+    "b": -1.193,
+    "2K": 0.84,
     "crest": [
-     -2.818,
-     0.3,
-     "given (1 pixels measured at Copernicus (the map's level))"
+     -2.917,
+     0.24,
+     "measured at Copernicus (the map's level): 550 pixels"
     ],
     "water": [
-     -4.398,
-     2.4,
-     557
+     -4.92,
+     2.63,
+     12765
     ],
-    "halves": 0.05
+    "halves": 0.09
    },
    "doubts": [
     "a river or channel near the spot (24 ha of narrow water): open it (bars.json river)?"
@@ -587,24 +587,24 @@
   "crest": 0.3,
   "crest_note": "The bars' tops below mean sea level, for survey.py's scale (the owner, 20.11.2026: 'they dry at low water, around -0.3').",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 103,
-   "calm": 26,
+   "made": "2026-11-22",
+   "scenes": 89,
+   "calm": 23,
    "fit": {
-    "a": -2.59,
-    "b": -0.914,
-    "2K": 1.09,
+    "a": -3.265,
+    "b": -1.133,
+    "2K": 0.88,
     "crest": [
      -3.156,
-     0.29,
-     "measured at Copernicus (the map's level); gauge Salacgriva (6 km) +0.29 m from it: 900 pixels"
+     0.31,
+     "measured at Copernicus (the map's level); gauge Salacgriva (6 km) +0.29 m from it: 1507 pixels"
     ],
     "water": [
-     -5.721,
-     2.64,
-     17318
+     -5.221,
+     2.65,
+     32520
     ],
-    "halves": 0.14
+    "halves": 0.1
    },
    "doubts": []
   },
@@ -616,24 +616,24 @@
   "owner": "the lagoon behind the bank knee deep (the owner, 22.11.2026)",
   "bed": "berzciems",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 101,
-   "calm": 26,
+   "made": "2026-11-22",
+   "scenes": 87,
+   "calm": 21,
    "fit": {
-    "a": -2.718,
-    "b": -1.056,
-    "2K": 0.95,
+    "a": -1.86,
+    "b": -0.763,
+    "2K": 1.31,
     "crest": [
-     -2.833,
-     0.27,
-     "measured at Copernicus (the map's level); gauge Mersrags (10 km) +0.30 m from it: 839 pixels"
+     -2.851,
+     0.31,
+     "measured at Copernicus (the map's level); gauge Mersrags (10 km) +0.30 m from it: 2418 pixels"
     ],
     "water": [
-     -4.92,
-     2.48,
-     7465
+     -5.627,
+     2.43,
+     11404
     ],
-    "halves": 0.07
+    "halves": 0.09
    },
    "doubts": []
   }
@@ -641,24 +641,24 @@
  "mersrags": {
   "bed": "mersrags",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 107,
-   "calm": 40,
+   "made": "2026-11-22",
+   "scenes": 92,
+   "calm": 28,
    "fit": {
-    "a": -2.679,
-    "b": -0.973,
-    "2K": 1.03,
+    "a": -2.31,
+    "b": -0.884,
+    "2K": 1.13,
     "crest": [
-     -3.044,
-     0.28,
-     "measured at Copernicus (the map's level); gauge Mersrags (2 km) +0.30 m from it: 274 pixels"
+     -2.97,
+     0.32,
+     "measured at Copernicus (the map's level); gauge Mersrags (2 km) +0.30 m from it: 480 pixels"
     ],
     "water": [
-     -5.586,
-     2.76,
-     453
+     -5.67,
+     2.7,
+     518
     ],
-    "halves": 0.07
+    "halves": 0.08
    },
    "doubts": []
   }
@@ -691,24 +691,24 @@
  "salacgriva": {
   "bed": "salacgriva",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 99,
-   "calm": 41,
+   "made": "2026-11-22",
+   "scenes": 78,
+   "calm": 30,
    "fit": {
-    "a": -2.396,
-    "b": -0.824,
-    "2K": 1.21,
+    "a": -2.889,
+    "b": -0.98,
+    "2K": 1.02,
     "crest": [
-     -3.327,
+     -3.303,
      0.35,
-     "measured at Copernicus (the map's level); gauge Salacgriva (1 km) +0.29 m from it: 240 pixels"
+     "measured at Copernicus (the map's level); gauge Salacgriva (1 km) +0.29 m from it: 642 pixels"
     ],
     "water": [
-     -6.32,
-     2.81,
-     2663
+     -5.785,
+     2.78,
+     7741
     ],
-    "halves": 0.2
+    "halves": 0.19
    },
    "doubts": [
     "a river or channel near the spot (20 ha of narrow water): open it (bars.json river)?"
@@ -718,24 +718,24 @@
  "rider-3ydbas9d": {
   "bed": "rider-3ydbas9d",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 135,
-   "calm": 87,
+   "made": "2026-11-22",
+   "scenes": 122,
+   "calm": 73,
    "fit": {
-    "a": -2.281,
-    "b": -0.803,
-    "2K": 1.24,
+    "a": -2.076,
+    "b": -0.728,
+    "2K": 1.37,
     "crest": [
-     -3.294,
-     0.37,
-     "measured at Copernicus (the map's level); gauge Eisma (36 km) +0.04 m from it: 323 pixels"
+     -3.444,
+     0.43,
+     "measured at Copernicus (the map's level); gauge Eisma (36 km) +0.04 m from it: 594 pixels"
     ],
     "water": [
-     -6.075,
-     2.6,
-     722
+     -6.215,
+     2.45,
+     1660
     ],
-    "halves": 0.05
+    "halves": 0.07
    },
    "doubts": []
   }
@@ -822,22 +822,22 @@
  "rider-mvpvhngl": {
   "bed": "rider-mvpvhngl",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 101,
-   "calm": 63,
+   "made": "2026-11-22",
+   "scenes": 90,
+   "calm": 58,
    "fit": {
-    "a": -1.913,
-    "b": -0.846,
-    "2K": 1.18,
+    "a": -1.785,
+    "b": -0.841,
+    "2K": 1.19,
     "crest": [
-     -2.666,
+     -2.529,
      0.34,
-     "measured at Copernicus (the map's level); gauge Paldiski (10 km) -0.04 m from it: 30 pixels"
+     "measured at Copernicus (the map's level); gauge Paldiski (10 km) -0.04 m from it: 64 pixels"
     ],
     "water": [
-     -5.426,
-     2.68,
-     1266
+     -5.167,
+     2.56,
+     5001
     ],
     "halves": 0.05
    },
@@ -847,22 +847,22 @@
  "rider-nfcdalbc": {
   "bed": "rider-nfcdalbc",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 91,
-   "calm": 22,
+   "made": "2026-11-22",
+   "scenes": 78,
+   "calm": 26,
    "fit": {
-    "a": -1.715,
-    "b": -0.799,
-    "2K": 1.25,
+    "a": -1.609,
+    "b": -0.768,
+    "2K": 1.3,
     "crest": [
-     -2.44,
-     0.23,
-     "measured at Copernicus (the map's level); gauge Miinisadam (8 km) +0.00 m from it: 1069 pixels"
+     -2.457,
+     0.28,
+     "measured at Copernicus (the map's level); gauge Miinisadam (8 km) +0.00 m from it: 2158 pixels"
     ],
     "water": [
-     -5.116,
-     2.37,
-     3345
+     -5.473,
+     2.59,
+     2264
     ],
     "halves": 0.06
    },
@@ -954,27 +954,26 @@
   "owner": "behind the bar along the reeds: \"can ride\" (the owner, 21.11.2026): ridable water, not knee-deep mud, so red off",
   "bed": "haademeeste",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 95,
-   "calm": 20,
+   "made": "2026-11-22",
+   "scenes": 76,
+   "calm": 21,
    "fit": {
-    "a": -2.47,
-    "b": -0.786,
-    "2K": 1.27,
+    "a": -3.477,
+    "b": -1.144,
+    "2K": 0.87,
     "crest": [
-     -3.416,
-     0.21,
-     "measured at Copernicus (the map's level); gauge Kihnu (27 km) +0.08 m from it: 965 pixels"
+     -3.265,
+     0.26,
+     "measured at Copernicus (the map's level); gauge Kihnu (27 km) +0.08 m from it: 2347 pixels"
     ],
     "water": [
-     -5.953,
-     2.21,
-     21231
+     -5.083,
+     2.34,
+     43279
     ],
-    "halves": 0.31
+    "halves": 0.18
    },
    "doubts": [
-    "the scenes' halves differ by 0.31 m",
     "a river or channel near the spot (43 ha of narrow water): open it (bars.json river)?"
    ]
   }
