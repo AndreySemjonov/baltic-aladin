@@ -123,6 +123,20 @@ def _sample(kind, z, mx, my):
     return (total / wsum, True) if wsum > 0.5 else (0.0, False)
 
 
+def _chart_low(lat, lon):
+    """How far mean sea level is above the chart tiles' zero here (m): EMODnet's depths (Europe, 36 W-43 E, 15 N up,
+    depth_tiles.py) are below the Lowest Astronomical Tide, so on a tidal coast the water is deeper by the tide's
+    reach (tide.py; as the web map's open-sea waves, tide.js tideHere "low"); GEBCO's (elsewhere) are below mean sea
+    level. Taken as below mean sea level before: Tarifa's chart water ~0.9 m too shallow, the Elbe's ~2.6 m (the owner,
+    22.11.2026: "there is spots with tide difference 6-8m even. so we have to make sure we use it correct there too")."""
+    import tide
+
+    if not (-36 <= lon <= 43 and lat >= 15):
+        return 0.0
+    reach = tide.reach(lat, lon)
+    return reach if reach >= tide.TIDAL else 0.0
+
+
 def build(box, W, H, outlines=None, bars=None, cover=None):
     """The depth (m, H x W, row 0 the box's north edge; -1 land, -2 reeds) over box (world 0-1: x, y, width, height);
     the reeds' outlines added to outlines (a list) if given (_worldcover); a beach's sandbars and outlined shallows if given
@@ -130,6 +144,7 @@ def build(box, W, H, outlines=None, bars=None, cover=None):
     lat = math.atan(math.sinh(math.pi * (1 - 2 * (box[1] + box[3] / 2))))
     coast_m = EARTH * math.cos(lat) / (256 * 2 ** 10)
     zd = _finest("depth", box[0] + box[2] / 2, box[1] + box[3] / 2)
+    low = _chart_low(math.degrees(lat), (box[0] + box[2] / 2) * 360 - 180)
     depth = np.zeros((H, W), np.float32)
     for r in range(H):
         my = box[1] + (r + 0.5) / H * box[3]
@@ -145,7 +160,7 @@ def build(box, W, H, outlines=None, bars=None, cover=None):
             t, tknown = _sample("depth", zd, mx, my)
             if tknown and t > 0.5:
                 v = (t - 1) / 254
-                tile = 200 * v * v
+                tile = 200 * v * v + low
                 s = min(max((d - 200) / 600, 0), 1)
                 s = s * s * (3 - 2 * s)
                 h = min(dean, tile + 2) * (1 - s) + tile * s
