@@ -585,6 +585,19 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     lv, gauge = levels_at(lat, lon, days)
     if gauge and "the gauge's zero" in gauge:
         doubts.append(f"levels from {gauge} (Copernicus missing): the crest may be off by the gauge's datum")
+    # (Off a tidal coast the waterline's scenes without ice or haze only: in a scene where over 5 % of the chart's 2 m+
+    # water reads dry the sea isn't water's colour (Puunsi: 7 scenes of sea ice in March-April at 75-90 %, haze in October
+    # 12-24 %; clear scenes 0-4 %). Spring is the Baltic's low water too, so the ice sat at the levels' low end and the
+    # waterline put 6,200 ha of open water at 0.44 m (22.11.2026). A tidal coast's deep water may dry at low tide.)
+    deep = dom & (gd > 2.0)
+    if lv and tide.reach(lat, lon) < TIDAL and deep.sum() >= 200:
+        with np.errstate(invalid="ignore", divide="ignore"):
+            sea_dry = [float(((G[i] - NI[i]) / (G[i] + NI[i]) <= 0)[deep & np.isfinite(G[i])].mean()) if (deep & np.isfinite(G[i])).any() else 0.0
+                       for i in range(len(days))]
+        iced = {d for d, f in zip(days, sea_dry) if f > 0.05}
+        if iced:
+            lv = {d: v for d, v in lv.items() if d not in iced}
+            notes.append(f"{len(iced)} scenes left out of the waterline: ice or haze over deep water")
     off60 = dom & (dland > 60)
     # (Scenes without whitecaps out at sea only: breaking waves' white water reads as dry sand in the near infrared. Judged
     # far out, not near the shore: there a dry bank is bright in the near infrared too, and the low-water scenes, where
