@@ -415,23 +415,31 @@
    -5.60994
   ],
   "scenes": 51,
-  "bars": [
-   [
-    200,
-    1.2
-   ],
-   [
-    390,
-    2.2
+  "bed": "rider-mnbyvcbv",
+  "survey": {
+   "made": "2026-11-22",
+   "scenes": 253,
+   "calm": 41,
+   "fit": {
+    "a": -1.332,
+    "b": -0.679,
+    "2K": 1.47,
+    "crest": [
+     -2.402,
+     0.3,
+     "given (0 pixels measured at EOT20's tide at the overpass (the map's))"
+    ],
+    "water": [
+     -5.473,
+     2.39,
+     3295
+    ],
+    "halves": 0.03
+   },
+   "doubts": [
+    "a river or channel near the spot (12 ha of narrow water): open it (bars.json river)?"
    ]
-  ],
-  "clear": [
-   [
-    36.00539,
-    -5.60948,
-    200
-   ]
-  ]
+  }
  },
  "rider-ow2d8p8k": {
   "at": [
@@ -1163,6 +1171,219 @@
     "halves": 0.11
    },
    "doubts": []
+  }
+ },
+ "mm-exbmqdvf": {
+  "bed": "mm-exbmqdvf",
+  "survey": {
+   "made": "2026-11-22",
+   "scenes": 147,
+   "calm": 9,
+   "fit": {
+    "a": -2.251,
+    "b": -1.155,
+    "2K": 0.87,
+    "crest": [
+     -2.393,
+     0.68,
+     "measured at EOT20's tide at the overpass (the map's): 36 pixels"
+    ],
+    "water": [
+     -4.241,
+     2.27,
+     206
+    ],
+    "halves": 0.21
+   },
+   "doubts": []
+  }
+ },
+ "mm-iad34xaz": {
+  "bed": "mm-iad34xaz",
+  "survey": {
+   "made": "2026-11-22",
+   "scenes": 184,
+   "calm": 83,
+   "fit": {
+    "a": -2.416,
+    "b": -0.814,
+    "2K": 1.23,
+    "crest": [
+     -3.341,
+     0.3,
+     "given (2 pixels measured at EOT20's tide at the overpass (the map's))"
+    ],
+    "water": [
+     -6.166,
+     2.44,
+     1751
+    ],
+    "halves": 0.09
+   },
+   "doubts": []
+  }
+ },
+ "mm-lpldkbmk": {
+  "bed": "mm-lpldkbmk",
+  "survey": {
+   "made": "2026-11-22",
+   "scenes": 135,
+   "calm": 1,
+   "fit": {
+    "a": -2.004,
+    "b": -0.956,
+    "2K": 1.05,
+    "crest": [
+     -2.273,
+     0.3,
+     "given (0 pixels measured at EOT20's tide at the overpass (the map's))"
+    ],
+    "water": [
+     -4.129,
+     2.3,
+     11516
+    ],
+    "halves": NaN
+   },
+   "doubts": []
+  }
+ },
+ "mm-edzqfftp": {
+  "bed": "mm-edzqfftp",
+  "survey": {
+   "made": "2026-11-22",
+   "scenes": 104,
+   "calm": 3,
+   "fit": {
+    "a": -0.811,
+    "b": -0.438,
+    "2K": 2.28,
+    "crest": [
+     -2.375,
+     0.3,
+     "given (0 pixels measured at EOT20's tide at the overpass (the map's))"
+    ],
+    "water": [
+     -5.203,
+     2.3,
+     889
+    ],
+    "halves": 0.32
+   },
+   "doubts": [
+    "the scenes' halves differ by 0.32 m"
+   ]
+  }
+ },
+ "mm-rwuqvkqx": {
+  "bed": "mm-rwuqvkqx",
+  "survey": {
+   "made": "2026-11-22",
+   "scenes": 108,
+   "calm": 4,
+   "fit": {
+    "a": -1.501,
+    "b": -0.55,
+    "2K": 1.82,
+    "crest": [
+     -2.763,
+     0.3,
+     "given (0 pixels measured at EOT20's tide at the overpass (the map's))"
+    ],
+    "water": [
+     -5.953,
+     2.28,
+     3217
+    ],
+    "halves": 0.58
+   },
+   "doubts": [
+    "the scenes' halves differ by 0.58 m",
+    "a river or channel near the spot (38 ha of narrow water): open it (bars.json river)?"
+   ]
+  }
+ },
+ "rider-sumvldhe": {
+  "bed": "rider-sumvldhe",
+  "survey": {
+   "made": "2026-11-22",
+   "scenes": 74,
+   "calm": 1,
+   "fit": {
+    "a": -8.916,
+    "b": -2.052,
+    "2K": 0.49,
+    "crest": [
+     -4.492,
+     0.3,
+     "given (0 pixels measured at EOT20's tide at the overpass (the map's))"
+    ],
+    "water": [
+     -5.547,
+     2.46,
+     2136
+    ],
+    "halves": NaN
+   },
+   "doubts": [
+    "a river or channel near the spot (19 ha of narrow water): open it (bars.json river)?"
+   ]
+  }
+ },
+ "rider-uxr9x36t": {
+  "bed": "rider-uxr9x36t",
+  "survey": {
+   "made": "2026-11-22",
+   "scenes": 116,
+   "calm": 45,
+   "fit": {
+    "a": -0.62,
+    "b": -0.274,
+    "2K": 3.65,
+    "crest": [
+     -3.172,
+     0.3,
+     "given (0 pixels measured at PortLaNouvelleTG (20 km): the gauge's zero, not the map's)"
+    ],
+    "water": [
+     -3.493,
+     3.25,
+     23646
+    ],
+    "halves": 0.06
+   },
+   "doubts": [
+    "levels from PortLaNouvelleTG (20 km): the gauge's zero, not the map's (Copernicus missing): the crest may be off by the gauge's datum",
+    "anchored on 1-5 m water (little at 1.5-3 m on our grid): 23646 pixels",
+    "a river or channel near the spot (31 ha of narrow water): open it (bars.json river)?"
+   ]
+  }
+ },
+ "mm-bhdnypq8": {
+  "bed": "mm-bhdnypq8",
+  "survey": {
+   "made": "2026-11-22",
+   "scenes": 77,
+   "calm": 9,
+   "fit": {
+    "a": -1.136,
+    "b": -0.504,
+    "2K": 1.98,
+    "crest": [
+     -2.93,
+     0.3,
+     "given (0 pixels measured at KornwerderzandBinnenTG (12 km): the gauge's zero, not the map's)"
+    ],
+    "water": [
+     -5.449,
+     2.48,
+     31242
+    ],
+    "halves": 0.19
+   },
+   "doubts": [
+    "levels from KornwerderzandBinnenTG (12 km): the gauge's zero, not the map's (Copernicus missing): the crest may be off by the gauge's datum"
+   ]
   }
  }
 }
