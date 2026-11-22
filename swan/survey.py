@@ -283,8 +283,8 @@ def waterline(G, NI, days, lv, top, L):
     fifth of its scenes on the wrong side, inside the levels seen; the median, how many, and their colour's median (L):
     the fit's anchor. None under 30 pixels."""
     k = [i for i, d in enumerate(days) if d in lv]
-    if len(k) < 12:
-        return None, 0
+    if len(k) < 12:  # (three values, as the caller takes them: the Stor's few still scenes crashed it, 22.11.2026)
+        return None, 0, None
     LV = np.array([lv[days[i]] for i in k])
     with np.errstate(invalid="ignore", divide="ignore"):
         wet = (G[k] - NI[k]) / (G[k] + NI[k]) > 0
