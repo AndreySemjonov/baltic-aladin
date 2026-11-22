@@ -105,6 +105,20 @@ def test_icesat_span():
         assert inside[i0:i1].all() and inside.sum() == i1 - i0, (i0, i1)
 
 
+def test_laser_correction():
+    """survey.py laser_correction: a track whose misses are -0.6 m (ours 0.6 m too deep) corrects the water by it, by
+    ~0.6 within 300 m, by nothing 1.5 km away; a wild miss is capped at 1.5 m."""
+    import survey as S
+
+    rows = np.arange(100, 800)
+    cols = np.full(len(rows), 400)
+    miss = np.full(len(rows), -0.6)
+    miss[::50] = 9.0  # (wild: capped)
+    fix = S.laser_correction((900, 900), rows, cols, miss)
+    assert abs(fix[450, 400] + 0.6) < 0.25 and abs(fix[450, 420] + 0.6) < 0.25, (fix[450, 400], fix[450, 420])
+    assert fix[450, 550] == 0.0 and fix[450, 250] == 0.0  # (1.5 km off)
+
+
 def test_laser_fit():
     """survey.py laser_fit: the colour-to-depth line from laser pixels, a few wild ones (a boulder, a stray photon) left
     out, the crest on the line."""

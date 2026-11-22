@@ -362,13 +362,34 @@ def laser_pixels(pts, meta):
     c = np.floor((np.array(xs) - meta["x0"]) / 10).astype(int)
     r = np.floor((meta["y0"] - np.array(ys)) / 10).astype(int)
     z = msl - np.array([p[6] for p in pts])
+    # (Each pass in one of two halves, every other one by time: one half corrects, the other checks, laser_correct.)
+    half = {k: i % 2 for i, k in enumerate(sorted(surf))}
+    g = np.array([half[(p[3], p[4])] for p in pts])
     inside = (r >= 0) & (r < N) & (c >= 0) & (c < N)
     cells = {}
-    for rr, cc, zz in zip(r[inside], c[inside], z[inside]):
-        cells.setdefault((int(rr), int(cc)), []).append(float(zz))
-    rc = np.array(list(cells.keys()), int).reshape(-1, 2)
-    return {"rows": rc[:, 0], "cols": rc[:, 1], "z": np.array([np.median(v) for v in cells.values()]), "msl": msl,
-            "passes": len(surf), "points": len(pts)}
+    for rr, cc, zz, gg in zip(r[inside], c[inside], z[inside], g[inside]):
+        cells.setdefault((int(rr), int(cc), int(gg)), []).append(float(zz))
+    rc = np.array(list(cells.keys()), int).reshape(-1, 3)
+    return {"rows": rc[:, 0], "cols": rc[:, 1], "half": rc[:, 2], "z": np.array([np.median(v) for v in cells.values()]),
+            "msl": msl, "passes": len(surf), "points": len(pts)}
+
+
+LASER_NEAR, LASER_FAR, LASER_SIGMA = 300.0, 1000.0, 300.0  # m: full, none, the smoothing along and across a track
+
+
+def laser_correction(shape, rows, cols, miss):
+    """The laser's misses (its depth minus ours, capped at 1.5 m: a boulder, a stray photon) spread round its tracks:
+    a Gaussian mean over ~LASER_SIGMA, full within LASER_NEAR of a laser pixel, none past LASER_FAR. One colour-to-depth
+    line for a 9 km window fits its sandy parts and missed Puunsi's darker, stony flats by up to a metre (the owner,
+    22.11.2026: "build B")."""
+    from scipy.ndimage import distance_transform_edt, gaussian_filter
+
+    R, Wt = np.zeros(shape, np.float32), np.zeros(shape, np.float32)
+    np.add.at(R, (rows, cols), np.clip(miss, -1.5, 1.5))
+    np.add.at(Wt, (rows, cols), 1.0)
+    num, den = gaussian_filter(R, LASER_SIGMA / 10), gaussian_filter(Wt, LASER_SIGMA / 10)
+    fade = np.clip((LASER_FAR - distance_transform_edt(Wt == 0) * 10) / (LASER_FAR - LASER_NEAR), 0, 1)
+    return np.where(den > 1e-6, num / np.maximum(den, 1e-6), 0.0) * fade
 
 
 def laser_fit(Lp, zp, L_crest, crest):
@@ -572,17 +593,37 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     weed_ha = 0.0
     if weed or (weed is None and seen):
         weed_ha, dom = band_ha, dom & ~band
-    # The bed against the laser where it can see (0.3-2 m) after every correction: [median of ours minus the laser's,
-    # the spread round it (median absolute), pixels]; off by over 0.3 m a doubt.
+    # B: the bed corrected round the laser's tracks (laser_correction), and the check against it where the satellite
+    # sees (0.3-2 m): [median of ours minus the laser's, the spread round it (median absolute), pixels], before and
+    # after. The after from passes the correction didn't use: each half of the passes corrects, the other half checks.
+    # Off by over 0.3 m after: a doubt.
     if lp is not None:
-        rr, cc = lp["rows"], lp["cols"]
-        chk = dom[rr, cc] & np.isfinite(Z[rr, cc]) & (lp["z"] >= 0.3) & (lp["z"] <= 2.0)
-        if chk.sum() >= 10:
-            dz = Z[rr, cc][chk] - lp["z"][chk]
+        rr, cc, hv = lp["rows"], lp["cols"], lp["half"]
+        good = dom[rr, cc] & np.isfinite(Z[rr, cc])
+        use = good & (lp["z"] >= 0.3) & (lp["z"] <= 3.0)
+        chk = good & (lp["z"] >= 0.3) & (lp["z"] <= 2.0)
+
+        def stat(dz):
             mid = float(np.median(dz))
-            laser["check"] = [round(mid, 2), round(float(np.median(np.abs(dz - mid))), 2), int(chk.sum())]
-            if abs(mid) > 0.3:
-                doubts.append(f"{mid:+.2f} m from the laser's depths ({int(chk.sum())} pixels, 0.3-2 m)")
+            return [round(mid, 2), round(float(np.median(np.abs(dz - mid))), 2), int(len(dz))]
+
+        if chk.sum() >= 10:
+            laser["before"] = stat(Z[rr, cc][chk] - lp["z"][chk])
+            held = []
+            for h in (0, 1):
+                fix = laser_correction(Z.shape, rr[use & (hv == h)], cc[use & (hv == h)],
+                                       (lp["z"] - Z[rr, cc])[use & (hv == h)])
+                t = chk & (hv != h)
+                held += list((Z + fix)[rr[t], cc[t]] - lp["z"][t])
+            if len(held) >= 10:
+                laser["check"] = stat(np.array(held))
+                if abs(laser["check"][0]) > 0.3:
+                    doubts.append(f"{laser['check'][0]:+.2f} m from the laser's depths after its correction "
+                                  f"({laser['check'][2]} pixels, 0.3-2 m)")
+        if use.any():
+            fix = laser_correction(Z.shape, rr[use], cc[use], (lp["z"] - Z[rr, cc])[use])
+            Z = np.where(dom, Z + fix, Z)
+            laser["corrected_ha"] = round(float(((np.abs(fix) > 0.05) & dom).sum() / 100), 1)
     # The scenes' two halves (every other calm scene), on the one fit: the bed they agree on.
     idx = np.nonzero(calm)[0]
     Z1, Z2 = a0 + b * colour(idx[0::2]), a0 + b * colour(idx[1::2])
@@ -691,8 +732,11 @@ def laser_text(lz):
         return "laser: no ICESat-2 seabed points here"
     s = f"laser: {lz['points']} points, {lz['passes']} passes, {lz['pixels']} pixels at 0.3-2 m; line on " + \
         (f"the laser (fit +-{lz['fit_error']} m)" if lz.get("used") else "the chart (too few)")
+    if lz.get("before"):
+        s += f"; ours minus laser {lz['before'][0]:+.2f} m +-{lz['before'][1]} ({lz['before'][2]} px)"
     if lz.get("check"):
-        s += f"; ours minus laser {lz['check'][0]:+.2f} m +-{lz['check'][1]} ({lz['check'][2]} px)"
+        s += f", corrected round its tracks {lz['check'][0]:+.2f} +-{lz['check'][1]} (checked on the other passes; " \
+             f"{lz.get('corrected_ha', 0)} ha changed)"
     if lz.get("old") is not None:
         s += f"; the chart's line was {lz['old']:+.2f}"
     return s
