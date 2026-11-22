@@ -218,27 +218,28 @@
   "note": "Shoals (20.11.2026) from Sentinel-2's calm colour over the mouth, the median of many scenes, contoured as depth caps; river channels and vegetation uncapped. Its own scale; the riding area's median 1.08 m, the owner's \"Waist deep\" (an independent check). The rule bars out under the bed (the owner, 22.11.2026: \"make it according our automatic approach\"): the satellite decides what it sees, the depth tiles beyond.",
   "bed": "gauja",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 100,
-   "calm": 52,
+   "made": "2026-11-22",
+   "scenes": 92,
+   "calm": 44,
    "fit": {
-    "a": -6.041,
-    "b": -1.443,
-    "2K": 0.69,
+    "a": -5.354,
+    "b": -1.336,
+    "2K": 0.75,
     "crest": [
-     -4.415,
-     0.33,
-     "measured at Copernicus (the map's level); gauge Skulte (19 km) +0.27 m from it: 266 pixels"
+     -4.265,
+     0.34,
+     "measured at Copernicus (the map's level); gauge Skulte (19 km) +0.27 m from it: 305 pixels"
     ],
     "water": [
      -6.143,
-     2.82,
-     529
+     2.85,
+     307
     ],
-    "halves": 0.16
+    "halves": 0.19
    },
    "doubts": [
-    "a river or channel near the spot (16 ha of narrow water): open it (bars.json river)?"
+    "a river or channel near the spot (16 ha of narrow water): open it (bars.json river)?",
+    "38 of the 112 ha under 1 m read as drying"
    ]
   }
  },
@@ -663,24 +664,24 @@
  "kapteinu-osta": {
   "bed": "kapteinu-osta",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 105,
-   "calm": 62,
+   "made": "2026-11-22",
+   "scenes": 83,
+   "calm": 33,
    "fit": {
-    "a": -4.241,
-    "b": -1.185,
-    "2K": 0.84,
+    "a": -3.123,
+    "b": -1.059,
+    "2K": 0.94,
     "crest": [
-     -3.832,
-     0.3,
-     "given (13 pixels measured at Copernicus (the map's level); gauge Salacgriva (5 km) +0.29 m from it)"
+     -3.265,
+     0.33,
+     "measured at Copernicus (the map's level); gauge Salacgriva (5 km) +0.29 m from it: 1107 pixels"
     ],
     "water": [
-     -5.896,
-     2.75,
-     9332
+     -5.497,
+     2.7,
+     21640
     ],
-    "halves": 0.13
+    "halves": 0.08
    },
    "doubts": []
   }
@@ -740,24 +741,24 @@
  "rider-84s5pzmk": {
   "bed": "rider-84s5pzmk",
   "survey": {
-   "made": "2026-11-21",
-   "scenes": 86,
-   "calm": 19,
+   "made": "2026-11-22",
+   "scenes": 78,
+   "calm": 24,
    "fit": {
-    "a": -2.146,
-    "b": -0.894,
-    "2K": 1.12,
+    "a": -1.666,
+    "b": -0.733,
+    "2K": 1.36,
     "crest": [
-     -2.655,
-     0.23,
-     "measured at Copernicus (the map's level); gauge Miinisadam (4 km) -0.00 m from it: 889 pixels"
+     -2.651,
+     0.28,
+     "measured at Copernicus (the map's level); gauge Miinisadam (4 km) -0.00 m from it: 1973 pixels"
     ],
     "water": [
-     -5.036,
-     2.36,
-     680
+     -5.473,
+     2.34,
+     8680
     ],
-    "halves": 0.09
+    "halves": 0.07
    },
    "doubts": []
   }
