@@ -119,6 +119,26 @@ def test_laser_correction():
     assert fix[450, 550] == 0.0 and fix[450, 250] == 0.0  # (1.5 km off)
 
 
+def test_flat_gaps():
+    """survey.py flat_gaps: measured flats at 0.3 m with never-dry specks the colour reads 1.0 m: the specks held at the
+    lowest level seen (0.47); a 10-pixel channel through the flats and the flats' edge to 1.5 m water keep their depth."""
+    import survey as S
+
+    Z = np.full((60, 60), 0.3)
+    flat = np.zeros((60, 60), bool)
+    flat[:, :40] = True
+    flat[:, 20:30] = False  # (the channel)
+    Z[:, 20:30] = 1.5
+    Z[:, 40:] = 1.5  # (deeper water past the flats)
+    for y, x in ((10, 5), (11, 5), (30, 12), (45, 35)):
+        flat[y, x], Z[y, x] = False, 1.0
+    Z2, n = S.flat_gaps(Z, flat, ~flat, 0.47)
+    assert n == 4, n
+    assert all(abs(Z2[y, x] - 0.47) < 1e-6 for y, x in ((10, 5), (11, 5), (30, 12), (45, 35)))
+    assert (Z2[:, 20:30] == 1.5).all() and (Z2[:, 40:] == 1.5).all()
+    assert (Z2[flat] == 0.3).all()
+
+
 def test_flat_heights():
     """survey.py flat_heights: a sloping flat (-1.8 to +1.8 m over mean sea level) on a 4.4 m tide, wet in a scene when
     the tide stands above it, a tenth of the scenes misread: 95 % of the heights within 0.15 m, none over 0.35; a pixel
@@ -180,4 +200,5 @@ if __name__ == "__main__":
     test_icesat_span()
     test_laser_fit()
     test_flat_heights()
+    test_flat_gaps()
     print("ok")

@@ -340,8 +340,12 @@ def flat_heights(G, NI, days, lv, cand, reach):
     with np.errstate(invalid="ignore"):
         h = np.nanmedian(np.where(wrong <= least + 1, mids[:, None], np.nan), 0)
     seen = ok.sum(0)
-    good = (least <= 0.2 * seen) & (W.sum(0) >= 3) & (D.sum(0) >= 3) & \
-        (h > LV[1]) & (h < LV[-2]) & (np.abs(h) <= reach + 0.3)
+    # (Or dry in just two scenes when they are the two lowest, no scene on the wrong side: a lagoon that uncovers only on
+    # the year's lowest water, Berzciems's at -0.4..-0.47 (wet in 97-98 % of its scenes); two misread scenes, a cloud's
+    # shadow, don't line up with the lowest levels.)
+    nd = D.sum(0)
+    good = (((least <= 0.2 * seen) & (nd >= 3)) | ((least == 0) & (nd == 2))) & (W.sum(0) >= 3) & \
+        (h > LV[0]) & (h < LV[-2]) & (np.abs(h) <= reach + 0.3)
     out[rr[good], cc[good]] = h[good]
     # (Each with its 3 x 3 neighbours' median where 5+ have a height: flats are smooth over 10 m, a misread pixel isn't;
     # in the test's trials with a tenth of the scenes misread the worst pixel went from 0.55 m off to ~0.2.)
@@ -351,6 +355,21 @@ def flat_heights(G, NI, days, lv, cand, reach):
         __import__("warnings").simplefilter("ignore")
         med = np.nanmedian(stack, 0)
     return np.where(np.isfinite(out) & (np.isfinite(stack).sum(0) >= 5), med, out).astype(np.float32)
+
+
+def flat_gaps(Z, flat, gap, floor, r=4, inside=0.6):
+    """Water the waterline couldn't measure (gap: wet in nearly every scene) inside measured flats (inside: that share of
+    the (2r+1)^2 pixels round it measured, so a channel or the flats' edge to deeper water isn't one) held at most as deep
+    as the deeper of floor (the lowest level seen below the map's zero: it stayed wet there, so it's at least that deep)
+    and its measured neighbours' deepest: the colour's extra depth there is a dark bottom (Berzciems's lagoon: 0.3 / 1.0
+    speckles where its mud never dried at -0.47 m). (Z, how many)."""
+    from scipy.ndimage import maximum_filter, uniform_filter
+
+    share = uniform_filter(flat.astype(np.float32), 2 * r + 1, mode="constant")
+    deep = maximum_filter(np.where(flat, Z, -np.inf), 2 * r + 1, mode="constant", cval=-np.inf)
+    cap = np.maximum(floor, deep)
+    hit = gap & (share >= inside) & np.isfinite(Z) & (Z > cap)
+    return np.where(hit, cap, Z), int(hit.sum())
 
 
 def _bed_out(name, a, Z, valid, meta, out):
@@ -712,19 +731,28 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     river_ha = float((river & (spot <= 1500)).sum() / 100)
     if river_ha >= 10:  # (1-10 ha: ditches, harbour basins; the river mouths here 16-43 ha)
         doubts.append(f"a river or channel near the spot ({river_ha:.0f} ha of narrow water): open it (bars.json river)?")
-    # On a tidal coast the flats' heights by the waterline method (flat_heights): every pixel joined to the sea that is
-    # wet in 5-95 % of the scenes, its measured height instead of its colour's depth (the colour of wet sand at low tide
-    # says nothing of how high it stands). The Baltic as before.
+    # The flats' heights by the waterline method (flat_heights) on every coast whose scenes' levels are on the map's zero
+    # (the tide, or Copernicus in the Baltic; not a gauge's own zero): every pixel joined to the sea that is wet in 5-95 %
+    # of the scenes, its measured height instead of its colour's depth (the colour of wet sand at low tide, or of a dark
+    # lagoon's mud, says nothing of how high it stands). The Baltic's wind does what the tide does: Berzciems's levels
+    # -0.47..+0.31 m, its lagoon behind the bank 0.2-0.4 m deep where the colour read its dark bottom as 0.8-1.2 (the
+    # owner, 22.11.2026: "Its should be 30cm at 0m deep", then "Yes, build it").
     flat, flats_ha, reach = np.zeros_like(dom), 0.0, tide.reach(lat, lon)
-    if reach >= TIDAL and lv:
+    if lv and reach < TIDAL:
+        reach = float(np.max(np.abs(list(lv.values()))))
+    if lv and not (gauge and "the gauge's zero" in gauge):
         lab2, _ = label(wfrac >= 0.05)
         joined2 = np.unique(lab2[sea])
-        cand = np.isin(lab2, joined2[joined2 > 0]) & (wfrac >= 0.05) & (wfrac <= 0.95)
+        cand = np.isin(lab2, joined2[joined2 > 0]) & (wfrac >= 0.05) & (wfrac <= 0.99)
         use_s = still if still.sum() >= 12 else np.ones(len(days), bool)
         hts = flat_heights(G[use_s], NI[use_s], [d for d, s in zip(days, use_s) if s], lv, cand, reach)
         flat = np.isfinite(hts)
         Z = np.where(flat, -hts, Z)
+        lows = [lv[d] for d, s in zip(days, use_s) if s and d in lv]
+        Z, gaps = flat_gaps(Z, flat, dom & ~flat, -min(lows) if lows else 0.0)
         flats_ha = float(flat.sum() / 100)
+        if gaps:
+            notes.append(f"{gaps / 100:.1f} ha never dry among the measured flats held at most {-min(lows):.2f} m or their neighbours'")
         print(name, f"flats: {flats_ha:.0f} ha measured by the waterline, heights "
               f"{np.nanpercentile(hts, 5) if flat.any() else 0:+.2f}..{np.nanpercentile(hts, 95) if flat.any() else 0:+.2f} m", flush=True)
 
