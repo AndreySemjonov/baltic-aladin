@@ -54,7 +54,7 @@ jobs:
           COPERNICUSMARINE_SERVICE_USERNAME: ${{ secrets.COPERNICUSMARINE_SERVICE_USERNAME }}
           COPERNICUSMARINE_SERVICE_PASSWORD: ${{ secrets.COPERNICUSMARINE_SERVICE_PASSWORD }}
         run: |
-          pip install -q numpy scipy pillow rasterio copernicusmarine
+          pip install -q numpy scipy pillow rasterio copernicusmarine sliderule
           mkdir -p out
           # (A spot the survey can't do, little water in its window or nothing to anchor on, is a row in the summary.)
           python3 swan/survey.py "$AREA" --data sat --out out 2> err.txt || { tail -5 err.txt; tail -1 err.txt > "out/$AREA.failed"; }

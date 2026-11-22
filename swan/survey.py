@@ -330,6 +330,61 @@ def _bed_out(name, a, Z, valid, meta, out):
     return int(good.sum())
 
 
+LASER_MIN = 40  # pixels with the laser's seabed in the satellite's 0.3-2 m to fit on (fewer: only checked against)
+
+
+def laser_points(LAT, LON):
+    """ICESat-2's seabed points over the window (icesat.py by_sliderule: NASA's ATL24 through SlideRule, no login), []
+    when SlideRule fails: the survey goes on as before (the owner, 22.11.2026: "Anchor on the laser")."""
+    import icesat
+
+    try:
+        return icesat.by_sliderule((float(LON.min()), float(LAT.min()), float(LON.max()), float(LAT.max())))
+    except Exception as error:
+        print("laser:", error, flush=True)
+        return []
+
+
+def laser_pixels(pts, meta):
+    """The laser's points on the window's pixels: (rows, cols, depth below mean sea level) a pixel (the median of its
+    points), and that mean: the median over the passes of each pass's median surface (depth + the seabed's height:
+    the water's top the laser saw that day; ~90 passes over seven years at Rohuneeme, so the long mean, as the map's)."""
+    from rasterio.warp import transform
+
+    pts = [p for p in pts if len(p) > 6 and p[6] is not None]
+    if not pts:
+        return None
+    surf = {}
+    for p in pts:
+        surf.setdefault((p[3], p[4]), []).append(p[2] + p[6])
+    msl = float(np.median([np.median(v) for v in surf.values()]))
+    xs, ys = transform("EPSG:4326", meta["crs"], [p[1] for p in pts], [p[0] for p in pts])
+    c = np.floor((np.array(xs) - meta["x0"]) / 10).astype(int)
+    r = np.floor((meta["y0"] - np.array(ys)) / 10).astype(int)
+    z = msl - np.array([p[6] for p in pts])
+    inside = (r >= 0) & (r < N) & (c >= 0) & (c < N)
+    cells = {}
+    for rr, cc, zz in zip(r[inside], c[inside], z[inside]):
+        cells.setdefault((int(rr), int(cc)), []).append(float(zz))
+    rc = np.array(list(cells.keys()), int).reshape(-1, 2)
+    return {"rows": rc[:, 0], "cols": rc[:, 1], "z": np.array([np.median(v) for v in cells.values()]), "msl": msl,
+            "passes": len(surf), "points": len(pts)}
+
+
+def laser_fit(Lp, zp, L_crest, crest):
+    """The line depth = a + b x L through the laser's pixels (L the satellite's colour, z the laser's depth below mean)
+    and the measured crest (a fifth of their weight): least squares, twice more without the worst fifth of the
+    residuals (a boulder, a stray photon). (a, b, the residuals' median absolute size) or None when the light falls
+    off the wrong way (b >= 0)."""
+    Lx, zx = np.append(Lp, [L_crest] * max(1, len(Lp) // 5)), np.append(zp, [crest] * max(1, len(Lp) // 5))
+    keep = np.ones(len(Lx), bool)
+    for _ in range(3):
+        b, a = np.polyfit(Lx[keep], zx[keep], 1)
+        res = np.abs(zx - (a + b * Lx))
+        keep = res <= max(float(np.percentile(res[keep], 80)), 0.1)
+    return None if b >= 0 else (float(a), float(b), float(np.median(np.abs(zp - (a + b * Lp)))))
+
+
 def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     from rasterio.warp import transform
     from scipy.ndimage import binary_fill_holes, distance_transform_edt, gaussian_filter, label, uniform_filter
@@ -441,6 +496,21 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     L_w, D_w = float(np.median(L[ok])), float(np.median(gd[ok]))
     b = (D_w - crest) / (L_w - L_crest)
     a0 = crest - b * L_crest
+    # The laser's true depths where it crossed (ICESat-2, laser_points): with LASER_MIN pixels in the satellite's own
+    # 0.3-2 m it sets the line instead of our chart grid's 1.5-3 m (the ~100 m tiles that drew Puunsi's flats 2-4 m);
+    # always the check: our depth minus the laser's, on the sheet (the owner, 22.11.2026: "Anchor on the laser").
+    laser = {"points": 0}
+    lp = laser_pixels(laser_points(LAT, LON), meta)
+    if lp is not None:
+        sel = dom[lp["rows"], lp["cols"]] & np.isfinite(L[lp["rows"], lp["cols"]]) & (lp["z"] >= 0.3) & (lp["z"] <= 2.0)
+        Lp, zp = L[lp["rows"], lp["cols"]][sel], lp["z"][sel]
+        laser = {"points": lp["points"], "passes": lp["passes"], "msl": round(lp["msl"], 2), "pixels": int(sel.sum()),
+                 "used": False, "old": round(float(np.median((a0 + b * Lp) - zp)), 2) if sel.any() else None}
+        fit = laser_fit(Lp, zp, L_crest, crest) if sel.sum() >= LASER_MIN else None
+        if fit is not None:
+            a0, b, laser["fit_error"] = fit[0], fit[1], round(fit[2], 2)
+            laser["used"] = True
+        print(name, "laser:", laser, flush=True)
     two_k = -1 / b if b < 0 else float("inf")
     if not TWO_K[0] <= two_k <= TWO_K[1]:
         doubts.append(f"light's fall-off 2K {two_k:.2f}/m (Baltic water {TWO_K[0]}-{TWO_K[1]})")
@@ -497,6 +567,17 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     weed_ha = 0.0
     if weed or (weed is None and seen):
         weed_ha, dom = band_ha, dom & ~band
+    # The bed against the laser where it can see (0.3-2 m) after every correction: [median of ours minus the laser's,
+    # the spread round it (median absolute), pixels]; off by over 0.3 m a doubt.
+    if lp is not None:
+        rr, cc = lp["rows"], lp["cols"]
+        chk = dom[rr, cc] & np.isfinite(Z[rr, cc]) & (lp["z"] >= 0.3) & (lp["z"] <= 2.0)
+        if chk.sum() >= 10:
+            dz = Z[rr, cc][chk] - lp["z"][chk]
+            mid = float(np.median(dz))
+            laser["check"] = [round(mid, 2), round(float(np.median(np.abs(dz - mid))), 2), int(chk.sum())]
+            if abs(mid) > 0.3:
+                doubts.append(f"{mid:+.2f} m from the laser's depths ({int(chk.sum())} pixels, 0.3-2 m)")
     # The scenes' two halves (every other calm scene), on the one fit: the bed they agree on.
     idx = np.nonzero(calm)[0]
     Z1, Z2 = a0 + b * colour(idx[0::2]), a0 + b * colour(idx[1::2])
@@ -525,7 +606,7 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     res = {"area": name, "made": time.strftime("%Y-%m-%d"), "scenes": len(G), "calm": int(calm.sum()),
            "fit": {"a": round(a0, 3), "b": round(b, 3), "2K": round(two_k, 2), "crest": [round(L_crest, 3), round(crest, 2), how],
                    "water": [round(L_w, 3), round(D_w, 2), int(ok.sum())], "halves": round(split, 2)},
-           "ha": {f"{k:g}": round(v, 1) for k, v in stat.items()}, "dark_ha": round(dark_ha, 1), "red_ha": round(red_ha, 1), "weed_ha": round(weed_ha, 1), "doubts": doubts,
+           "ha": {f"{k:g}": round(v, 1) for k, v in stat.items()}, "dark_ha": round(dark_ha, 1), "red_ha": round(red_ha, 1), "weed_ha": round(weed_ha, 1), "laser": laser, "doubts": doubts,
            "bed": pixels, "sheet": f"{name}.png"}
     (out / f"{name}.json").write_text(json.dumps(res, indent=1))
     _picture(out / f"{name}.png", Z, water, dom | river, plants, river, res, meta, LAT, LON,
@@ -592,10 +673,24 @@ def _picture(path, Z, water, shown, plants, river, res, meta, LAT, LON, colour=N
              "ha shallower than: " + ", ".join(f"{k} m {v}" for k, v in res["ha"].items()) +
              f"; dark bottoms: {res.get('red_ha', 0)} ha by red, {res.get('dark_ha', 0)} ha evened (tinted magenta), "
              f"{res.get('weed_ha', 0)} ha at the beach left out as weed",
+             laser_text(res.get("laser")),
              "doubts: " + ("; ".join(res["doubts"]) or "none")]
     for k, s in enumerate(lines):
         dr.text((10, S + 10 + 22 * k), s, fill=(0, 0, 0))
     img.save(path)
+
+
+def laser_text(lz):
+    """The laser's line on the sheet and in the summary: what it had, whether the fit is on it, ours minus it."""
+    if not lz or not lz.get("points"):
+        return "laser: no ICESat-2 seabed points here"
+    s = f"laser: {lz['points']} points, {lz['passes']} passes, {lz['pixels']} pixels at 0.3-2 m; line on " + \
+        (f"the laser (fit +-{lz['fit_error']} m)" if lz.get("used") else "the chart (too few)")
+    if lz.get("check"):
+        s += f"; ours minus laser {lz['check'][0]:+.2f} m +-{lz['check'][1]} ({lz['check'][2]} px)"
+    if lz.get("old") is not None:
+        s += f"; the chart's line was {lz['old']:+.2f}"
+    return s
 
 
 def plan(only):
@@ -620,13 +715,13 @@ def summary(d):
         if "fit" in r:
             rows.append((1 if r["doubts"] else 2, r["area"], f"{r['calm']}/{r['scenes']}", f"{r['fit']['crest'][1]:+.2f}",
                          r["fit"]["crest"][2].split(":")[0], r["ha"].get("0.3", 0), r.get("red_ha", 0), r.get("dark_ha", 0), r.get("weed_ha", 0),
-                         "; ".join(r["doubts"]) or "-"))
+                         laser_text(r.get("laser"))[7:], "; ".join(r["doubts"]) or "-"))
     for f in sorted(d.glob("*.failed")):
-        rows.append((0, f.stem, "-", "-", "-", "-", "-", "-", "-", "failed: " + " ".join(f.read_text().split())[-300:]))
+        rows.append((0, f.stem, "-", "-", "-", "-", "-", "-", "-", "-", "failed: " + " ".join(f.read_text().split())[-300:]))
     rows.sort()
     nl = chr(10)
-    head = "| spot | calm/scenes | crest m | crest from | ha under 0.3 m | red ha | evened ha | weed ha | doubts |" + nl + \
-        "|---|---|---|---|---|---|---|---|---|" + nl
+    head = "| spot | calm/scenes | crest m | crest from | ha under 0.3 m | red ha | evened ha | weed ha | laser | doubts |" + nl + \
+        "|---|---|---|---|---|---|---|---|---|---|" + nl
     (d / "SUMMARY.md").write_text(f"# Survey {time.strftime('%Y-%m-%d')}: {len(rows)} spots, "
                                   f"{sum(r[0] == 0 for r in rows)} failed, {sum(r[0] == 1 for r in rows)} doubtful" +
                                   nl + nl + head + "".join("| " + " | ".join(str(x) for x in r[1:]) + " |" + nl for r in rows))

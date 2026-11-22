@@ -3,7 +3,8 @@ photons NASA classed as seabed, worldwide since 2018), to check and anchor surve
 22.11.2026, Puunsi's stony shoal read deep: "I would go with B and C", then "put secrets").
 
   python3 swan/icesat.py AREA [--out DIR] [--files]  ->  DIR/AREA-icesat.json: {"area", "via", "passes", "points":
-      [[lat, lon, depth m below the sea surface the laser saw, "YYYY-MM-DD", beam, NASA's confidence 0-1], ...]}
+      [[lat, lon, depth m below the sea surface the laser saw, "YYYY-MM-DD", beam, NASA's confidence 0-1,
+       the seabed's height over the geoid (ortho_h)], ...]}
 
 From SlideRule (NASA's service cuts the area out next to the data: no login, a minute or so); --files, or if SlideRule
 fails, from NSIDC's files themselves (earthaccess over HTTPS, only the area's stretch of each track; the login from
@@ -82,10 +83,11 @@ def _pass(job):
                     continue
                 g = h[b]
                 la, lo, cls = g["lat_ph"][i0:i1], g["lon_ph"][i0:i1], g["class_ph"][i0:i1]
-                d, conf = g["surface_h"][i0:i1] - g["ortho_h"][i0:i1], g["confidence"][i0:i1]
-                keep = (cls == BATHY) & (lo >= W) & (lo <= E)
-                pts += [[round(float(y), 6), round(float(x), 6), round(float(z), 2), day, b, round(float(c), 2)]
-                        for y, x, z, c in zip(la[keep], lo[keep], d[keep], conf[keep])]
+                oh, conf = g["ortho_h"][i0:i1], g["confidence"][i0:i1]
+                d = g["surface_h"][i0:i1] - oh
+                keep = (cls == BATHY) & (lo >= W) & (lo <= E) & (d == d)
+                pts += [[round(float(y), 6), round(float(x), 6), round(float(z), 2), day, b, round(float(c), 2), round(float(o), 2)]
+                        for y, x, z, c, o in zip(la[keep], lo[keep], d[keep], conf[keep], oh[keep])]
     except Exception as error:  # (a file that won't open: told, the rest go on)
         note = f", skipped: {error}"
     print(f"{title}: {len(pts)} points in {time.time() - t0:.0f} s{note}", flush=True)
@@ -114,9 +116,10 @@ def by_sliderule(box):
     days = [str(t)[:10] for t in (when.astype("datetime64[ns]") if hasattr(when, "astype") else when)]
     beam = gdf["spot"].astype(str) if "spot" in cols else gdf["gt"].astype(str) if "gt" in cols else ["?"] * len(gdf)
     conf = gdf["confidence"] if "confidence" in cols else [None] * len(gdf)
-    # (Points without a surface height have no depth: left out.)
-    return [[round(float(y), 6), round(float(x), 6), round(float(d), 2), day, str(b), None if c is None else round(float(c), 2)]
-            for y, x, d, day, b, c in zip(lat, lon, depth, days, beam, conf) if d == d]
+    # (Points without a surface height have no depth: left out. The seabed's own height last: survey.py puts it on the
+    # mean sea level of all the passes.)
+    return [[round(float(y), 6), round(float(x), 6), round(float(d), 2), day, str(b), None if c is None else round(float(c), 2),
+             round(float(o), 2)] for y, x, d, day, b, c, o in zip(lat, lon, depth, days, beam, conf, gdf["ortho_h"]) if d == d]
 
 
 def points(name, out, via="sliderule"):
