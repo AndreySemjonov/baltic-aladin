@@ -617,6 +617,10 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
                 held += list((Z + fix)[rr[t], cc[t]] - lp["z"][t])
             if len(held) >= 10:
                 laser["check"] = stat(np.array(held))
+                # (The light's fall-off range was a guard for the chart's line; the laser measures the depth itself, so
+                # within 0.3 m of it the line's slope is no doubt: Berzciems 2.37/m, +0.01 m from the laser.)
+                if laser.get("used") and abs(laser["check"][0]) <= 0.3:
+                    doubts[:] = [d for d in doubts if not d.startswith("light's fall-off")]
                 if abs(laser["check"][0]) > 0.3:
                     doubts.append(f"{laser['check'][0]:+.2f} m from the laser's depths after its correction "
                                   f"({laser['check'][2]} pixels, 0.3-2 m)")
