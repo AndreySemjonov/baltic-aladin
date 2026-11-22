@@ -2,12 +2,13 @@
 photons NASA classed as seabed, worldwide since 2018), to check and anchor survey.py's satellite depths (the owner,
 22.11.2026, Puunsi's stony shoal read deep: "I would go with B and C", then "put secrets").
 
-  python3 swan/icesat.py AREA [--out DIR]   ->  DIR/AREA-icesat.json: {"area", "points": [[lat, lon, depth m below the
-                                               sea surface the laser saw, "YYYY-MM-DD", beam], ...], "granules", "files"}
+  python3 swan/icesat.py AREA [--out DIR] [--files]  ->  DIR/AREA-icesat.json: {"area", "via", "passes", "points":
+      [[lat, lon, depth m below the sea surface the laser saw, "YYYY-MM-DD", beam, NASA's confidence 0-1], ...]}
 
-Reads only the area's part of each file (earthaccess opens them over HTTPS; h5py reads the chunks asked for). The login
-from EARTHDATA_USERNAME / EARTHDATA_PASSWORD (the owner's NASA Earthdata account, baltic-aladin secrets). Lazy imports:
-only this job installs earthaccess and h5py.
+From SlideRule (NASA's service cuts the area out next to the data: no login, a minute or so); --files, or if SlideRule
+fails, from NSIDC's files themselves (earthaccess over HTTPS, only the area's stretch of each track; the login from
+EARTHDATA_USERNAME / EARTHDATA_PASSWORD, the owner's NASA Earthdata account, baltic-aladin secrets; an hour an area).
+Lazy imports: only this job installs sliderule, earthaccess and h5py.
 """
 import json
 import math
@@ -81,21 +82,68 @@ def _pass(job):
                     continue
                 g = h[b]
                 la, lo, cls = g["lat_ph"][i0:i1], g["lon_ph"][i0:i1], g["class_ph"][i0:i1]
-                d = g["surface_h"][i0:i1] - g["ortho_h"][i0:i1]
+                d, conf = g["surface_h"][i0:i1] - g["ortho_h"][i0:i1], g["confidence"][i0:i1]
                 keep = (cls == BATHY) & (lo >= W) & (lo <= E)
-                pts += [[round(float(y), 6), round(float(x), 6), round(float(z), 2), day, b]
-                        for y, x, z in zip(la[keep], lo[keep], d[keep])]
+                pts += [[round(float(y), 6), round(float(x), 6), round(float(z), 2), day, b, round(float(c), 2)]
+                        for y, x, z, c in zip(la[keep], lo[keep], d[keep], conf[keep])]
     except Exception as error:  # (a file that won't open: told, the rest go on)
         note = f", skipped: {error}"
     print(f"{title}: {len(pts)} points in {time.time() - t0:.0f} s{note}", flush=True)
     return pts
 
 
-def points(name, out):
+def by_sliderule(box):
+    """The box's seabed photons from SlideRule (NASA's ICESat-2 service, slideruleearth.io: it cuts ATL24 out next to
+    the data, public, no login; its example atl24_access.ipynb: sliderule.run("atl24x", parms, aoi=aoi)). Its columns
+    printed; depth = surface_h - ortho_h as NASA's files (else -ortho_h, the geoid's sea level). The earthaccess way read
+    every pass over the network: an hour for Rohuneeme's area (the owner, 22.11.2026: "use SlideRule then")."""
+    from sliderule import sliderule
+
+    W, S, E, N = box
+    sliderule.init()
+    aoi = [{"lat": S, "lon": W}, {"lat": S, "lon": E}, {"lat": N, "lon": E}, {"lat": N, "lon": W}, {"lat": S, "lon": W}]
+    gdf = sliderule.run("atl24x", {"atl24": {"class_ph": ["bathymetry"]}}, aoi=aoi)
+    print("columns:", list(gdf.columns), "index:", gdf.index.name, flush=True)
+    if not len(gdf):
+        return []
+    cols = set(gdf.columns)
+    lat = gdf["lat_ph"] if "lat_ph" in cols else gdf.geometry.y
+    lon = gdf["lon_ph"] if "lon_ph" in cols else gdf.geometry.x
+    depth = gdf["surface_h"] - gdf["ortho_h"] if "surface_h" in cols else -gdf["ortho_h"]
+    when = gdf["time_ns"] if "time_ns" in cols else gdf.index
+    days = [str(t)[:10] for t in (when.astype("datetime64[ns]") if hasattr(when, "astype") else when)]
+    beam = gdf["spot"].astype(str) if "spot" in cols else gdf["gt"].astype(str) if "gt" in cols else ["?"] * len(gdf)
+    conf = gdf["confidence"] if "confidence" in cols else [None] * len(gdf)
+    return [[round(float(y), 6), round(float(x), 6), round(float(d), 2), day, str(b), None if c is None else round(float(c), 2)]
+            for y, x, d, day, b, c in zip(lat, lon, depth, days, beam, conf)]
+
+
+def points(name, out, via="sliderule"):
+    W, S, E, N = area_bbox(name)
+    if via == "sliderule":
+        t0 = time.time()
+        try:
+            pts = by_sliderule((W, S, E, N))
+            print(name, f"{len(pts)} seabed points from SlideRule in {time.time() - t0:.0f} s", flush=True)
+            _write(name, out, (W, S, E, N), pts, "sliderule", len({(p[3], p[4]) for p in pts}))
+            return
+        except Exception as error:  # (SlideRule down or changed: the slow way still works)
+            print(name, f"SlideRule failed ({error}), reading the files instead", flush=True)
+    _by_files(name, out, (W, S, E, N))
+
+
+def _write(name, out, box, pts, via, passes):
+    res = {"area": name, "bbox": list(box), "via": via, "passes": passes, "points": pts,
+           "made": time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())}
+    Path(out).mkdir(parents=True, exist_ok=True)
+    (Path(out) / f"{name}-icesat.json").write_text(json.dumps(res))
+
+
+def _by_files(name, out, box):
     import earthaccess
     from concurrent.futures import ProcessPoolExecutor
 
-    W, S, E, N = area_bbox(name)
+    W, S, E, N = box
     earthaccess.login(strategy="environment")
     found = earthaccess.search_data(short_name="ATL24", bounding_box=(W, S, E, N))
     # (The newest version of each pass: the catalogue lists every version's file.)
@@ -121,13 +169,11 @@ def points(name, out):
             pts += p
             used += bool(p)
     print(name, f"{len(jobs)} passes read in {time.time() - t0:.0f} s", flush=True)
-    res = {"area": name, "bbox": [W, S, E, N], "granules": len(grans), "files": used, "points": pts,
-           "made": time.strftime("%Y-%m-%dT%H:%MZ", time.gmtime())}
-    Path(out).mkdir(parents=True, exist_ok=True)
-    (Path(out) / f"{name}-icesat.json").write_text(json.dumps(res))
+    _write(name, out, box, pts, "files", used)
     print(name, f"{len(pts)} seabed points from {used} passes", flush=True)
 
 
 if __name__ == "__main__":
     args = sys.argv[1:]
-    points(args[0], args[args.index("--out") + 1] if "--out" in args else "icesat")
+    points(args[0], args[args.index("--out") + 1] if "--out" in args else "icesat",
+           "files" if "--files" in args else "sliderule")
