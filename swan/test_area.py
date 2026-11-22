@@ -98,12 +98,12 @@ def test_laser_fit():
     import survey as S
 
     rng = np.random.default_rng(1)
-    L = rng.uniform(-5, -2, 200)
-    z = 0.5 - 0.6 * L + rng.normal(0, 0.05, 200)  # (a = 0.5, b = -0.6: 2K 1.67/m)
-    z[:15] += 1.5  # (wild)
-    a, b, err = S.laser_fit(L, z, -1.4, 0.5 - 0.6 * -1.4)
-    assert abs(a - 0.5) < 0.1 and abs(b + 0.6) < 0.05 and err < 0.1, (a, b, err)
-    assert S.laser_fit(L, -z, -1.4, 0.0) is None  # (light falling off the wrong way)
+    z = rng.uniform(0.3, 2.0, 400)  # (the laser's depths: the accurate one)
+    L = (z - 0.5) / -0.6 + rng.normal(0, 0.4, 400)  # (the colour, noisy; the truth a = 0.5, b = -0.6)
+    L[:20] -= 3.0  # (wild)
+    a, b, err = S.laser_fit(L, z, (0.3 - 0.5) / -0.6, 0.3)
+    assert abs(a - 0.5) < 0.15 and abs(b + 0.6) < 0.08, (a, b, err)  # (fitted from the colour, b came out ~-0.35)
+    assert S.laser_fit(-L, z, 0.0, 0.3) is None  # (light falling off the wrong way)
 
 
 def test_survey_ring():

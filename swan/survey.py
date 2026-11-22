@@ -373,16 +373,21 @@ def laser_pixels(pts, meta):
 
 def laser_fit(Lp, zp, L_crest, crest):
     """The line depth = a + b x L through the laser's pixels (L the satellite's colour, z the laser's depth below mean)
-    and the measured crest (a fifth of their weight): least squares, twice more without the worst fifth of the
-    residuals (a boulder, a stray photon). (a, b, the residuals' median absolute size) or None when the light falls
-    off the wrong way (b >= 0)."""
+    and the measured crest (a fifth of their weight), fitted the other way round: the colour from the depth, then
+    turned over. The colour is the noisy one (weed, the water's colour, haze), and a line fitted from a noisy variable
+    comes out too flat: at Rohuneeme depth-from-colour left the flats 0.2 m too deep and 1-2 m water 0.4-0.7 m too
+    shallow, colour-from-depth 0.0 to +0.2 from 0.5 to 2 m. Robust: twice more without the worst fifth (a boulder, a
+    stray photon). (a, b, the depths' median absolute miss) or None when the light falls off the wrong way."""
     Lx, zx = np.append(Lp, [L_crest] * max(1, len(Lp) // 5)), np.append(zp, [crest] * max(1, len(Lp) // 5))
     keep = np.ones(len(Lx), bool)
     for _ in range(3):
-        b, a = np.polyfit(Lx[keep], zx[keep], 1)
-        res = np.abs(zx - (a + b * Lx))
-        keep = res <= max(float(np.percentile(res[keep], 80)), 0.1)
-    return None if b >= 0 else (float(a), float(b), float(np.median(np.abs(zp - (a + b * Lp)))))
+        g, c = np.polyfit(zx[keep], Lx[keep], 1)  # (L = c + g z)
+        res = np.abs(Lx - (c + g * zx))
+        keep = res <= max(float(np.percentile(res[keep], 80)), 1e-3)
+    if g >= 0:
+        return None
+    b, a = 1 / g, -c / g
+    return float(a), float(b), float(np.median(np.abs(zp - (a + b * Lp))))
 
 
 def survey(name, a, data, out, crest=CREST, red=True, weed=None):
