@@ -619,7 +619,10 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     if lp is not None:
         rr, cc, hv = lp["rows"], lp["cols"], lp["half"]
         good = dom[rr, cc] & np.isfinite(Z[rr, cc])
-        use = good & (lp["z"] >= 0.3) & (lp["z"] <= 3.0)
+        # (Only where the satellite sees, 0.3-2 m: past it the colour stops changing and reads too shallow, and those
+        # misses spread into the shallower water beside them: with 3 m the check on the other passes went 0.2-0.25 m
+        # too deep at Kapteinu osta, Svetciems and Salacgriva. Deeper water is the chart's on the map anyway.)
+        use = good & (lp["z"] >= 0.3) & (lp["z"] <= 2.0)
         chk = good & (lp["z"] >= 0.3) & (lp["z"] <= 2.0)
 
         def stat(dz):
