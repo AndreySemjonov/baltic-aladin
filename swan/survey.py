@@ -1121,7 +1121,10 @@ def apply(name, out, force=False, keep_bars=False, months_only=False):
                 shutil.copy(Path(out) / f"{name}-months.{ext}", HERE / "beds" / f"{name}-months.{ext}")
             else:
                 (HERE / "beds" / f"{name}-months.{ext}").unlink(missing_ok=True)
-        if (HERE / "beds" / f"{name}-months.json").exists():
+        # (Drawn on the map only for a spot that passed a look ("shore": true): 10 m pixels of water that moves drew blotches
+        # and a dark smudge at Los Lances, the owner, 23.11.2026: "this is completely not looking good", then "Off, then
+        # try B".)
+        if (HERE / "beds" / f"{name}-months.json").exists() and e.get("shore"):
             e["months"] = name
         else:
             e.pop("months", None)
