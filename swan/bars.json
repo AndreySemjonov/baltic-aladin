@@ -673,7 +673,76 @@
     "halves": 0.07
    },
    "doubts": []
-  }
+  },
+  "shallows": [
+   {
+    "name": "the lagoon (the spot's kite zone): the owner, 23.11.2026, \"Yes, 30 cm\" (\"Its should be around 30cm only at water level 0m\"); the satellite read its floor's summer weed as ~1 m (darker June-October, 0.45-0.55 of the sand against 0.8 in spring), the laser can't see under ~0.5 m, and it never dries in a clear scene",
+    "depth": 0.3,
+    "edge": 60,
+    "ring": [
+     [
+      57.25601,
+      23.17665
+     ],
+     [
+      57.25588,
+      23.17639
+     ],
+     [
+      57.24697,
+      23.17545
+     ],
+     [
+      57.24555,
+      23.17592
+     ],
+     [
+      57.24539,
+      23.17798
+     ],
+     [
+      57.24409,
+      23.17862
+     ],
+     [
+      57.24367,
+      23.17656
+     ],
+     [
+      57.23921,
+      23.17665
+     ],
+     [
+      57.23731,
+      23.17725
+     ],
+     [
+      57.23224,
+      23.17997
+     ],
+     [
+      57.23205,
+      23.18271
+     ],
+     [
+      57.24134,
+      23.18031
+     ],
+     [
+      57.25434,
+      23.181
+     ],
+     [
+      57.2601,
+      23.18306
+     ],
+     [
+      57.26103,
+      23.17997
+     ]
+    ]
+   }
+  ]
  },
  "mersrags": {
   "bed": "mersrags",

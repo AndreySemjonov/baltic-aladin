@@ -283,8 +283,11 @@ def _shallows(depth, box, W, H, shallows):
     the sea cells whose middles are inside an outline at most that deep, e.g. a lagoon behind an offshore sandbank and the
     bank's crest (the owner, 20.11.2026, Berzciems: "A sandbank offshore"), where the depth tiles' ~100 m pixels have it
     metres too deep. A depth below 0 is a bed above mean sea level: dry below that level, wet above
-    ("Usually bank appears at 20-30cm water level": -0.25)."""
+    ("Usually bank appears at 20-30cm water level": -0.25). With "edge" (metres) the cap eases back to the depth as it was
+    over that far outside the outline, no step on the map (the owner, 23.11.2026, Berzciems's lagoon "around 30cm only at
+    water level 0m": its summer weed read as ~1 m)."""
     from PIL import Image, ImageDraw
+    from scipy.ndimage import distance_transform_edt
 
     for s in shallows:
         assert s["depth"] > SEA_MIN, s
@@ -294,7 +297,14 @@ def _shallows(depth, box, W, H, shallows):
             my = (1 - math.log(math.tan(math.pi / 4 + math.radians(lat) / 2)) / math.pi) / 2
             pts.append(((((lon + 180) / 360) - box[0]) / box[2] * W - 0.5, (my - box[1]) / box[3] * H - 0.5))
         ImageDraw.Draw(img).polygon(pts, fill=1)
-        inside = (np.asarray(img) > 0) & (depth > SEA_MIN)
+        ring = np.asarray(img) > 0
+        sea = depth > SEA_MIN
+        if s.get("edge"):
+            cell = box[2] * EARTH * math.cos(math.atan(math.sinh(math.pi * (1 - 2 * (box[1] + box[3] / 2))))) / W
+            t = np.clip(distance_transform_edt(~ring) * cell / s["edge"], 0, 1)
+            near = sea & ~ring & (t < 1) & (depth > s["depth"])
+            depth[near] = s["depth"] + (depth[near] - s["depth"]) * t[near]
+        inside = ring & sea
         depth[inside] = np.minimum(depth[inside], s["depth"])
 
 
