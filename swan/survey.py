@@ -284,18 +284,26 @@ def levels_at(lat, lon, days, reach=40000):
 
 
 DRY_NIR = 0.02  # (dry ground's near-infrared: the Lielupe's banks 0.13-0.42, its dark water 0.01-0.02)
+# Muddy water (the owner, 23.11.2026, the Stor's mouth on the Elbe read 2.9 m deep: "lets make A with C"): the chart's 4 m+
+# water this red or redder (median over the scenes and pixels) is mud near the top, not a bottom showing through: the
+# Elbe by Gluckstadt 0.054-0.061 at every depth from 1 to 17 m; Berzciems, the Lielupe and Tarifa 0.007-0.014.
+MUD_RED = 0.03
+# In muddy water "dry" only this far below 0 in (green - nir) / (green + nir): the Elbe's muddiest scenes spread
+# -0.2..+0.1 round 0 (water, flickering over the line), exposed mud stands well below.
+MUD_DRY = -0.15
 
 
-def wet_dry(g, n):
+def wet_dry(g, n, dry_nd=0.0):
     """A scene's pixels wet (green over near-infrared) and dry (not, and bright in near-infrared as sand, mud or grass are);
     neither where too dark to say: the Lielupe's brown water under a low October sun (0.0001-0.006 both) read "dry" in 4
-    scenes of 80, and the waterline put the river at -0.4 m, "dry at -0.55" (the owner, 23.11.2026)."""
+    scenes of 80, and the waterline put the river at -0.4 m, "dry at -0.55" (the owner, 23.11.2026). dry_nd: MUD_DRY in
+    muddy water."""
     with np.errstate(invalid="ignore", divide="ignore"):
         nd = (g - n) / (g + n)
-    return nd > 0, (nd <= 0) & (n >= DRY_NIR)
+    return nd > 0, (nd <= dry_nd) & (n >= DRY_NIR)
 
 
-def waterline(G, NI, days, lv, top, L):
+def waterline(G, NI, days, lv, top, L, dry_nd=0.0):
     """The brightest offshore sand's height (m above the map's zero, levels_at) from the scenes' wet and dry at their levels
     (levels_at): each pixel of top (a mask) sometimes dry, sometimes wet, at the level that splits them with at most a
     fifth of its scenes on the wrong side, inside the levels seen; the median, how many, and their colour's median (L):
@@ -304,7 +312,7 @@ def waterline(G, NI, days, lv, top, L):
     if len(k) < 12:  # (three values, as the caller takes them: the Stor's few still scenes crashed it, 22.11.2026)
         return None, 0, None
     LV = np.array([lv[days[i]] for i in k])
-    wet, dry = wet_dry(G[k], NI[k])
+    wet, dry = wet_dry(G[k], NI[k], dry_nd)
     ok = wet | dry
     nw, nd = wet.sum(0), dry.sum(0)
     lo, hi = np.sort(LV)[1], np.sort(LV)[-2]
@@ -324,7 +332,7 @@ def waterline(G, NI, days, lv, top, L):
     return (float(np.median(hs)), len(hs), float(np.median(ls))) if len(hs) >= 30 else (None, len(hs), None)
 
 
-def flat_heights(G, NI, days, lv, cand, reach):
+def flat_heights(G, NI, days, lv, cand, reach, dry_nd=0.0):
     """Each candidate pixel's height (m above mean sea level) by the waterline method, the brightest sand's rule
     (waterline) for every pixel that dries: its scenes wet or dry (green over near-infrared) sorted by their level, the
     height the level splitting them best, at most a fifth on the wrong side, 3+ of each, inside the levels seen and the
@@ -341,7 +349,7 @@ def flat_heights(G, NI, days, lv, cand, reach):
     LV = LV[order]
     rr, cc = np.nonzero(cand)
     g, n = G[np.array(k)[order]][:, rr, cc], NI[np.array(k)[order]][:, rr, cc]
-    wet, dry = wet_dry(g, n)
+    wet, dry = wet_dry(g, n, dry_nd)
     ok = wet | dry
     W, D = wet.astype(np.int16), dry.astype(np.int16)
     cw, cd = np.cumsum(W, 0)[:-1], np.cumsum(D, 0)[:-1]  # (wet and dry among the scenes below each split)
@@ -386,7 +394,7 @@ def flat_gaps(Z, flat, gap, floor, r=4, inside=0.6):
     return np.where(hit, cap, Z), int(hit.sum())
 
 
-def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50, lv=None, tide_reach=1.0):
+def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50, lv=None, tide_reach=1.0, dry_nd=0.0):
     """Water that comes and goes by the season, not the tide (the owner, 23.11.2026, Tarifa's Los Lances: "in reality
     this lagoon go up and down", then "Yes, build B"): its wettest strip in 78 scenes wet 60-90 % Oct-Apr, 0-5 % Jun-Sep,
     and no link to the tide (-0.03), so the waterline finds no split there; over all 253 scenes 2023-2026 its 39 ha wet in
@@ -401,7 +409,7 @@ def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50, 
     map draws them on cells our grid calls land (tables.py map_months). (13, N, N), NaN none; None if none."""
     from scipy.ndimage import distance_transform_edt, label
 
-    wet, dry = wet_dry(G, NI)
+    wet, dry = wet_dry(G, NI, dry_nd)
     ok = wet | dry
     seen = ok.sum(0)
     share = wet.sum(0) / np.maximum(seen, 1)
@@ -463,12 +471,12 @@ def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50, 
             k = np.isin(mo, open_m)
             mask = np.zeros_like(cand)
             mask[rr[stay], cc[stay]] = True
-            h = flat_heights(G[k], NI[k], [d for d, s in zip(days, k) if s], lv, mask, tide_reach)
+            h = flat_heights(G[k], NI[k], [d for d, s in zip(days, k) if s], lv, mask, tide_reach, dry_nd)
             # (Where the open months didn't split it, all the scenes: the beach's face is tidal all year, and on its months
             # alone it stood as water at any level on the map, a band stranded on the sand at low water; Los Lances.)
             rest = mask & ~np.isfinite(h)
             if rest.any():
-                h = np.where(np.isfinite(h), h, flat_heights(G, NI, days, lv, rest, tide_reach))
+                h = np.where(np.isfinite(h), h, flat_heights(G, NI, days, lv, rest, tide_reach, dry_nd))
             fin = np.isfinite(h)
             # (Kept only where the tide explains the water better than the month does: at Los Lances the tide's heights
             # put 74 % of the scenes' wet and dry right, the month's picture more; the river and the channel's moves
@@ -728,6 +736,13 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     joined = np.union1d(np.unique(wl[sea & water]), [k for k in edge if k and big[k] >= 2000])
     seaw = np.isin(wl, joined) & (wl > 0)
     dom = water & seaw & (dland > 20) & (dland <= 1200) & ~plants & ~river & np.isfinite(L)
+    # Muddy water (MUD_RED): red over the chart's 4 m+ water, where no bottom shows; 500+ pixels of it to judge.
+    deep4 = water & seaw & ~plants & (gd >= 4)
+    with np.errstate(invalid="ignore"), __import__("warnings").catch_warnings():
+        __import__("warnings").simplefilter("ignore")
+        mud_red = float(np.nanmedian(np.nanmedian(RB[:, 0][:, deep4], 0))) if deep4.sum() >= 500 else float("nan")
+    muddy = bool(mud_red >= MUD_RED)
+    dry_nd = MUD_DRY if muddy else 0.0
     doubts, notes = [], []  # (notes: what was done, not a doubt, on the sheet)
     # The laser's points here (laser_points: SlideRule, ~1 min), once: they choose the colour below and set the line.
     lp = laser_pixels(laser_points(LAT, LON), meta)
@@ -768,7 +783,7 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     # waterline put 6,200 ha of open water at 0.44 m (22.11.2026). A tidal coast's deep water may dry at low tide.)
     deep = dom & (gd > 2.0)
     if lv and tide.reach(lat, lon) < TIDAL and deep.sum() >= 200:
-        sea_dry = [float(wet_dry(G[i], NI[i])[1][deep & np.isfinite(G[i])].mean()) if (deep & np.isfinite(G[i])).any() else 0.0
+        sea_dry = [float(wet_dry(G[i], NI[i], dry_nd)[1][deep & np.isfinite(G[i])].mean()) if (deep & np.isfinite(G[i])).any() else 0.0
                    for i in range(len(days))]
         iced = {d for d, f in zip(days, sea_dry) if f > 0.05}
         if iced:
@@ -776,7 +791,7 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
             notes.append(f"{len(iced)} scenes left out of the waterline: ice or haze over deep water")
     off60 = dom & (dland > 60)
     top_h, top_n, L_top = waterline(G[still], NI[still], [d for d, s in zip(days, still) if s], lv,
-                                    off60 & (L >= np.percentile(L[off60], 98)), L) if lv and off60.any() else (None, 0, None)
+                                    off60 & (L >= np.percentile(L[off60], 98)), L, dry_nd) if lv and off60.any() else (None, 0, None)
     if top_h is not None:
         crest, how, L_crest = -top_h, f"measured at {gauge}: {top_n} pixels", L_top
     else:
@@ -932,7 +947,7 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
         joined2 = np.unique(lab2[sea])
         cand = np.isin(lab2, joined2[joined2 > 0]) & (wfrac >= 0.05) & (wfrac <= 0.99)
         use_s = still if still.sum() >= 12 else np.ones(len(days), bool)
-        hts = flat_heights(G[use_s], NI[use_s], [d for d, s in zip(days, use_s) if s], lv, cand, reach)
+        hts = flat_heights(G[use_s], NI[use_s], [d for d, s in zip(days, use_s) if s], lv, cand, reach, dry_nd)
         flat = np.isfinite(hts)
         Z = np.where(flat, -hts, Z)
         lows = [lv[d] for d, s in zip(days, use_s) if s and d in lv]
@@ -953,12 +968,16 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     # Too few calm scenes for the colour (murky, windy water: the Stor's mouth on the Elbe, 1 of 74) but flats measured
     # by the waterline, which needs no calm: the flats alone, the colour's depths out (the chart's there), and that no
     # doubt: its 1,396 ha of flats were held with the colour before.
-    if calm.sum() < MIN_CALM and flat.sum() >= 2000:
+    # In muddy water (MUD_RED) the colour's depths are out whatever the calm scenes: the colour is the mud's; the chart's
+    # there, and the map says "muddy water: depth not seen" (bars.json and the index "muddy").
+    if muddy or (calm.sum() < MIN_CALM and flat.sum() >= 2000):
         dom = np.zeros_like(dom)
         doubts[:] = [d for d in doubts if not d.startswith("only ") and not d.startswith("a weak fit")
                      and not d.startswith("light's fall-off") and "from the laser" not in d]
-        notes.append(f"murky water ({int(calm.sum())} calm scenes): the tidal flats only, the colour's depths out")
-    months = seasonal(G, NI, days, sea, flat, lv=lv, tide_reach=reach)
+        notes.append(f"muddy water (red {mud_red:.3f} over the chart's 4 m+ water): the colour's depths out, flats only where"
+                     f" clearly dry" if muddy else
+                     f"murky water ({int(calm.sum())} calm scenes): the tidal flats only, the colour's depths out")
+    months = seasonal(G, NI, days, sea, flat, lv=lv, tide_reach=reach, dry_nd=dry_nd)
     if months is not None:
         notes.append(f"{np.isfinite(months[0]).sum() / 100:.1f} ha of seasonal water (wet by the month, not the tide)")
     out = Path(out)
@@ -972,6 +991,7 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
                    "water": [round(L_w, 3), round(D_w, 2), int(ok.sum())], "halves": round(split, 2),
                    "colour": "bright" if tint is not None else "calm"},
            "ha": {f"{k:g}": round(v, 1) for k, v in stat.items()}, "dark_ha": round(dark_ha, 1), "red_ha": round(red_ha, 1), "weed_ha": round(weed_ha, 1), "flats_ha": round(flats_ha, 1), "laser": laser, "notes": notes, "doubts": doubts,
+           "muddy": muddy, "mud_red": round(mud_red, 4) if mud_red == mud_red else None,
            "bed": pixels, "sheet": f"{name}.png"}
     (out / f"{name}.json").write_text(json.dumps(res, indent=1))
     _picture(out / f"{name}.png", Z, water, dom | river, plants, river, res, meta, LAT, LON,
@@ -1153,6 +1173,10 @@ def apply(name, out, force=False, keep_bars=False, months_only=False):
         e.pop("shallows", None)
     e["bed"] = name
     e["survey"] = {k: res[k] for k in ("made", "scenes", "calm", "fit", "doubts")}
+    if res.get("muddy"):
+        e["muddy"] = True
+    else:
+        e.pop("muddy", None)
     p.write_bytes((json.dumps(bars, indent=1) + "\n").encode("utf-8"))
     print(name, "into beds/ and bars.json:", res["bed"], "bed pixels,", len(kept), "of the owner's shapes kept")
 

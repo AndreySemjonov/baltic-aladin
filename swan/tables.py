@@ -281,6 +281,10 @@ def depths(names=None):
             now[a["area"]].pop("months", None)
             if a["months"]:
                 now[a["area"]]["months"] = True
+            # (Muddy water: the map says "muddy water: depth not seen" where nothing was measured; survey.py MUD_RED.)
+            now[a["area"]].pop("muddy", None)
+            if (bars_for(a["area"]) or {}).get("muddy"):
+                now[a["area"]]["muddy"] = True
             # (Its bars for the map's lines: [[metres from the waterline, crest depth], ...].)
             if (bars_for(a["area"]) or {}).get("bars"):
                 now[a["area"]]["bars"] = bars_for(a["area"])["bars"]
@@ -391,6 +395,8 @@ STOP
         # (A river mouth's: the map draws its waves on the base map's river water too.)
         if (bars_for(spec["area"]) or {}).get("river"):
             meta["river"] = True
+        if (bars_for(spec["area"]) or {}).get("muddy"):
+            meta["muddy"] = True
     (home / "area.json").write_text(json.dumps(meta))
     print(spec["area"], f"done in {(time.time() - t0) / 60:.0f} min, {failed} failed", flush=True)
     if failed > len(runs) // 10:
@@ -469,7 +475,7 @@ def index(homes, drop=()):
         # (Its depth grid's stamp kept when only other levels were made.)
         if "depth" not in meta and old and "depth" in old:
             meta["depth"] = old["depth"]
-            for k in ("depthBase", "depthStep", "depthW", "depthH", "bars", "river", "measured", "months"):
+            for k in ("depthBase", "depthStep", "depthW", "depthH", "bars", "river", "measured", "months", "muddy"):
                 if k in old:
                     meta[k] = old[k]
         areas[meta["area"]] = meta

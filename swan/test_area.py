@@ -139,6 +139,18 @@ def test_flat_gaps():
     assert (Z2[flat] == 0.3).all()
 
 
+def test_muddy_dry():
+    """survey.py wet_dry in muddy water (MUD_DRY): the Elbe's muddiest water (green 0.07, nir 0.075, nd -0.03) is "dry"
+    by the ordinary rule and neither in muddy water; exposed mud (green 0.06, nir 0.15) dry by both; plain water wet."""
+    import survey as S
+
+    g, n = np.array([0.07, 0.06, 0.064]), np.array([0.075, 0.15, 0.025])
+    wet, dry = S.wet_dry(g, n)
+    assert list(dry) == [True, True, False] and list(wet) == [False, False, True]
+    wet, dry = S.wet_dry(g, n, S.MUD_DRY)
+    assert list(dry) == [False, True, False] and list(wet) == [False, False, True]
+
+
 def test_flat_heights():
     """survey.py flat_heights: a sloping flat (-1.8 to +1.8 m over mean sea level) on a 4.4 m tide, wet in a scene when
     the tide stands above it, a tenth of the scenes misread: 95 % of the heights within 0.15 m, none over 0.35; a pixel
@@ -277,6 +289,7 @@ if __name__ == "__main__":
     test_survey_ring()
     test_icesat_span()
     test_laser_fit()
+    test_muddy_dry()
     test_flat_heights()
     test_flat_heights_rare_dry()
     test_seasonal()
