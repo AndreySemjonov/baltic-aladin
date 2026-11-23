@@ -422,11 +422,18 @@ def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50, 
         return None
     mo = np.array([int(d[5:7]) - 1 for d in days])
     rr, cc = np.nonzero(cand)
-    W = np.stack([wet[mo == m][:, rr, cc].sum(0) for m in range(12)]).astype(np.float32)
-    O = np.stack([ok[mo == m][:, rr, cc].sum(0) for m in range(12)]).astype(np.float32)
+    # (Recent scenes count more, half-life 6 months: a channel moves each winter (the owner, 23.11.2026, Los Lances: "it
+    # changed its shape all the time"); the last 12 months' scenes there from the earlier ones' months 81 % right, all
+    # years equal 76 %.)
+    t = np.array([time.mktime(time.strptime(d[:10], "%Y-%m-%d")) for d in days])
+    rw = (0.5 ** ((t.max() - t) / (86400 * 182.6))).astype(np.float32)[:, None]
+    W = np.stack([(wet[mo == m][:, rr, cc] * rw[mo == m]).sum(0) for m in range(12)]).astype(np.float32)
+    O = np.stack([(ok[mo == m][:, rr, cc] * rw[mo == m]).sum(0) for m in range(12)]).astype(np.float32)
+    N = np.stack([ok[mo == m][:, rr, cc].sum(0) for m in range(12)]).astype(np.float32)
     Ws, Os = 2 * W + np.roll(W, 1, 0) + np.roll(W, -1, 0), 2 * O + np.roll(O, 1, 0) + np.roll(O, -1, 0)
+    Ns = 2 * N + np.roll(N, 1, 0) + np.roll(N, -1, 0)
     with np.errstate(invalid="ignore", divide="ignore"):
-        S = np.where(Os >= 4, Ws / Os, np.nan)
+        S = np.where((Ns >= 4) & (Os > 0), Ws / Os, np.nan)
         keep = (np.nanmax(S, 0) - np.nanmin(S, 0)) >= swing
     cand[rr[~keep], cc[~keep]] = False
     lab, _ = label(cand)
@@ -463,6 +470,26 @@ def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50, 
             if rest.any():
                 h = np.where(np.isfinite(h), h, flat_heights(G, NI, days, lv, rest, tide_reach))
             fin = np.isfinite(h)
+            # (Kept only where the tide explains the water better than the month does: at Los Lances the tide's heights
+            # put 74 % of the scenes' wet and dry right, the month's picture more; the river and the channel's moves
+            # drive it (the owner, 23.11.2026: "not only dependent on high tides, but how much river water"), and a level
+            # that moved its water there would claim what we don't know. Andalucia's laser terrain + the tide: 64 %.)
+            if fin.any():
+                L = np.array([lv.get(d, np.nan) for d in days])
+                col = np.full(sea.shape, -1)
+                col[rr, cc] = np.arange(len(rr))
+                fr, fc = np.nonzero(fin)
+                s = np.isfinite(L)
+                wt, dr = wet[s][:, fr, fc], dry[s][:, fr, fc]
+                sm_ = np.nan_to_num(S[mo[s]][:, col[fr, fc]])
+                by_h = (sm_ >= 0.05) & (L[s][:, None] > h[fr, fc][None, :])  # (the map's rule: swan.js ourWater)
+                by_m = sm_ >= 0.5
+                n_ok = max((wt | dr).sum(), 1)
+                sh, sm = ((by_h & wt) | (~by_h & dr)).sum() / n_ok, ((by_m & wt) | (~by_m & dr)).sum() / n_ok
+                print(f"seasonal: the tide's heights {sh:.0%} right, the month's picture {sm:.0%}: "
+                      f"{'heights kept' if sh >= sm + 0.03 else 'heights dropped'}", flush=True)
+                if sh < sm + 0.03:
+                    fin[:] = False
             out[13][fin] = np.clip(np.round(h[fin] * 50) + 127, 0, 254) / 254
     return out if stay.any() or never.any() else None
 

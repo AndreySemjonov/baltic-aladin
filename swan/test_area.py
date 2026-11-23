@@ -214,11 +214,12 @@ def test_seasonal():
     assert m is not None
     got = np.isfinite(m[0])
     assert got[5:20, 20:30].all() and got.sum() == 150, got.sum()
-    assert (m[0][5:20, 20:30] > 0.7).all() and (m[6][5:20, 20:30] < 0.1).all(), (m[0][5:20, 20:30].min(), m[6][5:20, 20:30].max())
+    assert (m[0][5:20, 20:30] > 0.6).all() and (m[6][5:20, 20:30] < 0.1).all(), (m[0][5:20, 20:30].min(), m[6][5:20, 20:30].max())
     m = S.seasonal(G, NI, days, sea, np.zeros_like(sea))
     got = np.isfinite(m[0])
     assert got[22:28, 20:35].all() and got.sum() == 240 and not got[:, 10:12].any(), got.sum()
-    assert np.nanmax(np.abs(m[:12, 22:28, 20:35] - 0.33)) < 0.3, np.nanmax(np.abs(m[:12, 22:28, 20:35] - 0.33))
+    # (Recent scenes weigh more since 23.11.2026, so a month stands on fewer of them: noisier.)
+    assert np.nanmax(np.abs(m[:12, 22:28, 20:35] - 0.33)) < 0.4, np.nanmax(np.abs(m[:12, 22:28, 20:35] - 0.33))
     # (Plane 12, plants in every scene: the dry land here reads as plants, near-infrared 0.15 over green 0.05; never the
     # lagoon, the strip or the swash.)
     pl = m[12] == 1.0
@@ -233,6 +234,12 @@ def test_seasonal():
     assert np.isfinite(h).all() and np.abs(h - 0.3).max() < 0.1, (np.nanmin(h), np.nanmax(h))
     # (The strip wet a third of the time by chance: a few pixels pass the waterline's fifth on the wrong side, 2 of 90.)
     assert np.isfinite(m[13][22:28, 20:35]).mean() <= 0.05, np.isfinite(m[13][22:28, 20:35]).sum()
+    # A lagoon the tide doesn't drive (wet by the month and the river, Los Lances's check, 23.11.2026): its heights
+    # explain no more than the month does, so none; its months kept.
+    wet[:, 5:20, 20:30] = winter & (rng.random((120, 15, 10)) < 0.8)
+    G, NI = np.where(wet, 0.08, 0.05).astype(np.float32), np.where(wet, 0.02, 0.15).astype(np.float32)
+    m = S.seasonal(G, NI, days, sea, np.zeros_like(sea), lv=dict(zip(days, lev)), tide_reach=0.6)
+    assert not np.isfinite(m[13]).any() and np.isfinite(m[0][5:20, 20:30]).all(), np.isfinite(m[13]).sum()
 
 
 def test_laser_fit():
