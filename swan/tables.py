@@ -188,6 +188,10 @@ def map_depth(area, box, W, H, depth):
         # measured on it.)
         cover = np.zeros((H * FINE, W * FINE), np.float32)
         fine = A.build(box, W * FINE, H * FINE, None, bars, cover)
+        # (Nothing measured on our grid's land and reeds: the bed's cover spilled onto them, coded 0.2 m deep, and where the
+        # base map has water there, a river past the opened mouth, the map drew it measured and dry at -0.5 m: the Lielupe
+        # band at 57.01 N, 23.98 E, 23.11.2026.)
+        cover[fine <= A.SEA_MIN] = 0
         meas = np.round(np.clip(cover, 0, 1) * 255).astype(np.uint8).tobytes() if bars.get("bed") else "owner" if bars.get("owner") else None
         return depth_bytes(fine, *scale), W * FINE, H * FINE, meas, map_months(area, box, W, H, fine)
     return depth_bytes(depth, *scale), W, H, "owner" if bars.get("owner") else None, None
