@@ -221,7 +221,7 @@ def test_seasonal():
     assert np.nanmax(np.abs(m[:12, 22:28, 20:35] - 0.33)) < 0.3, np.nanmax(np.abs(m[:12, 22:28, 20:35] - 0.33))
     # (Plane 12, plants in every scene: the dry land here reads as plants, near-infrared 0.15 over green 0.05; never the
     # lagoon, the strip or the swash.)
-    pl = np.isfinite(m[12])
+    pl = m[12] == 1.0
     assert pl[0:5, 20:40].all() and not pl[5:20, 20:30].any() and not pl[22:28, 20:35].any() and not pl[:, :12].any()
 
 

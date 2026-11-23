@@ -394,8 +394,8 @@ def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50):
     from it, reach at most), not a measured flat, wet in 2-95 % of 20+ readable scenes (never wet: land or plants), its
     wet share by month (the month's scenes twice, its neighbours' once: Feb had 1 scene there; 4+ such readings), where
     the months differ by swing or more (none: a lagoon wet in few scenes all year is drawn dry all year, which it is; a
-    0.4 swing kept 1.6 of its 39 ha), in patches of least pixels or more. Plane 12: 1 where every readable scene saw plants
-    and never water (wet under 2 %, near-infrared over 0.1 and 1.3 x the green): the base map's "Lagoon de Los Lances" is
+    0.4 swing kept 1.6 of its 39 ha), in patches of least pixels or more. Plane 12, never wet: 0.5 bare ground, 1 where
+    every readable scene saw plants and never water (wet under 2 %, near-infrared over 0.1 and 1.3 x the green): the base map's "Lagoon de Los Lances" is
     that in all 253 scenes (a reed or salt marsh; water under plants can't be seen), its seasonal water a strip behind the
     beach the base map draws as sand (the owner, then "Yes, do A": the strip as water when wet, the marsh as marsh). The
     map draws them on cells our grid calls land (tables.py map_months). (13, N, N), NaN none; None if none."""
@@ -411,8 +411,9 @@ def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50):
     with np.errstate(invalid="ignore"), __import__("warnings").catch_warnings():
         __import__("warnings").simplefilter("ignore")
         nir, g = np.nanmedian(NI, 0), np.nanmedian(G, 0)
-    plants = near & (share < 0.02) & (nir > 0.1) & (nir > 1.3 * g)
-    if not cand.any() and not plants.any():
+    never = near & (share < 0.02)
+    plants = never & (nir > 0.1) & (nir > 1.3 * g)
+    if not cand.any() and not never.any():
         return None
     mo = np.array([int(d[5:7]) - 1 for d in days])
     rr, cc = np.nonzero(cand)
@@ -429,8 +430,10 @@ def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50):
     out = np.full((13,) + sea.shape, np.nan, np.float32)
     stay = big[lab[rr, cc]] & keep
     out[:12, rr[stay], cc[stay]] = S[:, stay]
+    # (Never wet: 1 plants, 0.5 bare ground: the lagoon's dry mud read as the open sea's blue on the map without it.)
+    out[12][never] = 0.5
     out[12][plants] = 1.0
-    return out if stay.any() or plants.any() else None
+    return out if stay.any() or never.any() else None
 
 
 def _bed_out(name, a, Z, valid, meta, out, months=None):
