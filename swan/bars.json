@@ -676,8 +676,8 @@
   },
   "shallows": [
    {
-    "name": "the lagoon (the spot's kite zone): the owner, 23.11.2026, \"Yes, 30 cm\" (\"Its should be around 30cm only at water level 0m\"); the satellite read its floor's summer weed as ~1 m (darker June-October, 0.45-0.55 of the sand against 0.8 in spring), the laser can't see under ~0.5 m, and it never dries in a clear scene",
-    "depth": 0.3,
+    "name": "the lagoon (the spot's kite zone), at most 0.45 m at level 0: the owner, 23.11.2026, first \"Yes, 30 cm\" (\"Its should be around 30cm only at water level 0m\"), then \"0.45 m floor\": the waterline found it wet in every clear scene down to -0.39 m (at least ~0.4 deep) and ICESat-2 (21.03.2021) 0.61-0.72 m in its north half, 0.84-1.11 by the spot; the colour read its summer weed as ~1 m",
+    "depth": 0.45,
     "edge": 60,
     "ring": [
      [
