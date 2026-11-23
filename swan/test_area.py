@@ -164,6 +164,34 @@ def test_flat_heights():
     assert np.percentile(e, 95) < 0.15 and e.max() < 0.35, (np.percentile(e, 95), e.max())
 
 
+def test_flat_heights_rare_dry():
+    """flat_heights on the Baltic's levels: a river always wet but for 3 misread scenes in 80 (the Lielupe's brown flood
+    water, 23.11.2026) has no height; a lagoon dry in just the two lowest-water scenes has one between them and the next."""
+    import survey as S
+
+    rng = np.random.default_rng(5)
+    levels = rng.uniform(-0.5, 0.6, 80)
+    days = [f"2025-{1 + i // 28:02d}-{1 + i % 28:02d}" for i in range(80)]
+    wet = np.ones((80, 12, 12), bool)
+    for y in range(1, 12):
+        for x in range(12):
+            wet[rng.choice(80, 3, replace=False), y, x] = False
+    low = np.argsort(levels)
+    wet[low[:2], 0, :] = False
+    G = np.where(wet, 0.08, 0.05).astype(np.float32)
+    NI = np.where(wet, 0.02, 0.15).astype(np.float32)
+    # (Rows 6-11 instead 6 scenes too dark to read, under a low sun: 0.0001 both, NDWI 0.)
+    G[:, 6:], NI[:, 6:] = 0.08, 0.02
+    for y in range(6, 12):
+        for x in range(12):
+            k = rng.choice(80, 6, replace=False)
+            G[k, y, x] = NI[k, y, x] = 1e-4
+    h = S.flat_heights(G, NI, days, dict(zip(days, levels)), np.ones((12, 12), bool), 0.6)
+    assert np.isnan(h[1:]).all(), np.isfinite(h[1:]).sum()
+    s = np.sort(levels)
+    assert np.isfinite(h[0]).all() and (h[0] > s[1]).all() and (h[0] < s[2]).all(), h[0]
+
+
 def test_laser_fit():
     """survey.py laser_fit: the colour-to-depth line from laser pixels, a few wild ones (a boulder, a stray photon) left
     out, the crest on the line."""
@@ -200,5 +228,6 @@ if __name__ == "__main__":
     test_icesat_span()
     test_laser_fit()
     test_flat_heights()
+    test_flat_heights_rare_dry()
     test_flat_gaps()
     print("ok")

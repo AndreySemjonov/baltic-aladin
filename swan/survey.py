@@ -280,6 +280,18 @@ def levels_at(lat, lon, days, reach=40000):
     return gauge, (f"{name}: the gauge's zero, not the map's" if name else None)
 
 
+DRY_NIR = 0.02  # (dry ground's near-infrared: the Lielupe's banks 0.13-0.42, its dark water 0.01-0.02)
+
+
+def wet_dry(g, n):
+    """A scene's pixels wet (green over near-infrared) and dry (not, and bright in near-infrared as sand, mud or grass are);
+    neither where too dark to say: the Lielupe's brown water under a low October sun (0.0001-0.006 both) read "dry" in 4
+    scenes of 80, and the waterline put the river at -0.4 m, "dry at -0.55" (the owner, 23.11.2026)."""
+    with np.errstate(invalid="ignore", divide="ignore"):
+        nd = (g - n) / (g + n)
+    return nd > 0, (nd <= 0) & (n >= DRY_NIR)
+
+
 def waterline(G, NI, days, lv, top, L):
     """The brightest offshore sand's height (m above the map's zero, levels_at) from the scenes' wet and dry at their levels
     (levels_at): each pixel of top (a mask) sometimes dry, sometimes wet, at the level that splits them with at most a
@@ -289,10 +301,9 @@ def waterline(G, NI, days, lv, top, L):
     if len(k) < 12:  # (three values, as the caller takes them: the Stor's few still scenes crashed it, 22.11.2026)
         return None, 0, None
     LV = np.array([lv[days[i]] for i in k])
-    with np.errstate(invalid="ignore", divide="ignore"):
-        wet = (G[k] - NI[k]) / (G[k] + NI[k]) > 0
-    ok = np.isfinite(G[k]) & np.isfinite(NI[k])
-    nw, nd = (wet & ok).sum(0), (~wet & ok).sum(0)
+    wet, dry = wet_dry(G[k], NI[k])
+    ok = wet | dry
+    nw, nd = wet.sum(0), dry.sum(0)
     lo, hi = np.sort(LV)[1], np.sort(LV)[-2]
     hs, ls = [], []
     for y, x in zip(*np.nonzero(top & (nw >= 3) & (nd >= 3))):
@@ -327,10 +338,9 @@ def flat_heights(G, NI, days, lv, cand, reach):
     LV = LV[order]
     rr, cc = np.nonzero(cand)
     g, n = G[np.array(k)[order]][:, rr, cc], NI[np.array(k)[order]][:, rr, cc]
-    with np.errstate(invalid="ignore", divide="ignore"):
-        wet = (g - n) / (g + n) > 0
-    ok = np.isfinite(g) & np.isfinite(n)
-    W, D = (wet & ok).astype(np.int16), (~wet & ok).astype(np.int16)
+    wet, dry = wet_dry(g, n)
+    ok = wet | dry
+    W, D = wet.astype(np.int16), dry.astype(np.int16)
     cw, cd = np.cumsum(W, 0)[:-1], np.cumsum(D, 0)[:-1]  # (wet and dry among the scenes below each split)
     wrong = cw + (D.sum(0) - cd)  # (wet below the split, dry above it)
     # (The middle of the splits within one miss of the best: with misread scenes several score nearly alike, and the
@@ -340,11 +350,12 @@ def flat_heights(G, NI, days, lv, cand, reach):
     with np.errstate(invalid="ignore"):
         h = np.nanmedian(np.where(wrong <= least + 1, mids[:, None], np.nan), 0)
     seen = ok.sum(0)
-    # (Or dry in just two scenes when they are the two lowest, no scene on the wrong side: a lagoon that uncovers only on
-    # the year's lowest water, Berzciems's at -0.4..-0.47 (wet in 97-98 % of its scenes); two misread scenes, a cloud's
-    # shadow, don't line up with the lowest levels.)
+    # (Dry in under 5 % of the scenes only when every dry one is below every wet one: a lagoon that uncovers only on the
+    # year's lowest water, Berzciems's at -0.4..-0.47 (wet in 97-98 % of its scenes); misread scenes, a cloud's shadow or
+    # a river's brown flood, don't line up with the lowest levels. The fifth on the wrong side let a river with 3 such
+    # scenes in 80 through at ~-0.4 m: the Lielupe "dry at -0.55" (the owner, 23.11.2026).)
     nd = D.sum(0)
-    good = (((least <= 0.2 * seen) & (nd >= 3)) | ((least == 0) & (nd == 2))) & (W.sum(0) >= 3) & \
+    good = (((least <= 0.2 * seen) & (nd >= np.maximum(3, 0.05 * seen))) | ((least == 0) & (nd >= 2))) & (W.sum(0) >= 3) & \
         (h > LV[0]) & (h < LV[-2]) & (np.abs(h) <= reach + 0.3)
     out[rr[good], cc[good]] = h[good]
     # (Each with its 3 x 3 neighbours' median where 5+ have a height: flats are smooth over 10 m, a misread pixel isn't;
@@ -591,9 +602,8 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     # waterline put 6,200 ha of open water at 0.44 m (22.11.2026). A tidal coast's deep water may dry at low tide.)
     deep = dom & (gd > 2.0)
     if lv and tide.reach(lat, lon) < TIDAL and deep.sum() >= 200:
-        with np.errstate(invalid="ignore", divide="ignore"):
-            sea_dry = [float(((G[i] - NI[i]) / (G[i] + NI[i]) <= 0)[deep & np.isfinite(G[i])].mean()) if (deep & np.isfinite(G[i])).any() else 0.0
-                       for i in range(len(days))]
+        sea_dry = [float(wet_dry(G[i], NI[i])[1][deep & np.isfinite(G[i])].mean()) if (deep & np.isfinite(G[i])).any() else 0.0
+                   for i in range(len(days))]
         iced = {d for d, f in zip(days, sea_dry) if f > 0.05}
         if iced:
             lv = {d: v for d, v in lv.items() if d not in iced}
