@@ -457,6 +457,11 @@ def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50, 
             mask = np.zeros_like(cand)
             mask[rr[stay], cc[stay]] = True
             h = flat_heights(G[k], NI[k], [d for d, s in zip(days, k) if s], lv, mask, tide_reach)
+            # (Where the open months didn't split it, all the scenes: the beach's face is tidal all year, and on its months
+            # alone it stood as water at any level on the map, a band stranded on the sand at low water; Los Lances.)
+            rest = mask & ~np.isfinite(h)
+            if rest.any():
+                h = np.where(np.isfinite(h), h, flat_heights(G, NI, days, lv, rest, tide_reach))
             fin = np.isfinite(h)
             out[13][fin] = np.clip(np.round(h[fin] * 50) + 127, 0, 254) / 254
     return out if stay.any() or never.any() else None
