@@ -438,6 +438,8 @@ def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50, 
     # (Never wet: 1 plants, 0.5 bare ground: the lagoon's dry mud read as the open sea's blue on the map without it.)
     out[12][never] = 0.5
     out[12][plants] = 1.0
+    # (Wet in nearly every scene: 0.1, water on our shore; a channel the base map may draw as land, the owner's "Ok with A".)
+    out[12][near & (share > 0.95)] = 0.1
     # Plane 13, the tide's height that floods it in its open months (the owner, 23.11.2026, Los Lances: "this lagoon
     # changes with tide up and down every day. I am every year go to tarifa in january and I know it"): over all months
     # its wetness had no link to the tide (-0.03), but in Oct-Apr +0.44 at the pass and -0.48 six hours before; summer
