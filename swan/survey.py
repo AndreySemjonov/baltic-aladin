@@ -394,8 +394,11 @@ def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50):
     from it, reach at most), not a measured flat, wet in 2-95 % of 20+ readable scenes (never wet: land or plants), its
     wet share by month (the month's scenes twice, its neighbours' once: Feb had 1 scene there; 4+ such readings), where
     the months differ by swing or more (none: a lagoon wet in few scenes all year is drawn dry all year, which it is; a
-    0.4 swing kept 1.6 of its 39 ha), in patches of least pixels or more. The map draws it only over the base map's water
-    on cells our grid calls land (tables.py map_months). (12, N, N) shares, NaN none; None if none."""
+    0.4 swing kept 1.6 of its 39 ha), in patches of least pixels or more. Plane 12: 1 where every readable scene saw plants
+    and never water (wet under 2 %, near-infrared over 0.1 and 1.3 x the green): the base map's "Lagoon de Los Lances" is
+    that in all 253 scenes (a reed or salt marsh; water under plants can't be seen), its seasonal water a strip behind the
+    beach the base map draws as sand (the owner, then "Yes, do A": the strip as water when wet, the marsh as marsh). The
+    map draws them on cells our grid calls land (tables.py map_months). (13, N, N), NaN none; None if none."""
     from scipy.ndimage import distance_transform_edt, label
 
     wet, dry = wet_dry(G, NI)
@@ -403,8 +406,13 @@ def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50):
     seen = ok.sum(0)
     share = wet.sum(0) / np.maximum(seen, 1)
     dist = distance_transform_edt(~sea) * 10
-    cand = (dist >= shore) & (dist <= reach) & ~flat & (share >= 0.02) & (share <= 0.95) & (seen >= 20)
-    if not cand.any():
+    near = (dist >= shore) & (dist <= reach) & ~flat & (seen >= 20)
+    cand = near & (share >= 0.02) & (share <= 0.95)
+    with np.errstate(invalid="ignore"), __import__("warnings").catch_warnings():
+        __import__("warnings").simplefilter("ignore")
+        nir, g = np.nanmedian(NI, 0), np.nanmedian(G, 0)
+    plants = near & (share < 0.02) & (nir > 0.1) & (nir > 1.3 * g)
+    if not cand.any() and not plants.any():
         return None
     mo = np.array([int(d[5:7]) - 1 for d in days])
     rr, cc = np.nonzero(cand)
@@ -415,15 +423,14 @@ def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50):
         S = np.where(Os >= 4, Ws / Os, np.nan)
         keep = (np.nanmax(S, 0) - np.nanmin(S, 0)) >= swing
     cand[rr[~keep], cc[~keep]] = False
-    lab, n = label(cand)
-    if not n:
-        return None
+    lab, _ = label(cand)
     big = np.bincount(lab.ravel()) >= least
     big[0] = False
-    out = np.full((12,) + sea.shape, np.nan, np.float32)
+    out = np.full((13,) + sea.shape, np.nan, np.float32)
     stay = big[lab[rr, cc]] & keep
-    out[:, rr[stay], cc[stay]] = S[:, stay]
-    return out if stay.any() else None
+    out[:12, rr[stay], cc[stay]] = S[:, stay]
+    out[12][plants] = 1.0
+    return out if stay.any() or plants.any() else None
 
 
 def _bed_out(name, a, Z, valid, meta, out, months=None):

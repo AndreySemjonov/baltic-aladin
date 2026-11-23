@@ -195,7 +195,8 @@ def map_depth(area, box, W, H, depth):
 
 def map_months(area, box, W, H, fine):
     """The seasonal water's wet share by month on the map's fine grid (survey.py seasonal; the owner, 23.11.2026, Tarifa's
-    Los Lances: "Yes, build B"): 12 planes of depthW x depthH bytes, the share x 254, 255 none (months.bin.gz, the index's
+    Los Lances: "Yes, build B"): 12 planes of depthW x depthH bytes, the share x 254, 255 none, and a 13th, 254 where every
+    scene saw plants (a marsh; "Yes, do A") (months.bin.gz, the index's
     "months"), only on cells our grid calls land or reeds: the sea's cells have their measured bed. None without."""
     name = (bars_for(area) or {}).get("months")
     if not name or not (A.BEDS / f"{name}-months.json").exists():
@@ -203,9 +204,10 @@ def map_months(area, box, W, H, fine):
     f = A.BEDS / f"{name}-months.bin.gz"
     meta = json.loads((A.BEDS / f"{name}-months.json").read_bytes().decode())
     bw, bh, FW, FH = meta["W"], meta["H"], W * FINE, H * FINE
-    m = np.frombuffer(gzip.decompress(f.read_bytes()), np.uint8).reshape(12, bh, bw)
+    m = np.frombuffer(gzip.decompress(f.read_bytes()), np.uint8)
+    m = m.reshape(len(m) // (bh * bw), bh, bw)  # (12 months, and since the marsh a 13th: plants in every scene, 254)
     c0, r0 = round((meta["box"][0] - box[0]) / box[2] * FW), round((meta["box"][1] - box[1]) / box[3] * FH)
-    out = np.full((12, FH, FW), 255, np.uint8)
+    out = np.full((len(m), FH, FW), 255, np.uint8)
     out[:, r0:r0 + bh, c0:c0 + bw] = m[:, :FH - r0, :FW - c0]
     out[:, fine > A.SEA_MIN] = 255
     return out.tobytes() if (out < 255).any() else None
