@@ -433,7 +433,7 @@
   "scenes": 51,
   "bed": "rider-mnbyvcbv",
   "survey": {
-   "made": "2026-11-22",
+   "made": "2026-11-23",
    "scenes": 253,
    "calm": 41,
    "fit": {
@@ -450,7 +450,8 @@
      2.39,
      3295
     ],
-    "halves": 0.03
+    "halves": 0.03,
+    "colour": "calm"
    },
    "doubts": [
     "a river or channel near the spot (12 ha of narrow water): open it (bars.json river)?"
@@ -1542,7 +1543,31 @@
   "months": "mm-xqcm8yev"
  },
  "mm-rucrlqse": {
-  "months": "mm-rucrlqse"
+  "months": "mm-rucrlqse",
+  "bed": "mm-rucrlqse",
+  "survey": {
+   "made": "2026-11-23",
+   "scenes": 105,
+   "calm": 10,
+   "fit": {
+    "a": -2.287,
+    "b": -1.025,
+    "2K": 0.98,
+    "crest": [
+     -2.524,
+     0.3,
+     "given (2 pixels measured at EOT20's tide at the overpass (the map's))"
+    ],
+    "water": [
+     -4.9,
+     2.74,
+     93
+    ],
+    "halves": 0.1,
+    "colour": "calm"
+   },
+   "doubts": []
+  }
  },
  "mm-6y66xcs5": {
   "months": "mm-6y66xcs5"
