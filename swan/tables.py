@@ -210,6 +210,10 @@ def map_months(area, box, W, H, fine):
     out = np.full((len(m), FH, FW), 255, np.uint8)
     out[:, r0:r0 + bh, c0:c0 + bw] = m[:, :FH - r0, :FW - c0]
     out[:, fine > A.SEA_MIN] = 255
+    # (Our shore on the map, the owner, 23.11.2026, "Ok with A": the grid's land where nothing else was seen, 64 in the
+    # 13th plane, so the map tells our land from our water everywhere in the area; the sea's cells stay 255.)
+    if len(out) >= 13:
+        out[12][(fine <= A.SEA_MIN) & (out[12] == 255) & (out[:12] == 255).all(0)] = 64
     return out.tobytes() if (out < 255).any() else None
 
 

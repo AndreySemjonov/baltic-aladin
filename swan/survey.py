@@ -386,7 +386,7 @@ def flat_gaps(Z, flat, gap, floor, r=4, inside=0.6):
     return np.where(hit, cap, Z), int(hit.sum())
 
 
-def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50):
+def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50, lv=None, tide_reach=1.0):
     """Water that comes and goes by the season, not the tide (the owner, 23.11.2026, Tarifa's Los Lances: "in reality
     this lagoon go up and down", then "Yes, build B"): its wettest strip in 78 scenes wet 60-90 % Oct-Apr, 0-5 % Jun-Sep,
     and no link to the tide (-0.03), so the waterline finds no split there; over all 253 scenes 2023-2026 its 39 ha wet in
@@ -432,12 +432,31 @@ def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50):
     lab, _ = label(cand)
     big = np.bincount(lab.ravel()) >= least
     big[0] = False
-    out = np.full((13,) + sea.shape, np.nan, np.float32)
+    out = np.full((14,) + sea.shape, np.nan, np.float32)
     stay = big[lab[rr, cc]] & keep
     out[:12, rr[stay], cc[stay]] = S[:, stay]
     # (Never wet: 1 plants, 0.5 bare ground: the lagoon's dry mud read as the open sea's blue on the map without it.)
     out[12][never] = 0.5
     out[12][plants] = 1.0
+    # Plane 13, the tide's height that floods it in its open months (the owner, 23.11.2026, Los Lances: "this lagoon
+    # changes with tide up and down every day. I am every year go to tarifa in january and I know it"): over all months
+    # its wetness had no link to the tide (-0.03), but in Oct-Apr +0.44 at the pass and -0.48 six hours before; summer
+    # shuts it (+0.12). The open months: where the patch's median share is half its best month's or more (the season each
+    # coast's own, the southern hemisphere's too); the waterline (flat_heights) on those months' scenes only. A quarter of
+    # Los Lances's pixels split clean (most at ~+0.5 m: the higher tides); the rest keep their months. Stored pre-scaled
+    # for _bed_out's x 254: the byte is the height x 50 + 127 (2 cm steps, +-2.5 m), 255 none.
+    if lv and stay.any():
+        with np.errstate(invalid="ignore"), __import__("warnings").catch_warnings():
+            __import__("warnings").simplefilter("ignore")
+            med = np.nanmedian(S[:, stay], 1)
+        if np.isfinite(med).any() and np.nanmax(med) > 0:
+            open_m = np.nonzero(np.nan_to_num(med) >= 0.5 * np.nanmax(med))[0]
+            k = np.isin(mo, open_m)
+            mask = np.zeros_like(cand)
+            mask[rr[stay], cc[stay]] = True
+            h = flat_heights(G[k], NI[k], [d for d, s in zip(days, k) if s], lv, mask, tide_reach)
+            fin = np.isfinite(h)
+            out[13][fin] = np.clip(np.round(h[fin] * 50) + 127, 0, 254) / 254
     return out if stay.any() or never.any() else None
 
 
@@ -905,7 +924,7 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
         doubts[:] = [d for d in doubts if not d.startswith("only ") and not d.startswith("a weak fit")
                      and not d.startswith("light's fall-off") and "from the laser" not in d]
         notes.append(f"murky water ({int(calm.sum())} calm scenes): the tidal flats only, the colour's depths out")
-    months = seasonal(G, NI, days, sea, flat)
+    months = seasonal(G, NI, days, sea, flat, lv=lv, tide_reach=reach)
     if months is not None:
         notes.append(f"{np.isfinite(months[0]).sum() / 100:.1f} ha of seasonal water (wet by the month, not the tide)")
     out = Path(out)

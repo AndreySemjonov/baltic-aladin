@@ -223,6 +223,16 @@ def test_seasonal():
     # lagoon, the strip or the swash.)
     pl = m[12] == 1.0
     assert pl[0:5, 20:40].all() and not pl[5:20, 20:30].any() and not pl[22:28, 20:35].any() and not pl[:, :12].any()
+    # Plane 13: a lagoon the tide floods above +0.3 m in its open months (Oct-Apr), shut in summer (Los Lances, the owner,
+    # 23.11.2026): its height from the open months' scenes (byte = height x 50 + 127), none where it has no split.
+    lev = rng.uniform(-0.6, 0.6, 120)
+    wet[:, 5:20, 20:30] = winter & (lev[:, None, None] > 0.3)
+    G, NI = np.where(wet, 0.08, 0.05).astype(np.float32), np.where(wet, 0.02, 0.15).astype(np.float32)
+    m = S.seasonal(G, NI, days, sea, np.zeros_like(sea), lv=dict(zip(days, lev)), tide_reach=0.6)
+    h = (np.round(m[13][5:20, 20:30] * 254) - 127) / 50
+    assert np.isfinite(h).all() and np.abs(h - 0.3).max() < 0.1, (np.nanmin(h), np.nanmax(h))
+    # (The strip wet a third of the time by chance: a few pixels pass the waterline's fifth on the wrong side, 2 of 90.)
+    assert np.isfinite(m[13][22:28, 20:35]).mean() <= 0.05, np.isfinite(m[13][22:28, 20:35]).sum()
 
 
 def test_laser_fit():
