@@ -567,7 +567,9 @@ def laser_fit(Lp, zp, L_crest, crest):
         g, c = np.polyfit(zx[keep], Lx[keep], 1)  # (L = c + g z)
         res = np.abs(Lx - (c + g * zx))
         keep = res <= max(float(np.percentile(res[keep], 80)), 1e-3)
-    if g >= 0:
+    # (The light's fall-off, 2K = -g per metre, 0.05-5: Tarifa's laser pixels at 0.3-2 m hardly changed in colour, g -0.003,
+    # a line 124 m off; Berzciems's 2.4. Without one the chart's line is used.)
+    if not -5.0 <= g <= -0.05:
         return None
     b, a = 1 / g, -c / g
     return float(a), float(b), float(np.median(np.abs(zp - (a + b * Lp))))
@@ -674,6 +676,29 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     seaw = np.isin(wl, joined) & (wl > 0)
     dom = water & seaw & (dland > 20) & (dland <= 1200) & ~plants & ~river & np.isfinite(L)
     doubts, notes = [], []  # (notes: what was done, not a doubt, on the sheet)
+    # The laser's points here (laser_points: SlideRule, ~1 min), once: they choose the colour below and set the line.
+    lp = laser_pixels(laser_points(LAT, LON), meta)
+    # Which colour, the bright times or the calm median: the one the laser fits better (the owner, 23.11.2026: "Yes, fix
+    # it"). The bright times, chosen on Baltic spots, broke on Tarifa's clear water (its fit error 124 m, the halves 22 m
+    # apart; the calm median's line held there the day before). When the laser can't tell (too few pixels, or neither
+    # line plausible, laser_fit): the bright times on a coast without a tide (the Baltic, where they were tested), the calm
+    # median on a tidal one. shortcut: a halves test could choose there if a spot goes wrong that way.
+    if tint is not None:
+        Lc, errs = colour(calm), [np.inf, np.inf]
+        if lp is not None:
+            for i, Lx in enumerate((L, Lc)):
+                s = dom[lp["rows"], lp["cols"]] & np.isfinite(Lx[lp["rows"], lp["cols"]]) & (lp["z"] >= 0.3) & (lp["z"] <= 2.0)
+                top = dom & (dland > 30) & np.isfinite(Lx)
+                f = laser_fit(Lx[lp["rows"], lp["cols"]][s], lp["z"][s], float(np.percentile(Lx[top], 98)), crest) \
+                    if s.sum() >= LASER_MIN and top.any() else None
+                errs[i] = f[2] if f is not None else np.inf
+        calm_wins = errs[1] < errs[0] if np.isfinite(min(errs)) else tide.reach(lat, lon) >= TIDAL
+        if calm_wins:
+            L, tint = Lc, None
+            dom = water & seaw & (dland > 20) & (dland <= 1200) & ~plants & ~river & np.isfinite(L)
+        notes.append(f"colour: {'calm median' if tint is None else 'bright times'} (" + (
+            f"the laser's fit error {errs[0]:.2f} m bright, {errs[1]:.2f} m calm)" if np.isfinite(min(errs))
+            else "the laser couldn't tell: " + ("a tidal coast)" if calm_wins else "no tide)")))
     if calm.sum() < MIN_CALM:
         doubts.append(f"only {int(calm.sum())} calm scenes")
     if dom.sum() < 2000:
@@ -719,7 +744,6 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     # 0.3-2 m it sets the line instead of our chart grid's 1.5-3 m (the ~100 m tiles that drew Puunsi's flats 2-4 m);
     # always the check: our depth minus the laser's, on the sheet (the owner, 22.11.2026: "Anchor on the laser").
     laser = {"points": 0}
-    lp = laser_pixels(laser_points(LAT, LON), meta)
     if lp is not None:
         sel = dom[lp["rows"], lp["cols"]] & np.isfinite(L[lp["rows"], lp["cols"]]) & (lp["z"] >= 0.3) & (lp["z"] <= 2.0)
         Lp, zp = L[lp["rows"], lp["cols"]][sel], lp["z"][sel]
@@ -892,7 +916,8 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     rgb = np.nanmedian(RB[calm], 0) if np.isfinite(RB[calm]).any() else None
     res = {"area": name, "made": time.strftime("%Y-%m-%d"), "scenes": len(G), "calm": int(calm.sum()),
            "fit": {"a": round(a0, 3), "b": round(b, 3), "2K": round(two_k, 2), "crest": [round(L_crest, 3), round(crest, 2), how],
-                   "water": [round(L_w, 3), round(D_w, 2), int(ok.sum())], "halves": round(split, 2)},
+                   "water": [round(L_w, 3), round(D_w, 2), int(ok.sum())], "halves": round(split, 2),
+                   "colour": "bright" if tint is not None else "calm"},
            "ha": {f"{k:g}": round(v, 1) for k, v in stat.items()}, "dark_ha": round(dark_ha, 1), "red_ha": round(red_ha, 1), "weed_ha": round(weed_ha, 1), "flats_ha": round(flats_ha, 1), "laser": laser, "notes": notes, "doubts": doubts,
            "bed": pixels, "sheet": f"{name}.png"}
     (out / f"{name}.json").write_text(json.dumps(res, indent=1))
