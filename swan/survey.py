@@ -6,6 +6,8 @@ Svetciems we have sandbars too what make flat water on low water level. But afte
 Sentinel-2 L2A (earth-search on AWS, no account; its values already have the offset in), a 4 x 4 km window round the
 area's spot, 2023 on (bars move), clear scenes outside the ice months. Calm scenes (no foam or glint near the shore, a
 dark open sea) give the water's colour, the median of their ln(green - the deep water's green): brighter is shallower.
+Since 23.11.2026 each pixel's bright times instead (bright(): the 75th percentile over the scenes without whitecaps out
+at sea, against each scene's bright sand): a summer bottom of weed read as depth.
 Two anchors set its scale (depth = a + b L): the brightest water (p98, off the beach's mixed pixels) is the bars' crest,
 CREST below mean sea level (0.30: the measured spots' median), and ordinary water where our depth grid (area.py, no bars) has
 1.5-3 m is that deep. The crest's height measured where it can be (the owner, 21.11.2026, Berzciems: "Use the measured
@@ -66,6 +68,7 @@ LEVELS = (-0.25, 0.1, 0.3, 0.6, 1.0)  # (the picture's and the report's bands)
 GAUGES = "https://erddap.emodnet-physics.eu/erddap/tabledap/ERD_EP_SLEV_NRT_60m.csv?"
 CREST = 0.30  # (the waterline's median over the Baltic batch's 31 measured spots, 21.11.2026: 0.17-0.42 m below mean)
 MIN_CALM, TWO_K, HALVES, PLANTS = 8, (0.15, 1.5), 0.25, 0.2
+BRIGHT = 75  # (each pixel's colour: this percentile of its still scenes, survey's bright())
 BANDS = ("green", "nir", "red", "blue")  # (green and near-infrared the depth's; red and blue the review's true colour)
 RED = 0.6  # red against green (log) this far from the 1.5-3 m water's towards the sand's: under ~1 m whatever green says
 DARK = 1.2  # a reading this much deeper than the ~110 m round it: a dark bottom (weed, stones), not a hole
@@ -539,12 +542,35 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     calm = (nb < 0.01) & (np.array([np.nanmedian(x[off]) for x in NI]) < 0.015) & \
         (np.array([np.nanpercentile(x[off], 95) for x in NI]) < 0.02)
     gdeep = np.array([np.nanpercentile(x[off], 10) for x in G])
+    # (Scenes without whitecaps out at sea only: breaking waves' white water reads as dry sand in the near infrared. Judged
+    # far out, not near the shore: there a dry bank is bright in the near infrared too, and the low-water scenes, where
+    # Berzciems's bank is dry, were all thrown out as foamy.)
+    still = np.array([np.nanmedian(x[off]) for x in NI]) < 0.015
 
     def colour(k):
         with np.errstate(invalid="ignore", divide="ignore"):
             return np.nanmedian(np.log(np.clip(G[k] - gdeep[k, None, None], 1e-4, None)), 0)
 
-    L = colour(calm)
+    # The colour from each pixel's bright times (the owner, 23.11.2026: "adopt the bright-time colour"): its BRIGHT
+    # percentile over the still scenes of ln(green - deep water's green) against the scene's own bright sand (the band's
+    # brightest 5 %: the sun, haze and the water's clarity that day cancel). A summer bottom of weed or algae reads as
+    # depth (Berzciems's lagoon 0.43-0.55 of the sand's brightness June-October, 0.8 in spring), and calm scenes are
+    # mostly summer ones; the bright times see the bottom clean. Against the laser: Lielupe's line 0.67 -> 0.32 m,
+    # Berzciems's check +-0.30 -> +-0.23, Puunsi's +-0.35 -> +-0.32. The calm median with under 12 still scenes.
+    L0 = colour(still if still.sum() >= 12 else calm)
+    sand = sea & (dsea > 20) & (dsea < 1500) & np.isfinite(L0)
+    sand &= L0 >= np.nanpercentile(L0[sand], 95) if sand.any() else sand
+
+    def bright(k):
+        import warnings
+        with np.errstate(invalid="ignore", divide="ignore"), warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            A = np.log(np.clip(G[k] - gdeep[k, None, None], 1e-4, None))
+            r = np.array([np.nanmedian(a[sand]) for a in A])
+            return np.nanpercentile(A - r[:, None, None], BRIGHT, axis=0) + float(np.nanmedian(r))
+
+    tint = np.nonzero(still)[0] if still.sum() >= 12 and sand.any() else None
+    L = bright(tint) if tint is not None else colour(calm)
     rdeep = np.array([np.nanpercentile(x[0][off], 10) for x in RB])
     with np.errstate(invalid="ignore", divide="ignore"):
         import warnings
@@ -609,10 +635,6 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
             lv = {d: v for d, v in lv.items() if d not in iced}
             notes.append(f"{len(iced)} scenes left out of the waterline: ice or haze over deep water")
     off60 = dom & (dland > 60)
-    # (Scenes without whitecaps out at sea only: breaking waves' white water reads as dry sand in the near infrared. Judged
-    # far out, not near the shore: there a dry bank is bright in the near infrared too, and the low-water scenes, where
-    # Berzciems's bank is dry, were all thrown out as foamy.)
-    still = np.array([np.nanmedian(x[off]) for x in NI]) < 0.015
     top_h, top_n, L_top = waterline(G[still], NI[still], [d for d, s in zip(days, still) if s], lv,
                                     off60 & (L >= np.percentile(L[off60], 98)), L) if lv and off60.any() else (None, 0, None)
     if top_h is not None:
@@ -740,9 +762,12 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
             fix = laser_correction(Z.shape, rr[use], cc[use], (lp["z"] - Z[rr, cc])[use])
             Z = np.where(dom, Z + fix, Z)
             laser["corrected_ha"] = round(float(((np.abs(fix) > 0.05) & dom).sum() / 100), 1)
-    # The scenes' two halves (every other calm scene), on the one fit: the bed they agree on.
-    idx = np.nonzero(calm)[0]
-    Z1, Z2 = a0 + b * colour(idx[0::2]), a0 + b * colour(idx[1::2])
+    # The scenes' two halves (every other scene the colour came from), on the one fit: the bed they agree on.
+    if tint is not None:
+        Z1, Z2 = a0 + b * bright(tint[0::2]), a0 + b * bright(tint[1::2])
+    else:
+        idx = np.nonzero(calm)[0]
+        Z1, Z2 = a0 + b * colour(idx[0::2]), a0 + b * colour(idx[1::2])
     shallow = dom & (Z < 1.5)
     split = float(np.nanmedian(np.abs(Z1 - Z2)[shallow])) if shallow.any() else 0.0
     if split > HALVES:
