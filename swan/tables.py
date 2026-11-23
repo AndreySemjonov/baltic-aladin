@@ -183,7 +183,8 @@ def map_depth(area, box, W, H, depth):
     (map_months, months.bin.gz) or None."""
     bars = bars_for(area) or {}
     scale = depth_scale(*box_middle(box))
-    if bars.get("bed") or bars.get("months"):
+    # (A country's survey there too, area.surveys: its cells measured; the fine grid read once to know.)
+    if bars.get("bed") or bars.get("months") or A.surveyed_box(box):
         # (An area with seasonal water but its survey's bed held, the old Tarifa areas: the fine grid for the months, nothing
         # measured on it.)
         cover = np.zeros((H * FINE, W * FINE), np.float32)
@@ -192,7 +193,8 @@ def map_depth(area, box, W, H, depth):
         # base map has water there, a river past the opened mouth, the map drew it measured and dry at -0.5 m: the Lielupe
         # band at 57.01 N, 23.98 E, 23.11.2026.)
         cover[fine <= A.SEA_MIN] = 0
-        meas = np.round(np.clip(cover, 0, 1) * 255).astype(np.uint8).tobytes() if bars.get("bed") else "owner" if bars.get("owner") else None
+        meas = np.round(np.clip(cover, 0, 1) * 255).astype(np.uint8).tobytes() if bars.get("bed") or cover.any() \
+            else "owner" if bars.get("owner") else None
         return depth_bytes(fine, *scale), W * FINE, H * FINE, meas, map_months(area, box, W, H, fine)
     return depth_bytes(depth, *scale), W, H, "owner" if bars.get("owner") else None, None
 

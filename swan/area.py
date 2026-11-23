@@ -185,14 +185,79 @@ def build(box, W, H, outlines=None, bars=None, cover=None):
             depth[opened] = river
     if bars and bars.get("shelf"):
         _shelf(depth, box, W, H, bars, shore)
+    # A country's own survey (depth_sources.json: echo soundings and laser) instead of the chart where it has our water.
+    surveyed = surveys(depth, box, W, H)
     if bars and bars.get("bed"):
-        _bed(depth, box, W, H, bed_for(bars["bed"]), cover)
+        _bed(depth, box, W, H, bed_for(bars["bed"]), cover, surveyed)
+    if cover is not None:
+        cover[surveyed] = 1.0
     if bars and bars.get("shallows"):
         _shallows(depth, box, W, H, bars["shallows"])
     return depth
 
 
 BEDS = Path(__file__).resolve().parent / "beds"
+SOURCES = Path(__file__).resolve().parent / "depth_sources.json"
+
+
+def surveyed_box(box):
+    """Whether a survey's tile (depth_sources.json) meets the box (world 0-1)."""
+    if not SOURCES.exists():
+        return False
+    from rasterio.warp import transform
+
+    lons = [box[0] * 360 - 180, (box[0] + box[2]) * 360 - 180]
+    lats = [math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y)))) for y in (box[1] + box[3], box[1])]
+    for src in json.loads(SOURCES.read_bytes().decode()):
+        X, Y = transform("EPSG:4326", src["crs"], [lons[0], lons[1], lons[0], lons[1]], [lats[0], lats[0], lats[1], lats[1]])
+        if any(x0 < max(X) and min(X) < x1 and y0 < max(Y) and min(Y) < y1 for x0, y0, x1, y1 in src["tiles"].values()):
+            return True
+    return False
+
+
+def surveys(depth, box, W, H):
+    """A country's own depth survey (depth_sources.json; the owner, 23.11.2026: "lets make A with C and B", the Stör's
+    mouth read 2.9 m where the WSV's DGM-W has 5-7.4 m) on our grid's water: each cell its mean height there (the source's
+    tiles read over the web, a window at a time, averaged to the cell), depth = the source's mean sea level minus it
+    (below 0: a flat above mean sea level). In place of the chart; the satellite's bed may still refine it after (clear
+    shallows, recent). Land stays land. The cells it set (H x W bool)."""
+    got = np.zeros((H, W), bool)
+    if not SOURCES.exists():
+        return got
+    import rasterio
+    from rasterio.enums import Resampling
+    from rasterio.warp import transform
+    from rasterio.windows import from_bounds
+
+    lon = (box[0] + (np.arange(W) + 0.5) / W * box[2]) * 360 - 180
+    lat = np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * (box[1] + (np.arange(H) + 0.5) / H * box[3])))))
+    LON, LAT = np.meshgrid(lon, lat)
+    cell = box[2] * EARTH * math.cos(math.radians(float(lat.mean()))) / W
+    sea = depth > SEA_MIN
+    for src in json.loads(SOURCES.read_bytes().decode()):
+        X, Y = (np.array(v).reshape(H, W) for v in transform("EPSG:4326", src["crs"], LON.ravel().tolist(), LAT.ravel().tolist()))
+        for tile, (x0, y0, x1, y1) in src["tiles"].items():
+            inside = sea & (X >= x0) & (X < x1) & (Y >= y0) & (Y < y1)
+            if not inside.any():
+                continue
+            bx0, bx1 = max(float(X[inside].min()) - cell, x0), min(float(X[inside].max()) + cell, x1)
+            by0, by1 = max(float(Y[inside].min()) - cell, y0), min(float(Y[inside].max()) + cell, y1)
+            with rasterio.Env(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", GDAL_HTTP_MAX_RETRY="4", GDAL_HTTP_RETRY_DELAY="2"), \
+                    rasterio.open("/vsicurl/" + src["url"].format(tile=tile)) as d:
+                win = from_bounds(bx0, by0, bx1, by1, d.transform)
+                step = max(cell / d.res[0], 1.0)
+                shape = (max(1, round(win.height / step)), max(1, round(win.width / step)))
+                a = d.read(1, window=win, out_shape=shape, resampling=Resampling.average, masked=True)
+                a = a.astype(np.float32).filled(np.nan)
+            r = ((by1 - Y[inside]) / (by1 - by0) * shape[0]).astype(int).clip(0, shape[0] - 1)
+            c = ((X[inside] - bx0) / (bx1 - bx0) * shape[1]).astype(int).clip(0, shape[1] - 1)
+            h = a[r, c]
+            ok = np.isfinite(h)
+            rr, cc = np.nonzero(inside)
+            depth[rr[ok], cc[ok]] = src.get("msl", 0.0) - h[ok]
+            got[rr[ok], cc[ok]] = True
+            print(f"survey: {src['name']} {tile}: {int(ok.sum())} cells", flush=True)
+    return got
 
 
 def bed_for(name):
@@ -246,7 +311,7 @@ def _bed_fill(z, px):
 NEAR_M, FILL_M, EDGE_M = 70.0, 250.0, 250.0
 
 
-def _bed(depth, box, W, H, bed, cover=None):
+def _bed(depth, box, W, H, bed, cover=None, surveyed=None):
     """A satellite bed (bed_for) over the grid's sea cells (the owner, 20.11.2026, the satellite's depth picture: "this is
     what we need to implement in our sandbank", then "Yes, do A"): each cell the mean of the bed's pixels in it (k x k
     points; a grid finer than the bed takes the nearest), blended in by the share it covers and trusted to ~1.2 m, our
@@ -271,6 +336,11 @@ def _bed(depth, box, W, H, bed, cover=None):
     wsum = np.where(n > 0, wsum, 0)  # (a cell without a reading isn't 0 m: _bed_fill's lone readings, the rings)
     t = np.clip((zb - 1.2) / 0.8, 0, 1)
     trust = wsum / (k * k) * (1 - t * t * (3 - 2 * t))
+    if surveyed is not None and surveyed.any():
+        # (A survey's water deeper than the satellite sees stays the survey's: its trust fades as the survey's depth goes
+        # 1.2 -> 2 m, as the bed's own. The bed's fill spread the Stör's bank flats over its 5-7 m channel: 0.1-2 m.)
+        u = np.clip((depth - 1.2) / 0.8, 0, 1)
+        trust = np.where(surveyed, trust * (1 - u * u * (3 - 2 * u)), trust)
     sea = depth > SEA_MIN
     depth[sea] = depth[sea] * (1 - trust[sea]) + zb[sea] * trust[sea]
     # (Where the satellite read, at any depth: the map draws the depth only there, the owner, 22.11.2026, "Yes, A + C".)

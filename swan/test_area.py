@@ -73,6 +73,19 @@ def test_bed_cover():
     assert np.allclose(depth[:, :4], 1.0) and np.allclose(depth[:, 4:], 3.0), depth
 
 
+def test_bed_under_survey():
+    """_bed over a country's survey (area.surveys): the survey's 6 m channel stays 6 m under a bed reading 0.4 m (the Stör:
+    the bed's fill spread its bank flats over the channel), its 0.8 m flat takes the bed's 0.4; unsurveyed 3 m takes it."""
+    box, W, H = [0.5, 0.3, 0.001, 0.001], 6, 6
+    depth = np.full((H, W), 3.0, np.float32)
+    depth[:, :2], depth[:, 2:4] = 6.0, 0.8
+    surveyed = np.zeros((H, W), bool)
+    surveyed[:, :4] = True
+    bed = {"box": box, "W": 30, "H": 30, "z": np.full((30, 30), 0.4, np.float32), "w": np.ones((30, 30), np.float32)}
+    A._bed(depth, box, W, H, bed, None, surveyed)
+    assert np.allclose(depth[:, :2], 6.0) and np.allclose(depth[:, 2:], 0.4), depth
+
+
 def test_bank_bytes():
     """A bank 0.25 m above mean sea level and a 0.12 m lagoon round-trip through the map's bytes (DEPTH_BASE), land filled."""
     import tables as T
@@ -284,6 +297,7 @@ if __name__ == "__main__":
     test_shelf()
     test_bed_fill()
     test_bed_cover()
+    test_bed_under_survey()
     test_bed_lone_reading()
     test_bank_bytes()
     test_survey_ring()

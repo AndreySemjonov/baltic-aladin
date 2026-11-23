@@ -1,0 +1,130 @@
+[
+ {
+  "name": "DGM-W 2022 Unter- und Aussenelbe",
+  "by": "Wasserstrassen- und Schifffahrtsverwaltung des Bundes (WSV)",
+  "credit": "DGM-W 2022 Elbe: WSV, kuestendaten.de",
+  "licence": "GeoNutzV (Nutzungsbestimmungen fuer die Bereitstellung von Geodaten des Bundes): any use, commercial too, with a source credit",
+  "about": "Echo soundings (channels) and airborne laser (banks, flats), 1 m; the Outer Elbe and the tidal tributaries to Geesthacht",
+  "years": "2022",
+  "crs": "EPSG:25832",
+  "zero": "NHN (DHHN2016)",
+  "msl": 0.0,
+  "url": "https://www.kuestendaten.de/media/zdm/portaltideelbe/Allgemeine_Informationen/Archiv/GIS/DGM-W_Unterelbe_2022_1x1m/Geotiff/DGM-W_2022_Unter-_und_Aussenelbe_1x1m_{tile}.tif",
+  "tiles": {
+   "Brokdorf": [
+    519000,
+    5958000,
+    531000,
+    5972000
+   ],
+   "Brunsbuettel": [
+    499000,
+    5962000,
+    519000,
+    5974000
+   ],
+   "Buxtehude": [
+    538000,
+    5925000,
+    560000,
+    5936000
+   ],
+   "Cuxhaven": [
+    477000,
+    5964000,
+    490000,
+    5978000
+   ],
+   "Geesthacht": [
+    574000,
+    5912000,
+    590000,
+    5922000
+   ],
+   "Hamburg": [
+    560000,
+    5919000,
+    574000,
+    5934000
+   ],
+   "Hemmoor": [
+    510000,
+    5940000,
+    520000,
+    5949000
+   ],
+   "Hohenhoern": [
+    455000,
+    5967000,
+    465000,
+    5978000
+   ],
+   "Itzehoe": [
+    526000,
+    5972000,
+    549000,
+    5980000
+   ],
+   "Krueckau": [
+    520000,
+    5950000,
+    544000,
+    5958000
+   ],
+   "Neuwerk": [
+    465000,
+    5964000,
+    477000,
+    5978000
+   ],
+   "Oberndorf": [
+    501000,
+    5949000,
+    517000,
+    5962000
+   ],
+   "Oste": [
+    509000,
+    5925000,
+    514000,
+    5940000
+   ],
+   "Otterndorf": [
+    490000,
+    5963000,
+    499000,
+    5987000
+   ],
+   "Pinnau": [
+    527000,
+    5944000,
+    553000,
+    5950000
+   ],
+   "Scharhoern": [
+    450000,
+    5978000,
+    465000,
+    5988000
+   ],
+   "Trischen": [
+    477000,
+    5978000,
+    490000,
+    5995000
+   ],
+   "Vogelsand": [
+    465000,
+    5978000,
+    477000,
+    5995000
+   ],
+   "Wedel": [
+    531000,
+    5936000,
+    550000,
+    5944000
+   ]
+  }
+ }
+]
