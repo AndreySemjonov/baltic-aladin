@@ -192,6 +192,31 @@ def test_flat_heights_rare_dry():
     assert np.isfinite(h[0]).all() and (h[0] > s[1]).all() and (h[0] < s[2]).all(), h[0]
 
 
+def test_seasonal():
+    """survey.py seasonal: behind a beach (sea in columns 0-9, 10 m pixels) a lagoon wet Oct-Apr and dry Jun-Sep (Los
+    Lances, 23.11.2026) gets its months; a strip wet a third of the time all year (no season) and the swash by the sea
+    none."""
+    import survey as S
+
+    rng = np.random.default_rng(3)
+    days = [f"{2023 + i // 60}-{1 + (i // 5) % 12:02d}-{1 + i % 5:02d}" for i in range(120)]
+    mo = np.array([int(d[5:7]) for d in days])
+    wet = np.zeros((120, 30, 40), bool)
+    wet[:, :, :10] = True
+    wet[:, :, 10:12] = rng.random((120, 30, 2)) < 0.5  # (the swash)
+    winter = np.isin(mo, [10, 11, 12, 1, 2, 3, 4])[:, None, None]
+    wet[:, 5:20, 20:30] = winter & (rng.random((120, 15, 10)) < 0.9)
+    wet[:, 22:28, 20:35] = rng.random((120, 6, 15)) < 0.33
+    G, NI = np.where(wet, 0.08, 0.05).astype(np.float32), np.where(wet, 0.02, 0.15).astype(np.float32)
+    sea = np.zeros((30, 40), bool)
+    sea[:, :10] = True
+    m = S.seasonal(G, NI, days, sea, np.zeros_like(sea))
+    assert m is not None
+    got = np.isfinite(m[0])
+    assert got[5:20, 20:30].all() and got.sum() == 150, got.sum()
+    assert (m[0][5:20, 20:30] > 0.7).all() and (m[6][5:20, 20:30] < 0.1).all(), (m[0][5:20, 20:30].min(), m[6][5:20, 20:30].max())
+
+
 def test_laser_fit():
     """survey.py laser_fit: the colour-to-depth line from laser pixels, a few wild ones (a boulder, a stray photon) left
     out, the crest on the line."""
@@ -229,5 +254,6 @@ if __name__ == "__main__":
     test_laser_fit()
     test_flat_heights()
     test_flat_heights_rare_dry()
+    test_seasonal()
     test_flat_gaps()
     print("ok")

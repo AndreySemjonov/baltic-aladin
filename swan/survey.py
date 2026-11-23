@@ -386,7 +386,44 @@ def flat_gaps(Z, flat, gap, floor, r=4, inside=0.6):
     return np.where(hit, cap, Z), int(hit.sum())
 
 
-def _bed_out(name, a, Z, valid, meta, out):
+def seasonal(G, NI, days, sea, flat, reach=1500, shore=40, swing=0.4, least=50):
+    """Water that comes and goes by the season, not the tide (the owner, 23.11.2026, Tarifa's Los Lances: "in reality
+    this lagoon go up and down", then "Yes, build B"): its strip in 78 scenes wet 60-90 % Oct-Apr, 0-5 % Jun-Sep, and no
+    link to the tide (-0.03), so the waterline finds no split there. Each pixel off the sea (shore metres or more from it,
+    reach at most: the beach's swash is the tide's), not a measured flat, wet in 5-95 % of 20+ readable scenes, its wet
+    share by month (the month's scenes twice, its neighbours' once: Feb had 1 scene there; 4+ such readings), where the
+    months differ by swing or more, in patches of least pixels or more. (12, N, N) shares, NaN none; None if none."""
+    from scipy.ndimage import distance_transform_edt, label
+
+    wet, dry = wet_dry(G, NI)
+    ok = wet | dry
+    seen = ok.sum(0)
+    share = wet.sum(0) / np.maximum(seen, 1)
+    dist = distance_transform_edt(~sea) * 10
+    cand = (dist >= shore) & (dist <= reach) & ~flat & (share >= 0.05) & (share <= 0.95) & (seen >= 20)
+    if not cand.any():
+        return None
+    mo = np.array([int(d[5:7]) - 1 for d in days])
+    rr, cc = np.nonzero(cand)
+    W = np.stack([wet[mo == m][:, rr, cc].sum(0) for m in range(12)]).astype(np.float32)
+    O = np.stack([ok[mo == m][:, rr, cc].sum(0) for m in range(12)]).astype(np.float32)
+    Ws, Os = 2 * W + np.roll(W, 1, 0) + np.roll(W, -1, 0), 2 * O + np.roll(O, 1, 0) + np.roll(O, -1, 0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        S = np.where(Os >= 4, Ws / Os, np.nan)
+        keep = (np.nanmax(S, 0) - np.nanmin(S, 0)) >= swing
+    cand[rr[~keep], cc[~keep]] = False
+    lab, n = label(cand)
+    if not n:
+        return None
+    big = np.bincount(lab.ravel()) >= least
+    big[0] = False
+    out = np.full((12,) + sea.shape, np.nan, np.float32)
+    stay = big[lab[rr, cc]] & keep
+    out[:, rr[stay], cc[stay]] = S[:, stay]
+    return out if stay.any() else None
+
+
+def _bed_out(name, a, Z, valid, meta, out, months=None):
     """The depths (Z, m below mean sea level, UTM's 10 m pixels) where valid, on the area's fine grid (tables.FINE x
     SWAN's) over the window: OUT/NAME-bed.json + .bin.gz (area.py bed_for: 2 cm steps from the depths' base, 255 none)."""
     import gzip
@@ -419,6 +456,12 @@ def _bed_out(name, a, Z, valid, meta, out):
     (out / f"{name}-bed.json").write_text(json.dumps({"box": bbox, "W": bw, "H": bh, "base": base,
                                                        "step": step, "note": f"survey.py {time.strftime('%Y-%m-%d')}"}, indent=1))
     (out / f"{name}-bed.bin.gz").write_bytes(gzip.compress(b.tobytes(), 9))
+    # (The seasonal water's months on the same grid: OUT/NAME-months.bin.gz, 12 planes, the share x 254, 255 none.)
+    if months is not None:
+        m = months[:, rr, cc]
+        mb = np.where(inside & np.isfinite(m), np.round(np.nan_to_num(m) * 254), 255).astype(np.uint8)
+        if (mb < 255).any():
+            (out / f"{name}-months.bin.gz").write_bytes(gzip.compress(mb.tobytes(), 9))
     return int(good.sum())
 
 
@@ -819,9 +862,13 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
         doubts[:] = [d for d in doubts if not d.startswith("only ") and not d.startswith("a weak fit")
                      and not d.startswith("light's fall-off") and "from the laser" not in d]
         notes.append(f"murky water ({int(calm.sum())} calm scenes): the tidal flats only, the colour's depths out")
+    months = seasonal(G, NI, days, sea, flat)
+    if months is not None:
+        notes.append(f"{np.isfinite(months[0]).sum() / 100:.1f} ha of seasonal water (wet by the month, not the tide)")
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    pixels = _bed_out(name, a, Z, dom | flat, meta, out)
+    (out / f"{name}-months.bin.gz").unlink(missing_ok=True)
+    pixels = _bed_out(name, a, Z, dom | flat, meta, out, months)
     rgb = np.nanmedian(RB[calm], 0) if np.isfinite(RB[calm]).any() else None
     res = {"area": name, "made": time.strftime("%Y-%m-%d"), "scenes": len(G), "calm": int(calm.sum()),
            "fit": {"a": round(a0, 3), "b": round(b, 3), "2K": round(two_k, 2), "crest": [round(L_crest, 3), round(crest, 2), how],
@@ -971,6 +1018,11 @@ def apply(name, out, force=False, keep_bars=False):
     (HERE / "beds").mkdir(exist_ok=True)
     for ext in ("json", "bin.gz"):
         shutil.copy(Path(out) / f"{name}-bed.{ext}", HERE / "beds" / f"{name}.{ext}")
+    # (Its seasonal water's months, seasonal(), or none any more.)
+    if (Path(out) / f"{name}-months.bin.gz").exists():
+        shutil.copy(Path(out) / f"{name}-months.bin.gz", HERE / "beds" / f"{name}-months.bin.gz")
+    else:
+        (HERE / "beds" / f"{name}-months.bin.gz").unlink(missing_ok=True)
     p = HERE / "bars.json"
     bars = json.loads(p.read_bytes().decode("utf-8"))
     e = bars.setdefault(name, {})
