@@ -405,8 +405,13 @@ def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50):
     ok = wet | dry
     seen = ok.sum(0)
     share = wet.sum(0) / np.maximum(seen, 1)
-    dist = distance_transform_edt(~sea) * 10
-    near = (dist >= shore) & (dist <= reach) & ~flat & (seen >= 20)
+    # (The sea here: the largest water wet in 95 %+ of the scenes. The survey's own, wet in half, took in Los Lances's wetter
+    # channel through its mouth in mm-xqcm8yev's window, a 50-70 m band left without months; the beach's swash this lets in
+    # falls on cells our grid calls sea, which tables.py map_months leaves out.)
+    lab0, _ = label((share > 0.95) & (seen >= 20))
+    core = lab0 == np.bincount(lab0.ravel()[lab0.ravel() > 0]).argmax() if lab0.max() else sea
+    dist = distance_transform_edt(~core) * 10
+    near = (dist >= shore) & (dist <= reach) & (seen >= 20)  # (flats too: on cells our grid calls land a bed never shows them)
     cand = near & (share >= 0.02) & (share <= 0.95)
     with np.errstate(invalid="ignore"), __import__("warnings").catch_warnings():
         __import__("warnings").simplefilter("ignore")
