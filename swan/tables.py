@@ -183,11 +183,13 @@ def map_depth(area, box, W, H, depth):
     (map_months, months.bin.gz) or None."""
     bars = bars_for(area) or {}
     scale = depth_scale(*box_middle(box))
-    if bars.get("bed"):
+    if bars.get("bed") or bars.get("months"):
+        # (An area with seasonal water but its survey's bed held, the old Tarifa areas: the fine grid for the months, nothing
+        # measured on it.)
         cover = np.zeros((H * FINE, W * FINE), np.float32)
         fine = A.build(box, W * FINE, H * FINE, None, bars, cover)
-        return (depth_bytes(fine, *scale), W * FINE, H * FINE, np.round(np.clip(cover, 0, 1) * 255).astype(np.uint8).tobytes(),
-                map_months(area, box, W, H, fine))
+        meas = np.round(np.clip(cover, 0, 1) * 255).astype(np.uint8).tobytes() if bars.get("bed") else "owner" if bars.get("owner") else None
+        return depth_bytes(fine, *scale), W * FINE, H * FINE, meas, map_months(area, box, W, H, fine)
     return depth_bytes(depth, *scale), W, H, "owner" if bars.get("owner") else None, None
 
 
@@ -195,11 +197,11 @@ def map_months(area, box, W, H, fine):
     """The seasonal water's wet share by month on the map's fine grid (survey.py seasonal; the owner, 23.11.2026, Tarifa's
     Los Lances: "Yes, build B"): 12 planes of depthW x depthH bytes, the share x 254, 255 none (months.bin.gz, the index's
     "months"), only on cells our grid calls land or reeds: the sea's cells have their measured bed. None without."""
-    bars = bars_for(area) or {}
-    f = A.BEDS / f"{bars.get('bed')}-months.bin.gz"
-    if not bars.get("bed") or not f.exists():
+    name = (bars_for(area) or {}).get("months")
+    if not name or not (A.BEDS / f"{name}-months.json").exists():
         return None
-    meta = json.loads((A.BEDS / f"{bars['bed']}.json").read_bytes().decode())
+    f = A.BEDS / f"{name}-months.bin.gz"
+    meta = json.loads((A.BEDS / f"{name}-months.json").read_bytes().decode())
     bw, bh, FW, FH = meta["W"], meta["H"], W * FINE, H * FINE
     m = np.frombuffer(gzip.decompress(f.read_bytes()), np.uint8).reshape(12, bh, bw)
     c0, r0 = round((meta["box"][0] - box[0]) / box[2] * FW), round((meta["box"][1] - box[1]) / box[3] * FH)

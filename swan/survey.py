@@ -386,13 +386,16 @@ def flat_gaps(Z, flat, gap, floor, r=4, inside=0.6):
     return np.where(hit, cap, Z), int(hit.sum())
 
 
-def seasonal(G, NI, days, sea, flat, reach=1500, shore=40, swing=0.4, least=50):
+def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50):
     """Water that comes and goes by the season, not the tide (the owner, 23.11.2026, Tarifa's Los Lances: "in reality
-    this lagoon go up and down", then "Yes, build B"): its strip in 78 scenes wet 60-90 % Oct-Apr, 0-5 % Jun-Sep, and no
-    link to the tide (-0.03), so the waterline finds no split there. Each pixel off the sea (shore metres or more from it,
-    reach at most: the beach's swash is the tide's), not a measured flat, wet in 5-95 % of 20+ readable scenes, its wet
-    share by month (the month's scenes twice, its neighbours' once: Feb had 1 scene there; 4+ such readings), where the
-    months differ by swing or more, in patches of least pixels or more. (12, N, N) shares, NaN none; None if none."""
+    this lagoon go up and down", then "Yes, build B"): its wettest strip in 78 scenes wet 60-90 % Oct-Apr, 0-5 % Jun-Sep,
+    and no link to the tide (-0.03), so the waterline finds no split there; over all 253 scenes 2023-2026 its 39 ha wet in
+    ~10 % (2026's winter 14 %): mostly dry, where the base map draws it full. Each pixel off the sea (shore metres or more
+    from it, reach at most), not a measured flat, wet in 2-95 % of 20+ readable scenes (never wet: land or plants), its
+    wet share by month (the month's scenes twice, its neighbours' once: Feb had 1 scene there; 4+ such readings), where
+    the months differ by swing or more (none: a lagoon wet in few scenes all year is drawn dry all year, which it is; a
+    0.4 swing kept 1.6 of its 39 ha), in patches of least pixels or more. The map draws it only over the base map's water
+    on cells our grid calls land (tables.py map_months). (12, N, N) shares, NaN none; None if none."""
     from scipy.ndimage import distance_transform_edt, label
 
     wet, dry = wet_dry(G, NI)
@@ -400,7 +403,7 @@ def seasonal(G, NI, days, sea, flat, reach=1500, shore=40, swing=0.4, least=50):
     seen = ok.sum(0)
     share = wet.sum(0) / np.maximum(seen, 1)
     dist = distance_transform_edt(~sea) * 10
-    cand = (dist >= shore) & (dist <= reach) & ~flat & (share >= 0.05) & (share <= 0.95) & (seen >= 20)
+    cand = (dist >= shore) & (dist <= reach) & ~flat & (share >= 0.02) & (share <= 0.95) & (seen >= 20)
     if not cand.any():
         return None
     mo = np.array([int(d[5:7]) - 1 for d in days])
@@ -462,6 +465,7 @@ def _bed_out(name, a, Z, valid, meta, out, months=None):
         mb = np.where(inside & np.isfinite(m), np.round(np.nan_to_num(m) * 254), 255).astype(np.uint8)
         if (mb < 255).any():
             (out / f"{name}-months.bin.gz").write_bytes(gzip.compress(mb.tobytes(), 9))
+            (out / f"{name}-months.json").write_text(json.dumps({"box": bbox, "W": bw, "H": bh, "note": f"survey.py {time.strftime('%Y-%m-%d')}"}))
     return int(good.sum())
 
 
@@ -868,6 +872,7 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     (out / f"{name}-months.bin.gz").unlink(missing_ok=True)
+    (out / f"{name}-months.json").unlink(missing_ok=True)
     pixels = _bed_out(name, a, Z, dom | flat, meta, out, months)
     rgb = np.nanmedian(RB[calm], 0) if np.isfinite(RB[calm]).any() else None
     res = {"area": name, "made": time.strftime("%Y-%m-%d"), "scenes": len(G), "calm": int(calm.sum()),
@@ -1006,26 +1011,42 @@ def A_middle(box):
     return lat, (box[0] + box[2] / 2) * 360 - 180
 
 
-def apply(name, out, force=False, keep_bars=False):
+def apply(name, out, force=False, keep_bars=False, months_only=False):
     """The survey's bed into beds/ and bars.json "bed": it replaces the rule's bars (crest depths by rule) and the
     survey's own earlier contour shapes there; the owner's own shapes (lagoons...) kept; the river not opened (the
     owner's call)."""
     import shutil
 
     res = json.loads((Path(out) / f"{name}.json").read_text())
+    p = HERE / "bars.json"
+    (HERE / "beds").mkdir(exist_ok=True)
+
+    def months_in(e):
+        # (Its seasonal water's months with their own grid, seasonal(): beds/NAME-months.*, bars.json "months"; or none.)
+        for ext in ("bin.gz", "json"):
+            if (Path(out) / f"{name}-months.{ext}").exists():
+                shutil.copy(Path(out) / f"{name}-months.{ext}", HERE / "beds" / f"{name}-months.{ext}")
+            else:
+                (HERE / "beds" / f"{name}-months.{ext}").unlink(missing_ok=True)
+        if (HERE / "beds" / f"{name}-months.json").exists():
+            e["months"] = name
+        else:
+            e.pop("months", None)
+
+    if months_only:
+        # (Only the months, the bed as it was: a held survey's months stand on the scenes' wet and dry, not its colour.)
+        bars = json.loads(p.read_bytes().decode("utf-8"))
+        months_in(bars.setdefault(name, {}))
+        p.write_bytes((json.dumps(bars, indent=1) + "\n").encode("utf-8"))
+        print(name, "months:", bars[name].get("months"), "; its bed kept:", bars[name].get("bed"))
+        return
     if res["doubts"] and not force:
         raise SystemExit(f"{name}: doubtful, for the owner: {res['doubts']}")
-    (HERE / "beds").mkdir(exist_ok=True)
     for ext in ("json", "bin.gz"):
         shutil.copy(Path(out) / f"{name}-bed.{ext}", HERE / "beds" / f"{name}.{ext}")
-    # (Its seasonal water's months, seasonal(), or none any more.)
-    if (Path(out) / f"{name}-months.bin.gz").exists():
-        shutil.copy(Path(out) / f"{name}-months.bin.gz", HERE / "beds" / f"{name}-months.bin.gz")
-    else:
-        (HERE / "beds" / f"{name}-months.bin.gz").unlink(missing_ok=True)
-    p = HERE / "bars.json"
     bars = json.loads(p.read_bytes().decode("utf-8"))
     e = bars.setdefault(name, {})
+    months_in(e)
     if not keep_bars:  # (dropped by default again since 22.11.2026, the owner: "make it according our automatic approach")
         e.pop("bars", None)
         e.pop("clear", None)  # (the circles only cut the rule's bars)
@@ -1053,7 +1074,7 @@ if __name__ == "__main__":
     elif name == "summary":
         summary(Path(args[1]))
     elif "--apply" in args:
-        apply(name, out, "--force" in args, "--keep-bars" in args)
+        apply(name, out, "--force" in args, "--keep-bars" in args, "--months" in args)
     else:
         import tables as T
 
