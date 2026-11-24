@@ -126,5 +126,26 @@
     5944000
    ]
   }
+ },
+ {
+  "name": "Algemeen Dieptebestand IJsselmeergebied 2012",
+  "by": "Rijkswaterstaat",
+  "credit": "Algemeen Dieptebestand IJsselmeergebied 2012: Rijkswaterstaat, CC0",
+  "licence": "CC0 1.0 (public domain): any use, a credit welcome",
+  "about": "Singlebeam overview soundings with interferometric and multibeam surveys, 5 m; the IJsselmeer, Markermeer and the border lakes",
+  "years": "to 2012",
+  "crs": "EPSG:28992",
+  "zero": "NAP",
+  "msl": -0.3,
+  "msl_note": "the lake's held level, not the sea's: winter -0.40, summer -0.20 m NAP (flexible since 2018: -0.10..-0.40)",
+  "url": "https://downloads.rijkswaterstaatdata.nl/bodemhoogte_ijsselmeergebied/bodemhoogte_ijg_2012.tif",
+  "tiles": {
+   "ijg": [
+    123630,
+    469570,
+    216960,
+    585195
+   ]
+  }
  }
 ]

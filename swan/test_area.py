@@ -86,6 +86,27 @@ def test_bed_under_survey():
     assert np.allclose(depth[:, :2], 6.0) and np.allclose(depth[:, 2:], 0.4), depth
 
 
+def test_bed_river_left():
+    """bed_for: a bed's river pixels (254) get no weight, though the fill reaches them from the banks' 0 m flats (the
+    Lielupe "dry at -0.45", 25.11.2026); the unread water beside the flats (255) is still filled."""
+    import gzip, json, tempfile
+    from pathlib import Path as P
+
+    b = np.full((60, 60), 255, np.uint8)
+    b[:, :20] = round(1.4 / 0.027)  # (0 m: base -1.4, step 0.027)
+    b[:, 30:40] = 254
+    with tempfile.TemporaryDirectory() as d:
+        (P(d) / "t.json").write_text(json.dumps({"box": [0.5, 0.3, 0.00002, 0.00002], "W": 60, "H": 60, "base": -1.4, "step": 0.027}))
+        (P(d) / "t.bin.gz").write_bytes(gzip.compress(b.tobytes()))
+        old, A.BEDS = A.BEDS, P(d)
+        try:
+            bed = A.bed_for("t")
+        finally:
+            A.BEDS = old
+    assert (bed["w"][:, 30:40] == 0).all() and np.isnan(bed["z"][:, 30:40]).all(), bed["w"][30, 28:42]
+    assert bed["w"][30, 22] > 0 and abs(bed["z"][30, 22]) < 0.05, (bed["w"][30, 22], bed["z"][30, 22])
+
+
 def test_bank_bytes():
     """A bank 0.25 m above mean sea level and a 0.12 m lagoon round-trip through the map's bytes (DEPTH_BASE), land filled."""
     import tables as T
@@ -130,6 +151,21 @@ def test_laser_correction():
     fix = S.laser_correction((900, 900), rows, cols, miss)
     assert abs(fix[450, 400] + 0.6) < 0.25 and abs(fix[450, 420] + 0.6) < 0.25, (fix[450, 400], fix[450, 420])
     assert fix[450, 550] == 0.0 and fix[450, 250] == 0.0  # (1.5 km off)
+
+
+def test_laser_like_with_like():
+    """survey.py laser_correction with our depths: a reef the colour reads 4.9 m and the laser 1.6 corrects the reef, not
+    the 1.2 m sand 500 m off (Tarifa's harbour, 25.11.2026); a sand track's misses still correct the sand."""
+    import survey as S
+
+    Z = np.full((900, 900), 1.2)
+    Z[100:110, 400:410] = 4.9
+    rows, cols = np.repeat(np.arange(100, 110), 10), np.tile(np.arange(400, 410), 10)
+    fix = S.laser_correction(Z.shape, rows, cols, np.full(100, -3.3), Z)
+    assert abs(fix[105, 405] + 1.5) < 0.05 and fix[150, 405] == 0.0, (fix[105, 405], fix[150, 405])
+    rows2 = np.arange(300, 600)
+    fix = S.laser_correction(Z.shape, np.r_[rows, rows2], np.r_[cols, np.full(300, 600)], np.r_[np.full(100, -3.3), np.full(300, 1.0)], Z)
+    assert abs(fix[450, 620] - 1.0) < 0.05 and abs(fix[105, 405] + 1.5) < 0.05, (fix[450, 620], fix[105, 405])
 
 
 def test_flat_gaps():
@@ -304,6 +340,9 @@ if __name__ == "__main__":
     test_icesat_span()
     test_laser_fit()
     test_muddy_dry()
+    test_laser_correction()
+    test_laser_like_with_like()
+    test_bed_river_left()
     test_flat_heights()
     test_flat_heights_rare_dry()
     test_seasonal()

@@ -502,9 +502,10 @@ def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50, 
     return out if stay.any() or never.any() else None
 
 
-def _bed_out(name, a, Z, valid, meta, out, months=None):
+def _bed_out(name, a, Z, valid, meta, out, months=None, river=None):
     """The depths (Z, m below mean sea level, UTM's 10 m pixels) where valid, on the area's fine grid (tables.FINE x
-    SWAN's) over the window: OUT/NAME-bed.json + .bin.gz (area.py bed_for: 2 cm steps from the depths' base, 255 none)."""
+    SWAN's) over the window: OUT/NAME-bed.json + .bin.gz (area.py bed_for: 2 cm steps from the depths' base, 255 none,
+    254 a river or channel left to the chart: river, where no depth was measured)."""
     import gzip
     from rasterio.warp import transform
 
@@ -531,7 +532,10 @@ def _bed_out(name, a, Z, valid, meta, out, months=None):
     good = inside & valid[rr, cc] & np.isfinite(z) & (z <= 2.5)
     # (The area's own range, tables.py depth_scale: on a tidal coast flats above mean sea level as high as they stand.)
     base, step = T.depth_scale(*A_middle(a["box"]))
-    b = np.where(good, np.clip(np.round((z - base) / step), 0, 254), 255).astype(np.uint8)
+    # (254: the river's water, never filled from its banks: bed_for's fill spread the Lielupe's bank flats over its 2-4 m
+    # channel, "dry at -0.45" (the owner, 25.11.2026: "lielupe the same issue with level").)
+    chart = inside & river[rr, cc] & ~good if river is not None else np.zeros_like(good)
+    b = np.where(good, np.clip(np.round((z - base) / step), 0, 253), np.where(chart, 254, 255)).astype(np.uint8)
     (out / f"{name}-bed.json").write_text(json.dumps({"box": bbox, "W": bw, "H": bh, "base": base,
                                                        "step": step, "note": f"survey.py {time.strftime('%Y-%m-%d')}"}, indent=1))
     (out / f"{name}-bed.bin.gz").write_bytes(gzip.compress(b.tobytes(), 9))
@@ -600,16 +604,36 @@ def laser_pixels(pts, meta):
 LASER_NEAR, LASER_FAR, LASER_SIGMA = 300.0, 1000.0, 300.0  # m: full, none, the smoothing along and across a track
 
 
-def laser_correction(shape, rows, cols, miss):
+LIKE_M = 1.0  # colour depths this far apart are another bottom: a laser's miss doesn't correct it
+
+
+def laser_correction(shape, rows, cols, miss, Z=None):
     """The laser's misses (its depth minus ours, capped at 1.5 m: a boulder, a stray photon) spread round its tracks:
     a Gaussian mean over ~LASER_SIGMA, full within LASER_NEAR of a laser pixel, none past LASER_FAR. One colour-to-depth
     line for a 9 km window fits its sandy parts and missed Puunsi's darker, stony flats by up to a metre (the owner,
-    22.11.2026: "build B")."""
+    22.11.2026: "build B").
+    With Z (our colour's depths) like with like: each miss corrects only water whose colour reads like its own pixel's,
+    within LIKE_M (tent weights over LIKE_M bands of Z); water read unlike any laser pixel near it keeps its colour. A
+    reef's misses (Tarifa, east of the Isla de las Palomas: dark rock, the colour 4.9 m, the laser 1.6) spread -1.5 m
+    550 m into the harbour's sand: "dry at -0.4" (the owner, 25.11.2026: "In port its not that shallow")."""
+    if Z is None:
+        return _spread(shape, rows, cols, miss, np.ones(len(rows), np.float32))
+    z0 = Z[rows, cols]
+    zz = np.where(np.isfinite(Z), Z, np.inf)
+    out = np.zeros(shape, np.float32)
+    for c in np.arange(np.floor(np.nanmin(z0)), np.nanmax(z0) + LIKE_M, LIKE_M):
+        wl = np.clip(1 - np.abs(z0 - c) / LIKE_M, 0, 1)
+        if (wl > 0).any():
+            out += np.clip(1 - np.abs(zz - c) / LIKE_M, 0, 1) * _spread(shape, rows[wl > 0], cols[wl > 0], miss[wl > 0], wl[wl > 0])
+    return out
+
+
+def _spread(shape, rows, cols, miss, w):
     from scipy.ndimage import distance_transform_edt, gaussian_filter
 
     R, Wt = np.zeros(shape, np.float32), np.zeros(shape, np.float32)
-    np.add.at(R, (rows, cols), np.clip(miss, -1.5, 1.5))
-    np.add.at(Wt, (rows, cols), 1.0)
+    np.add.at(R, (rows, cols), w * np.clip(miss, -1.5, 1.5))
+    np.add.at(Wt, (rows, cols), w)
     num, den = gaussian_filter(R, LASER_SIGMA / 10), gaussian_filter(Wt, LASER_SIGMA / 10)
     fade = np.clip((LASER_FAR - distance_transform_edt(Wt == 0) * 10) / (LASER_FAR - LASER_NEAR), 0, 1)
     return np.where(den > 1e-6, num / np.maximum(den, 1e-6), 0.0) * fade
@@ -900,7 +924,7 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
             held = []
             for h in (0, 1):
                 fix = laser_correction(Z.shape, rr[use & (hv == h)], cc[use & (hv == h)],
-                                       (lp["z"] - Z[rr, cc])[use & (hv == h)])
+                                       (lp["z"] - Z[rr, cc])[use & (hv == h)], Z)
                 t = chk & (hv != h)
                 held += list((Z + fix)[rr[t], cc[t]] - lp["z"][t])
             if len(held) >= 10:
@@ -913,7 +937,7 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
                     doubts.append(f"{laser['check'][0]:+.2f} m from the laser's depths after its correction "
                                   f"({laser['check'][2]} pixels, 0.3-2 m)")
         if use.any():
-            fix = laser_correction(Z.shape, rr[use], cc[use], (lp["z"] - Z[rr, cc])[use])
+            fix = laser_correction(Z.shape, rr[use], cc[use], (lp["z"] - Z[rr, cc])[use], Z)
             Z = np.where(dom, Z + fix, Z)
             laser["corrected_ha"] = round(float(((np.abs(fix) > 0.05) & dom).sum() / 100), 1)
     # The scenes' two halves (every other scene the colour came from), on the one fit: the bed they agree on.
@@ -984,7 +1008,7 @@ def survey(name, a, data, out, crest=CREST, red=True, weed=None):
     out.mkdir(parents=True, exist_ok=True)
     (out / f"{name}-months.bin.gz").unlink(missing_ok=True)
     (out / f"{name}-months.json").unlink(missing_ok=True)
-    pixels = _bed_out(name, a, Z, dom | flat, meta, out, months)
+    pixels = _bed_out(name, a, Z, dom | flat, meta, out, months, river)
     rgb = np.nanmedian(RB[calm], 0) if np.isfinite(RB[calm]).any() else None
     res = {"area": name, "made": time.strftime("%Y-%m-%d"), "scenes": len(G), "calm": int(calm.sum()),
            "fit": {"a": round(a0, 3), "b": round(b, 3), "2K": round(two_k, 2), "crest": [round(L_crest, 3), round(crest, 2), how],

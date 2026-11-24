@@ -263,12 +263,13 @@ def surveys(depth, box, W, H):
 def bed_for(name):
     """A satellite bed (beds/NAME.json + NAME.bin.gz, survey.py): {"box": world 0-1 [x, y, width, height], "W", "H",
     "base", "step"} and a byte a pixel (rows from the north): base + step x byte metres below mean sea level (negative:
-    above it), 255 none. As "z": metres, NaN none, and "w" its weight 0-1 (1 a reading or near one)."""
+    above it), 255 none, 254 a river or channel the chart keeps (no weight, not even the fill's). As "z": metres, NaN none, and "w" its weight 0-1 (1 a reading or near one)."""
     meta = json.loads((BEDS / f"{name}.json").read_bytes().decode())
     b = np.frombuffer(gzip.decompress((BEDS / f"{name}.bin.gz").read_bytes()), np.uint8).reshape(meta["H"], meta["W"])
-    z = np.where(b == 255, np.nan, b * meta["step"] + meta["base"]).astype(np.float32)
+    z = np.where(b >= 254, np.nan, b * meta["step"] + meta["base"]).astype(np.float32)
     lat = math.atan(math.sinh(math.pi * (1 - 2 * (meta["box"][1] + meta["box"][3] / 2))))
     z, w = _bed_fill(z, meta["box"][2] * EARTH * math.cos(lat) / meta["W"])
+    z, w = np.where(b == 254, np.nan, z).astype(np.float32), np.where(b == 254, 0, w).astype(np.float32)
     return dict(meta, z=z, w=w)
 
 
