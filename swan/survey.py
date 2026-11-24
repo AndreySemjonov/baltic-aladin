@@ -502,6 +502,9 @@ def seasonal(G, NI, days, sea, flat, reach=1500, shore=20, swing=0.0, least=50, 
     return out if stay.any() or never.any() else None
 
 
+WALL_M = 30.0  # m round a breakwater's line (OpenStreetMap's) the bed leaves unread
+
+
 def _bed_out(name, a, Z, valid, meta, out, months=None, river=None):
     """The depths (Z, m below mean sea level, UTM's 10 m pixels) where valid, on the area's fine grid (tables.FINE x
     SWAN's) over the window: OUT/NAME-bed.json + .bin.gz (area.py bed_for: 2 cm steps from the depths' base, 255 none,
@@ -530,6 +533,17 @@ def _bed_out(name, a, Z, valid, meta, out, months=None, river=None):
     rr, cc = np.clip(rr, 0, N - 1), np.clip(cc, 0, N - 1)
     z = Z[rr, cc]
     good = inside & valid[rr, cc] & np.isfinite(z) & (z <= 2.5)
+    # (Nothing read within WALL_M of a breakwater, pier or groyne (OpenStreetMap's, area.py _breakwaters): its pixels mix
+    # concrete or rock with water and the waterline took them for sand at +0.5 m; left unread, bed_for fills them from the
+    # water beside them. Tarifa's harbour, a 100 m strip "dry at -0.4" along its breakwater (the owner, 25.11.2026: "make
+    # the breakwater mask from OSM").)
+    from scipy.ndimage import binary_dilation
+
+    walls = np.zeros((bh, bw), np.float32)
+    A._breakwaters(walls, bbox, bw, bh)
+    if (walls == A.LAND).any():
+        px = bbox[2] * A.EARTH * math.cos(math.radians(float(LAT.mean()))) / bw
+        good &= ~binary_dilation(walls == A.LAND, iterations=max(1, round(WALL_M / px)))
     # (The area's own range, tables.py depth_scale: on a tidal coast flats above mean sea level as high as they stand.)
     base, step = T.depth_scale(*A_middle(a["box"]))
     # (254: the river's water, never filled from its banks: bed_for's fill spread the Lielupe's bank flats over its 2-4 m
