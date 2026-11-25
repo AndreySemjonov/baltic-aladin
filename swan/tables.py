@@ -3,15 +3,17 @@ GitHub: "Yes, build it"; WindguruStationWatch docs/backlog/design.md "The waves 
 
 An area: a square ~8.7 km round a spot (256 x 256 cells of ~34 m; area.py: our depths, coast and breakwaters as the
 web map's coarse fronts grid). SWAN (41.51, stationary) runs once for:
-  - the open sea's waves (w runs): from each of 16 ways x 4/6/9 s x 0.5/2 m on every edge, no wind, no whitecapping
+  - the open sea's waves (w runs): from each of 16 ways x 4/6/9 s x 0.5/2/3.5 m on every edge, no wind, no whitecapping
     (our wind keeps a sea up; without it SWAN wore a steep one down), with depth breaking, bottom friction, triads and
     diffraction (from the land's ways they reach nothing and take seconds);
   - our wind's own chop (c runs): from 16 ways x 5/10/15 m/s, no waves coming in, full growth;
 both at a few water levels (levels_for; the owner, 19.11.2026: "we have to take into account the water level as well,
 because the break of the waves will change"): mean sea level's runs in <area>/, the others' in <area>/lp0.6/, lm0.5/...
 One job a level (an area's 144 runs ~50 min on GitHub). The map reads the hour's level (station-history /sea) and blends.
-Each run packed: three W x H byte grids, rows from the north: the height (w: the share of the open sea's x 127.5; c:
-metres x 63.75), the peak period (s x 12.75), the way it comes from (degrees x 256 / 360); land 0. The map reads the
+Each run packed: six W x H byte grids, rows from the north: the height (w: the share of the open sea's x 127.5; c:
+metres x 63.75), the peak period (s x 12.75), the way it comes from (degrees x 256 / 360), the directional spread (degrees x
+2), the surf's and the whitecaps' energy loss (SWAN's Ssurf, Swcap; w: over the open sea's height squared) as 10^(b/32 - 8),
+0 none; land 0. (Three grids before 25.11.2026: the readers take the first three of either.) The map reads the
 hour's open sea at the area's offshore point (its deepest cell) and blends the runs round it.
 
   python3 swan/tables.py plan [--only id,id] [--max N]   what to make: JSON [{area, lat, lon, spots, box, level}] (stdout):
@@ -46,13 +48,18 @@ import area as A  # noqa: E402
 
 WAYS = [i * 22.5 for i in range(16)]
 PERIODS = [4, 6, 9]
-HEIGHTS = [0.5, 2.0]
+# (3.5 m since 25.11.2026: a storm's 2.5 m read 2 m's breaking, 17-20 % high on Pavilosta's bars; reference.py.)
+HEIGHTS = [0.5, 2.0, 3.5]
 WINDS = [5, 10, 15]
 SIDE_M, CELLS = 8700.0, 256
 STORE = "https://files.meteogust.com/tiles/swan/v1/"
 UPLOAD = "https://data.meteogust.com/tiles/upload/swan/v1/"
 CATALOG = "https://data.meteogust.com/spots/catalog"
-SCALES = {"share": 127.5, "metres": 63.75, "period": 12.75, "way": 256 / 360}
+SCALES = {"share": 127.5, "metres": 63.75, "period": 12.75, "way": 256 / 360, "spread": 2, "diss": 32, "dissBase": -8}
+# SWAN's fields a run keeps (the owner, 25.11.2026: "make now B": the map draws what SWAN says, not rules on top): the
+# height, peak period and way, and since then the directional spread (a confused sea offshore, lines near the shore), the
+# surf's breaking and the whitecaps' energy loss (foam where waves break on a bar or the beach; spills scattered offshore).
+FIELDS = "HSIGN TPS DIR DSPR DISSURF DISWCAP"
 # The water levels (m over mean sea level) an area's runs are made at. The Gulf of Riga swings with the wind (a SW storm
 # piles it up: +2.75 m at Parnu in 2005, +0.5 to +1 m on a windy day; an easterly empties it), the open coast less.
 GULF_LEVELS = [-0.5, 0.0, 0.6, 1.2]
@@ -293,6 +300,42 @@ def depths(names=None):
     print("index:", _put("index.json", json.dumps({"areas": list(now.values())}).encode(), key), len(todo), "depths stamped")
 
 
+def swan_files(home, depth, box, W, H, level, block="HSIGN TPS DIR"):
+    """An area's bed (and reeds) for SWAN in HOME (bottom.dat, plants.dat), and the INPUT's head and tail round a run's own
+    lines (its waves at the edges, its wind): the tables' runs and the reference runs (reference.py) share them. A run's
+    INPUT sits two folders down (HOME/runs/<run>/). BLOCK: the fields written to out.mat."""
+    reeds = depth == A.REED
+    lat = math.atan(math.sinh(math.pi * (1 - 2 * (box[1] + box[3] / 2))))
+    dx = dy = box[2] * A.EARTH * math.cos(lat) / W
+    bed = np.where(reeds, REEDS["bed"], depth)
+    # (Land -999; a bank's bed above mean sea level as it is, negative: dry below its height, wet above.)
+    (home / "bottom.dat").write_text("\n".join(" ".join("-999" if d <= A.SEA_MIN else f"{d:.2f}" for d in row) for row in bed) + "\n")
+    if reeds.any():
+        (home / "plants.dat").write_text("\n".join(" ".join(str(REEDS["density"]) if r else "0" for r in row) for row in reeds) + "\n")
+    x0, y0, xl, yl = dx / 2, dy / 2, (W - 1) * dx, (H - 1) * dy
+    head = f"""SET LEVEL {level:g} NAUTICAL
+MODE STATIONARY TWODIMENSIONAL
+COORDINATES CARTESIAN
+CGRID REGULAR {x0:.1f} {y0:.1f} 0 {xl:.1f} {yl:.1f} {W - 1} {H - 1} CIRCLE 24 0.05 1.0 23
+INPGRID BOTTOM REGULAR {x0:.1f} {y0:.1f} 0 {W - 1} {H - 1} {dx:.3f} {dy:.3f} EXCEPTION -999
+READINP BOTTOM 1 '../../bottom.dat' 1 0 FREE
+"""
+    if reeds.any():
+        head += f"""INPGRID NPLANTS REGULAR {x0:.1f} {y0:.1f} 0 {W - 1} {H - 1} {dx:.3f} {dy:.3f}
+READINP NPLANTS 1 '../../plants.dat' 1 0 FREE
+"""
+    tail = (f"VEGETATION 1 {REEDS['height']} {REEDS['diameter']} 1 {REEDS['drag']}\n" if reeds.any() else "") + f"""BREAKING
+FRICTION JONSWAP
+TRIAD
+DIFFRACTION
+NUMERIC STOPC 0.005 0.01 0.005 98 STAT 30
+BLOCK 'COMPGRID' NOHEADER 'out.mat' LAYOUT 1 {block}
+COMPUTE
+STOP
+"""
+    return head, tail
+
+
 def make(spec, out):
     spec = json.loads(spec) if isinstance(spec, str) else spec
     home = Path(out) / spec["area"]
@@ -328,32 +371,7 @@ def make(spec, out):
         if months:
             (home / "out" / "months.bin.gz").write_bytes(gzip.compress(months, 9))
     print(spec["area"], f"level {level:g} grid {time.time() - t0:.0f} s: reeds {reeds.sum()} cells, sea {sea.mean() * 100:.0f} %, deepest {depth.max():.0f} m at {off}", flush=True)
-    bed = np.where(reeds, REEDS["bed"], depth)
-    # (Land -999; a bank's bed above mean sea level as it is, negative: dry below its height, wet above.)
-    (home / "bottom.dat").write_text("\n".join(" ".join("-999" if d <= A.SEA_MIN else f"{d:.2f}" for d in row) for row in bed) + "\n")
-    if reeds.any():
-        (home / "plants.dat").write_text("\n".join(" ".join(str(REEDS["density"]) if r else "0" for r in row) for row in reeds) + "\n")
-    x0, y0, xl, yl = dx / 2, dy / 2, (W - 1) * dx, (H - 1) * dy
-    head = f"""SET LEVEL {level:g} NAUTICAL
-MODE STATIONARY TWODIMENSIONAL
-COORDINATES CARTESIAN
-CGRID REGULAR {x0:.1f} {y0:.1f} 0 {xl:.1f} {yl:.1f} {W - 1} {H - 1} CIRCLE 24 0.05 1.0 23
-INPGRID BOTTOM REGULAR {x0:.1f} {y0:.1f} 0 {W - 1} {H - 1} {dx:.3f} {dy:.3f} EXCEPTION -999
-READINP BOTTOM 1 '../../bottom.dat' 1 0 FREE
-"""
-    if reeds.any():
-        head += f"""INPGRID NPLANTS REGULAR {x0:.1f} {y0:.1f} 0 {W - 1} {H - 1} {dx:.3f} {dy:.3f}
-READINP NPLANTS 1 '../../plants.dat' 1 0 FREE
-"""
-    tail = (f"VEGETATION 1 {REEDS['height']} {REEDS['diameter']} 1 {REEDS['drag']}\n" if reeds.any() else "") + """BREAKING
-FRICTION JONSWAP
-TRIAD
-DIFFRACTION
-NUMERIC STOPC 0.005 0.01 0.005 98 STAT 30
-BLOCK 'COMPGRID' NOHEADER 'out.mat' LAYOUT 1 HSIGN TPS DIR
-COMPUTE
-STOP
-"""
+    head, tail = swan_files(home, depth, box, W, H, level, FIELDS)
     runs = []
     for way in WAYS:
         for T in PERIODS:
@@ -413,15 +431,19 @@ def pack(home, name, ldir=""):
     run = home / "runs" / name
     m = loadmat(run / "out.mat")
     pick = lambda prefix: next(v for k, v in m.items() if k.startswith(prefix))  # noqa: E731
-    hs, tp, way = (np.nan_to_num(pick(p), nan=-1.0) for p in ("Hsig", "TPsmoo", "Dir"))
+    hs, tp, way, spr, surf, wcap = (np.nan_to_num(pick(p), nan=-1.0) for p in ("Hsig", "TPsmoo", "Dir", "Dspr", "Ssurf", "Swcap"))
     land = hs < 0
-    h = np.clip(np.round(hs / float(name.split("-")[3]) * 127.5 if name.startswith("w-") else hs * 63.75), 0, 255)
+    norm = float(name.split("-")[3]) if name.startswith("w-") else None
+    h = np.clip(np.round(hs / norm * 127.5 if norm else hs * 63.75), 0, 255)
     t = np.clip(np.round(tp * 12.75), 0, 255)
     d = np.round(np.mod(way, 360) * 256 / 360) % 256
-    for g in (h, t, d):
+    sp = np.clip(np.round(spr * SCALES["spread"]), 0, 255)
+    diss = [np.where(x > 0, np.clip(np.round((np.log10(np.maximum(x / (norm * norm if norm else 1), 1e-12)) - SCALES["dissBase"]) * SCALES["diss"]), 1, 255), 0)
+            for x in (surf, wcap)]
+    for g in (h, t, d, sp, *diss):
         g[land] = 0
     (home / "out" / ldir).mkdir(parents=True, exist_ok=True)
-    (home / "out" / f"{ldir}{name}.bin.gz").write_bytes(gzip.compress(np.stack([h, t, d]).astype(np.uint8).tobytes(), 9))
+    (home / "out" / f"{ldir}{name}.bin.gz").write_bytes(gzip.compress(np.stack([h, t, d, sp, *diss]).astype(np.uint8).tobytes(), 9))
     for f in run.iterdir():
         f.unlink()
     run.rmdir()
