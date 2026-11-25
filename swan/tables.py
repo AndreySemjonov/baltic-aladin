@@ -68,18 +68,34 @@ SEA_LEVELS = [-0.4, 0.0, 0.6]
 # nest pilot (the owner, 25.11.2026: "Yes, run the pilot", then "Yes, finer levels"; WindguruStationWatch
 # docs/backlog/design.md): Pavilosta's level-0 run read at -0.1 m was 52 % high in water under 0.3 m and put waves on
 # sand dry at -0.1; the map blends the two levels round the hour's. Measured by SWAN's own runs (water at +0.6 m, dry at
-# the lowest): Berzciems 161 ha of such flats, Pavilosta 84. Started with these two, the rest once the map is checked.
+# the lowest): every area off a tidal coast with 50 ha or more (25.11.2026; the owner, "ok, run all flat areas then"). A
+# new area isn't in it until measured (WindguruStationWatch's scratchpad flats2.mjs did it; the list in the backlog).
 FINE_LEVELS = [round(-0.4 + 0.1 * i, 1) for i in range(9)]
-FLAT_AREAS = {"pavilosta", "berzciems"}
+FLAT_AREAS = {
+    # (ha of such flats)
+    "rider-btmqxdc5",  # 738
+    "mm-mafgn8a3",  # 432
+    "haademeeste",  # 391
+    "rider-9an5qgu4",  # 377
+    "rider-cjmnhz3e",  # 362
+    "mm-bhdnypq8",  # 330
+    "rider-hrpefk9r", "rider-bvmrakbq", "rider-erwjn43u",  # 253-257
+    "rider-ny4lcmqo", "mersrags", "rider-xy9hdwwm",  # 202-231
+    "rider-ve8lrymj", "rider-svcs2qxp", "berzciems", "rider-84s5pzmk", "rider-psueq68c",  # 155-184
+    "rider-ybdeg2s2", "rider-3ydbas9d", "rider-vzycetmv", "rider-mvpvhngl", "rider-fksgy2zv", "rider-nfcdalbc",
+    "svetciems",  # 102-126
+    "uzava", "rider-7cdprztt", "rider-4sacg85k", "pavilosta", "daugavgriva", "rider-a6bhnbwq", "lielupes-ieteka",
+    "rider-jkuwjjyk", "engures-mols", "rider-psgtkpjx", "gauja", "ragaciems", "salacgriva", "kapteinu-osta",
+    "saulkrasti", "kolka",  # 54-92
+}
 
 
 def levels_for(lat, lon, area=None):
     """An area's levels: on a tidal coast five over the tide's reach and 0.2 m of surge, at least 0.6 m apart (tide.py:
     EOT20, as the map's level; Cape Town -1.3..+1.3, Cuxhaven -2.9..+2.9: the Baltic's -0.4..+0.6 had the far spots'
     waves at mid tide whatever the tide; the owner, 22.11.2026: "Also SWAN and take into account tides"); else the Gulf
-    of Riga's (east of the Irbe strait) or the open Baltic's, with FINE_LEVELS on FLAT_AREAS."""
-    if area in FLAT_AREAS:
-        return sorted(set(levels_for(lat, lon)) | set(FINE_LEVELS))
+    of Riga's (east of the Irbe strait) or the open Baltic's, with FINE_LEVELS on FLAT_AREAS (not on a tidal coast:
+    its levels follow the tide's reach)."""
     import tide
 
     reach = tide.reach(lat, lon)
@@ -91,7 +107,8 @@ def levels_for(lat, lon, area=None):
         step = min(max(0.6, span / 2), 1.0)
         k = math.ceil(span / step - 1e-9)
         return [round(i * step, 1) for i in range(-k, k + 1)]
-    return GULF_LEVELS if 56.9 <= lat <= 58.5 and 22.55 <= lon <= 24.7 else SEA_LEVELS
+    own = GULF_LEVELS if 56.9 <= lat <= 58.5 and 22.55 <= lon <= 24.7 else SEA_LEVELS
+    return sorted(set(own) | set(FINE_LEVELS)) if area in FLAT_AREAS else own
 
 
 def level_dir(level):
