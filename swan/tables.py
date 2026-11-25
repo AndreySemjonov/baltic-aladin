@@ -64,13 +64,22 @@ FIELDS = "HSIGN TPS DIR DSPR DISSURF DISWCAP"
 # piles it up: +2.75 m at Parnu in 2005, +0.5 to +1 m on a windy day; an easterly empties it), the open coast less.
 GULF_LEVELS = [-0.5, 0.0, 0.6, 1.2]
 SEA_LEVELS = [-0.4, 0.0, 0.6]
+# Areas with drying flats get levels 0.1 m apart where the Baltic sits most days, -0.4..+0.4, the outer ones kept. A
+# nest pilot (the owner, 25.11.2026: "Yes, run the pilot", then "Yes, finer levels"; WindguruStationWatch
+# docs/backlog/design.md): Pavilosta's level-0 run read at -0.1 m was 52 % high in water under 0.3 m and put waves on
+# sand dry at -0.1; the map blends the two levels round the hour's. Measured by SWAN's own runs (water at +0.6 m, dry at
+# the lowest): Berzciems 161 ha of such flats, Pavilosta 84. Started with these two, the rest once the map is checked.
+FINE_LEVELS = [round(-0.4 + 0.1 * i, 1) for i in range(9)]
+FLAT_AREAS = {"pavilosta", "berzciems"}
 
 
-def levels_for(lat, lon):
+def levels_for(lat, lon, area=None):
     """An area's levels: on a tidal coast five over the tide's reach and 0.2 m of surge, at least 0.6 m apart (tide.py:
     EOT20, as the map's level; Cape Town -1.3..+1.3, Cuxhaven -2.9..+2.9: the Baltic's -0.4..+0.6 had the far spots'
     waves at mid tide whatever the tide; the owner, 22.11.2026: "Also SWAN and take into account tides"); else the Gulf
-    of Riga's (east of the Irbe strait) or the open Baltic's."""
+    of Riga's (east of the Irbe strait) or the open Baltic's, with FINE_LEVELS on FLAT_AREAS."""
+    if area in FLAT_AREAS:
+        return sorted(set(levels_for(lat, lon)) | set(FINE_LEVELS))
     import tide
 
     reach = tide.reach(lat, lon)
@@ -136,12 +145,12 @@ def plan(only=None, most=250):
             continue
         name = re.sub(r"[^a-z0-9-]+", "-", sid.lower()).strip("-")[:40]
         areas.append({"area": name, "lat": lat, "lon": lon, "spots": [sid], "box": A.box_round(lat, lon, SIDE_M)})
-    out = [{**{k: a[k] for k in ("area", "lat", "lon", "spots", "box")}, "level": lv} for a in areas for lv in levels_for(a["lat"], a["lon"])]
+    out = [{**{k: a[k] for k in ("area", "lat", "lon", "spots", "box")}, "level": lv} for a in areas for lv in levels_for(a["lat"], a["lon"], a["area"])]
     if not only:
         for a in have:
             made = a.get("levels", [0.0])
             out += [{"area": a["area"], "spots": a.get("spots", []), "box": a["box"], "level": lv}
-                    for lv in levels_for(*box_middle(a["box"])) if lv not in made]
+                    for lv in levels_for(*box_middle(a["box"]), a["area"]) if lv not in made]
     return out[:most]
 
 

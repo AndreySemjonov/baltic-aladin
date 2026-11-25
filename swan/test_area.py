@@ -345,6 +345,18 @@ def test_survey_ring():
     assert sorted({(lat, lon) for lat, lon in ring}) == [(-150, 30), (-150, 230), (-50, 30), (-50, 230)], ring
 
 
+def test_fine_levels():
+    """A flat area's levels 0.1 m apart over -0.4..+0.4, its coast's outer ones kept; other areas as before."""
+    import tables as T
+
+    pav = T.levels_for(56.89, 21.17, "pavilosta")
+    assert pav == [-0.4, -0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.6], pav
+    berz = T.levels_for(57.24, 23.17, "berzciems")
+    assert berz[0] == -0.5 and berz[-2:] == [0.6, 1.2] and 0.1 in berz and len(berz) == 12, berz
+    assert T.levels_for(56.89, 21.17, "other") == T.SEA_LEVELS
+    assert [T.level_dir(x) for x in (-0.1, 0.1, 0.0)] == ["lm0.1/", "lp0.1/", ""]
+
+
 if __name__ == "__main__":
     test_shallows()
     test_shelf()
@@ -365,4 +377,5 @@ if __name__ == "__main__":
     test_flat_heights_rare_dry()
     test_seasonal()
     test_flat_gaps()
+    test_fine_levels()
     print("ok")
