@@ -541,6 +541,7 @@ def _bed_out(name, a, Z, valid, meta, out, months=None, river=None):
 
     walls = np.zeros((bh, bw), np.float32)
     A._breakwaters(walls, bbox, bw, bh)
+    walls[A.moles(bbox, bw, bh)] = A.LAND  # (moles mapped as coastline: Tarifa's outer arm)
     if (walls == A.LAND).any():
         px = bbox[2] * A.EARTH * math.cos(math.radians(float(LAT.mean()))) / bw
         good &= ~binary_dilation(walls == A.LAND, iterations=max(1, round(WALL_M / px)))

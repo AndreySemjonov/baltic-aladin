@@ -18,10 +18,12 @@ The water level is SWAN's (tables.py SET LEVEL).
 import gzip
 import io
 import json
+import time
 import math
 import struct
 import sys
 import urllib.request
+import urllib.parse
 from functools import lru_cache
 from pathlib import Path
 
@@ -174,10 +176,13 @@ def build(box, W, H, outlines=None, bars=None, cover=None):
     opened = _worldcover(depth, box, W, H, outlines, river=(bars or {}).get("river", 0))
     shore = depth <= SEA_MIN
     _breakwaters(depth, box, W, H)
+    mole = moles(box, W, H)
+    depth[mole] = LAND
     if bars and bars.get("bars"):
         # (The breakwaters' own cells, land before them or not: Pavilosta's moles are in the coast already.)
         walls = np.zeros_like(depth)
         _breakwaters(walls, box, W, H)
+        walls[mole] = LAND
         river = depth[opened].copy() if bars.get("river") else None
         _bars(depth, box, W, H, bars, shore & (walls == 0), walls < 0)
         # (None carved up a river: by the distance to its banks they ran down the channel's middle.)
@@ -562,6 +567,110 @@ def _breakwaters(depth, box, W, H):
         for _, line in t.get("l", []):
             for i in range(1, len(line)):
                 mark(line[i - 1], line[i])
+
+
+# Moles mapped as coastline (the owner, 25.11.2026: "Yes, build A"): Tarifa's outer harbour arm is OpenStreetMap
+# natural=coastline, not man_made=breakwater, so it was neither in the breakwater tiles nor, 20-30 m wide, in our coast's
+# ~124 m pixels: the waves crossed it and the survey read its concrete as sand at +0.5 m. Land narrower than 2 x MOLE_M
+# by each box's own OSM coastline is a wall (land on the wave grid, unread round it in the survey).
+MOLE_M, MOLE_MIN_M2 = 25.0, 1000.0
+COAST_CACHE = Path(__file__).resolve().parent / "osm-coast"
+OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter",
+            "https://maps.mail.ru/osm/tools/overpass/api/interpreter"]
+
+
+def _box_ll(box):
+    """A world 0-1 box's south, west, north, east (degrees)."""
+    lat = lambda y: math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y))))  # noqa: E731
+    return lat(box[1] + box[3]), box[0] * 360 - 180, lat(box[1]), (box[0] + box[2]) * 360 - 180
+
+
+def osm_coast(box):
+    """OpenStreetMap's coastline ways round a box ([[lon, lat], ...] each, land on the left), from a 0.05-degree box
+    round it with 0.01 to spare: kept in swan/osm-coast/ (committed: a build doesn't hang on Overpass); [] when no server
+    answers (printed: the moles left out). (c) OpenStreetMap contributors, ODbL."""
+    s, w, n, e = _box_ll(box)
+    s, w = math.floor((s - 0.01) * 20) / 20, math.floor((w - 0.01) * 20) / 20
+    n, e = math.ceil((n + 0.01) * 20) / 20, math.ceil((e + 0.01) * 20) / 20
+    f = COAST_CACHE / f"{s:.2f}_{w:.2f}_{n:.2f}_{e:.2f}.json"
+    if f.exists():
+        return json.loads(f.read_bytes().decode())
+    q = f'[out:json][timeout:120];way["natural"="coastline"]({s},{w},{n},{e});out geom;'
+    for k in range(3):
+        server = OVERPASS[k % len(OVERPASS)]
+        try:
+            req = urllib.request.Request(server, data=urllib.parse.urlencode({"data": q}).encode(), headers=dict(UA))
+            with urllib.request.urlopen(req, timeout=90) as r:
+                ans = json.loads(r.read())
+            if "error" in ans.get("remark", "") or "timed out" in ans.get("remark", ""):
+                raise RuntimeError(ans["remark"][:100])
+            ways = [[[round(g["lon"], 7), round(g["lat"], 7)] for g in el["geometry"]] for el in ans["elements"] if el.get("geometry")]
+            COAST_CACHE.mkdir(exist_ok=True)
+            f.write_bytes(json.dumps(ways, separators=(",", ":")).encode())
+            return ways
+        except Exception as error:
+            print(f"osm coast ({server.split('/')[2]}): {error}", flush=True)
+            time.sleep(5)
+    print("osm coast: no answer, moles left out", flush=True)
+    return []
+
+
+def moles_from(ways, box, W, H):
+    """Land narrower than 2 x MOLE_M on the grid (H x W bools; a cell holding any) by the coastline ways: drawn at ~5 m,
+    each region between the lines land or sea by the side most of its lines face it from (land on the left), then land
+    a disk of MOLE_M doesn't fit in."""
+    from PIL import Image, ImageDraw
+    from scipy.ndimage import binary_opening, label
+
+    if not ways:
+        return np.zeros((H, W), bool)
+    lat = math.atan(math.sinh(math.pi * (1 - 2 * (box[1] + box[3] / 2))))
+    cell = box[2] * EARTH * math.cos(lat) / W
+    F = max(1, round(cell / 5.0))
+    fw, fh = W * F, H * F
+    pad = 40
+    to = lambda p: ((((p[0] + 180) / 360) - box[0]) / box[2] * fw + pad,  # noqa: E731
+                    (((1 - math.log(math.tan(math.pi / 4 + math.radians(p[1]) / 2)) / math.pi) / 2) - box[1]) / box[3] * fh + pad)
+    img = Image.new("1", (fw + 2 * pad, fh + 2 * pad), 0)
+    d = ImageDraw.Draw(img)
+    pts = [[to(p) for p in way] for way in ways]
+    for line in pts:
+        if len(line) > 1:
+            d.line(line, fill=1, width=1)
+    lines = np.asarray(img, dtype=bool)
+    lab, n = label(~lines)
+    votes = np.zeros((n + 1, 2))
+    hh, ww = lines.shape
+    for line in pts:
+        for (x0, y0), (x1, y1) in zip(line[:-1], line[1:]):
+            L = math.hypot(x1 - x0, y1 - y0)
+            if L < 1e-9:
+                continue
+            nx, ny = (y1 - y0) / L, -(x1 - x0) / L  # (left of the way's direction, rows going south)
+            mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+            for side, sgn in ((0, 1.5), (1, -1.5)):
+                c, r = int(mx + nx * sgn), int(my + ny * sgn)
+                if 0 <= r < hh and 0 <= c < ww and lab[r, c]:
+                    votes[lab[r, c], side] += L
+    land_c = votes[:, 0] > votes[:, 1]
+    land_c[0] = False
+    land = land_c[lab] | lines
+    k = max(1, round(MOLE_M / (cell / F)))
+    yy, xx = np.ogrid[-k:k + 1, -k:k + 1]
+    thin = land & ~binary_opening(land, xx * xx + yy * yy <= k * k)
+    # (Pieces under MOLE_MIN_M2 dropped: a rocky shore's sharp corners, not a mole; a mole is ~50 x 20 m or more.)
+    lab, n = label(thin)
+    if n:
+        big = np.bincount(lab.ravel()) * (cell / F) ** 2 >= MOLE_MIN_M2
+        big[0] = False
+        thin = big[lab]
+    thin = thin[pad:pad + fh, pad:pad + fw]
+    return thin.reshape(H, F, W, F).any(axis=(1, 3))
+
+
+def moles(box, W, H):
+    """moles_from with the box's own OSM coastline (osm_coast)."""
+    return moles_from(osm_coast(box), box, W, H)
 
 
 def box_round(lat, lon, side_m=8700.0):

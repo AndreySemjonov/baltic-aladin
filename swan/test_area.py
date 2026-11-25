@@ -107,6 +107,23 @@ def test_bed_river_left():
     assert bed["w"][30, 22] > 0 and abs(bed["z"][30, 22]) < 0.05, (bed["w"][30, 22], bed["z"][30, 22])
 
 
+def test_moles():
+    """area.moles_from: a 20 x 300 m mole on a coast, mapped as coastline (land on the left), is thin land; the land
+    behind it and the sea aren't (Tarifa's outer arm, 25.11.2026)."""
+    import math
+
+    lat0, lon0, R = 36.0, -5.6, 6371008.8
+    ll = lambda x, y: [lon0 + math.degrees(x / (R * math.cos(math.radians(lat0)))), lat0 + math.degrees(y / R)]
+    ring = [(-1000, -1000), (1000, -1000), (1000, 0), (10, 0), (10, 300), (-10, 300), (-10, 0), (-1000, 0), (-1000, -1000)]
+    box = A.box_round(lat0, lon0, 3000.0)
+    t = A.moles_from([[ll(x, y) for x, y in ring]], box, 300, 300)
+    cell = lambda x, y: (150 - int(round(y / 10)), 150 + int(round(x / 10)))
+    assert t[cell(0, 150)] and t[cell(0, 250)], "the mole"
+    assert not t[cell(0, -500)] and not t[cell(500, -300)] and not t[cell(500, 500)] and not t[cell(0, 600)], "land, sea"
+    ys, xs = np.nonzero(t)
+    assert abs(xs - 150).max() <= 3 and 150 - ys.max() >= 0 and 150 - ys.min() <= 32, (xs.min(), xs.max(), ys.min(), ys.max())  # (only the mole)
+
+
 def test_bank_bytes():
     """A bank 0.25 m above mean sea level and a 0.12 m lagoon round-trip through the map's bytes (DEPTH_BASE), land filled."""
     import tables as T
@@ -343,6 +360,7 @@ if __name__ == "__main__":
     test_laser_correction()
     test_laser_like_with_like()
     test_bed_river_left()
+    test_moles()
     test_flat_heights()
     test_flat_heights_rare_dry()
     test_seasonal()
