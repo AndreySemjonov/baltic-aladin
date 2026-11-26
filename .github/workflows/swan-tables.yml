@@ -92,6 +92,7 @@ jobs:
           # (A dry run's tables kept too, to compare before publishing.)
           path: |
             out/*/area.json
+            out/*/nosea.json
             ${{ inputs.dry && 'out/*/out/' || 'out/*/area.json' }}
           if-no-files-found: ignore
           retention-days: 7
@@ -139,7 +140,7 @@ jobs:
         env:
           INGEST_TOKEN: ${{ secrets.ADMIN_INGEST_TOKEN }}
         run: |
-          ls made/*
+          ls made/* || { echo "nothing made"; exit 0; }
           pip install -q numpy pillow
           # (Each artifact keeps its area's folder: made/area-<area>/<area>/area.json.)
           python3 swan/tables.py index made/area-*/*/

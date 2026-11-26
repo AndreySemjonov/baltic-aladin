@@ -140,7 +140,10 @@ def plan(only=None, most=250):
     """The catalog's shown spots not in an area yet, grouped: a spot starts an area, the others within its middle 60 %
     join it (each area named by its first spot's id), at each of its levels; and the index's areas' levels not made yet
     (not with only). One job each (GitHub takes 256 a run)."""
-    have = (_json(STORE + "index.json") or {}).get("areas", [])
+    stored = _json(STORE + "index.json") or {}
+    have = stored.get("areas", [])
+    # (Boxes found with no sea: their spots left out unless asked for by name.)
+    dry = stored.get("nosea", [])
     spots = [(s["id"], s["spot"]["lat"], s["spot"]["lon"]) for s in _json(CATALOG)["spots"] if not s.get("hidden")]
     if only == ["all"]:
         only = [s[0] for s in spots]
@@ -155,7 +158,7 @@ def plan(only=None, most=250):
 
     areas = []
     for sid, lat, lon in spots:
-        if not only and any(inside(a["box"], lat, lon, 0.8) for a in have):
+        if not only and any(inside(a["box"], lat, lon, 0.8) for a in have + dry):
             continue
         if any(inside(a["box"], lat, lon, 0.6) for a in areas):
             next(a for a in areas if inside(a["box"], lat, lon, 0.6))["spots"].append(sid)
@@ -376,7 +379,11 @@ def make(spec, out):
     dx = dy = box[2] * A.EARTH * math.cos(lat) / W
     sea = depth > A.SEA_MIN
     if sea.mean() < 0.02:
+        # (Kept in the index's nosea, so the plan stops asking for it: an inland lake's spot, Brandvlei Dam's and Rekyva's,
+        # came back every run, the owner, 26.11.2026: "Yes, fix it". Our coast tiles unread count as sea, so a failed
+        # download never lands here.)
         print(spec["area"], "no sea in the box: skipped")
+        (home / "nosea.json").write_text(json.dumps({"area": spec["area"], "box": box, "spots": spec.get("spots", [])}))
         return None
     # The offshore point: the deepest cell (the hour's open sea is read there).
     r, c = np.unravel_index(np.argmax(np.where(sea, depth, -1)), depth.shape)
@@ -514,11 +521,18 @@ def index(homes, drop=()):
     last: the map never lists an area or a level whose runs aren't there yet. Areas in drop left out (the owner,
     20.11.2026: "remove the old liepaja area from the index", the Mac pilot's beside liepaja-dr and liepaja-mols)."""
     key = _token()
-    areas = {a["area"]: a for a in (_json(STORE + "index.json") or {}).get("areas", [])}
+    stored = _json(STORE + "index.json") or {}
+    areas = {a["area"]: a for a in stored.get("areas", [])}
+    nosea = {a["area"]: a for a in stored.get("nosea", [])}
     for name in drop:
         if areas.pop(name, None) is None:
             raise SystemExit(f"{name}: not in the index")
     for home in map(Path, homes):
+        if not (home / "area.json").exists():
+            if (home / "nosea.json").exists():
+                meta = json.loads((home / "nosea.json").read_text())
+                nosea[meta["area"]] = meta
+            continue
         meta = json.loads((home / "area.json").read_text())
         old = areas.get(meta["area"])
         meta["levels"] = sorted(set(old.get("levels", [0.0]) if old else []) | set(meta.get("levels", [0.0])))
@@ -529,7 +543,9 @@ def index(homes, drop=()):
                 if k in old:
                     meta[k] = old[k]
         areas[meta["area"]] = meta
-    print("index:", _put("index.json", json.dumps({"areas": list(areas.values())}).encode(), key), len(areas), "areas")
+    # (nosea: the boxes with no sea, for the plan only; the map reads areas.)
+    print("index:", _put("index.json", json.dumps({"areas": list(areas.values()), "nosea": list(nosea.values())}).encode(), key),
+          len(areas), "areas,", len(nosea), "with no sea")
 
 
 if __name__ == "__main__":
